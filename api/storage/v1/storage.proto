@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package storage.v1;
+
+option go_package = "github.com/zhangzhe-ctrl/ani-model-service/api/storage/v1;storagev1";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+service StorageService {
+  rpc CreateUploadURL(CreateUploadURLRequest) returns (CreateUploadURLResponse);
+  rpc ObjectExists(ObjectExistsRequest) returns (ObjectExistsResponse);
+  rpc VerifyChecksum(VerifyChecksumRequest) returns (VerifyChecksumResponse);
+  rpc CreateDownloadURL(CreateDownloadURLRequest) returns (CreateDownloadURLResponse);
+}
+
+message CreateUploadURLRequest {
+  string tenant_id = 1;
+  string object_ref = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+  string checksum_sha256 = 5;
+}
+
+message ObjectExistsRequest {
+  string tenant_id = 1;
+  string object_ref = 2;
+}
+
+message ObjectExistsResponse { bool exists = 1; }
+
+message VerifyChecksumRequest {
+  string tenant_id = 1;
+  string object_ref = 2;
+  string checksum_sha256 = 3;
+}
+
+message VerifyChecksumResponse {
+  bool matches = 1;
+  string actual_sha256 = 2;
+}
+
+message CreateDownloadURLRequest {
+  string tenant_id = 1;
+  string object_ref = 2;
+  string requester = 3;
+  google.protobuf.Duration ttl = 4;
+}
+
+message CreateUploadURLResponse {
+	string url = 1;
+	google.protobuf.Timestamp expires_at = 2;
+}
+
+message CreateDownloadURLResponse {
+	string url = 1;
+	google.protobuf.Timestamp expires_at = 2;
+}

@@ -1,0 +1,77 @@
+package storage
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	biz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/storage"
+)
+
+type HTTPAdapter struct {
+	BaseURL string
+	Client  *http.Client
+}
+
+func (a *HTTPAdapter) call(ctx context.Context, path string, req any, out any) error {
+	if strings.TrimSpace(a.BaseURL) == "" {
+		return biz.ErrProvider
+	}
+	c := a.Client
+	if c == nil {
+		c = http.DefaultClient
+	}
+	body, _ := json.Marshal(req)
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.BaseURL, "/")+path, bytes.NewReader(body))
+	if err != nil {
+		return biz.ErrProvider
+	}
+	r.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(r)
+	if err != nil {
+		return fmt.Errorf("%w: %v", biz.ErrProvider, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("%w: status %d", biz.ErrProvider, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("%w: %v", biz.ErrProvider, err)
+	}
+	return nil
+}
+
+type uploadRequest struct {
+	TenantID, ObjectRef, ContentType string
+	SizeBytes                        int64  `json:"size_bytes"`
+	Checksum                         string `json:"checksum_sha256"`
+}
+type signedResponse struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (a *HTTPAdapter) CreateUploadURL(ctx context.Context, r biz.UploadRequest) (biz.SignedURL, error) {
+	var out signedResponse
+	err := a.call(ctx, "/v1/upload-url", uploadRequest{r.TenantID, r.ObjectRef, r.ContentType, r.SizeBytes, r.ChecksumSHA256}, &out)
+	return biz.SignedURL{URL: out.URL, ExpiresAt: out.ExpiresAt}, err
+}
+func (a *HTTPAdapter) ObjectExists(ctx context.Context, tenant, ref string) (bool, error) {
+	var out struct {
+		Exists bool `json:"exists"`
+	}
+	err := a.call(ctx, "/v1/object-exists", map[string]string{"tenant_id": tenant, "object_ref": ref}, &out)
+	return out.Exists, err
+}
+func (a *HTTPAdapter) VerifyChecksum(ctx context.Context, tenant, ref, checksum string) error {
+	return a.call(ctx, "/v1/verify-checksum", map[string]string{"tenant_id": tenant, "object_ref": ref, "checksum_sha256": checksum}, &struct{}{})
+}
+func (a *HTTPAdapter) CreateDownloadURL(ctx context.Context, r biz.DownloadRequest) (biz.SignedURL, error) {
+	var out signedResponse
+	err := a.call(ctx, "/v1/download-url", map[string]any{"tenant_id": r.TenantID, "object_ref": r.ObjectRef, "requester": r.Requester, "ttl_seconds": int64(r.TTL / time.Second)}, &out)
+	return biz.SignedURL{URL: out.URL, ExpiresAt: out.ExpiresAt}, err
+}

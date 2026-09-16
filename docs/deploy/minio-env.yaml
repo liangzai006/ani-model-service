@@ -1,0 +1,26 @@
+# Embed this env block in the Model Deployment/Job. The Secret values stay in
+# Kubernetes and are never committed to the repository.
+env:
+  - name: ANI_MINIO_ENDPOINT
+    value: ani-s05-minio.ani-s05-objectstore.svc:9000
+  - name: ANI_MINIO_SECURE
+    value: "false"
+  - name: ANI_MINIO_BUCKET
+    value: ani-models
+  # Set to "true" to use one MinIO bucket per tenant UUID. The service checks
+  # and creates that bucket lazily before a remote import download.
+  - name: ANI_MINIO_TENANT_BUCKETS
+    value: "true"
+  # Configure the tenant whose durable import tasks this worker scans.
+  - name: ANI_IMPORT_WORKER_TENANT_ID
+    value: "<tenant-uuid>"
+  - name: ANI_MINIO_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: ani-s05-minio-root
+        key: access_key_id
+  - name: ANI_MINIO_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: ani-s05-minio-root
+        key: secret_access_key
