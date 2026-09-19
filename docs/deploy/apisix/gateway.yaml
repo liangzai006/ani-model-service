@@ -1,0 +1,26 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: ani-apisix
+spec:
+  controllerName: apisix.apache.org/ani-apisix-ingress-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ani-apisix
+  namespace: ingress-apisix
+spec:
+  gatewayClassName: ani-apisix
+  infrastructure:
+    parametersRef:
+      group: apisix.apache.org
+      kind: GatewayProxy
+      name: ani-apisix-config
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

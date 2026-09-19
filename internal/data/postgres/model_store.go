@@ -10,14 +10,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/idempotency"
-	modelbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
+	"github.com/liangzai006/ani-model-service/internal/biz/idempotency"
+	modelbiz "github.com/liangzai006/ani-model-service/internal/biz/model"
 )
 
-type ModelStore struct{ pool *pgxpool.Pool }
+type ModelStore struct{ pool DBTX }
 
-func NewModelStore(pool *pgxpool.Pool) *ModelStore { return &ModelStore{pool: pool} }
+func NewModelStore(pool DBTX) *ModelStore { return &ModelStore{pool: pool} }
 
 func (s *ModelStore) CreateModel(ctx context.Context, tenantID, modelID, name, displayName, description, source string, capabilities []byte, idempotencyKey string) (Model, error) {
 	return s.createModel(ctx, tenantID, modelID, name, displayName, description, source, capabilities, idempotencyKey)
@@ -77,30 +76,30 @@ func (s *ModelStore) GetModelByExternalID(ctx context.Context, tenantID, externa
 	return New(s.pool).GetModelByExternalID(ctx, GetModelByExternalIDParams{TenantID: uuidType(tenant), ModelID: externalID})
 }
 
-func (s *ModelStore) ListModels(ctx context.Context, tenantID, status string, limit int32) ([]ListModelsRow, error) {
+func (s *ModelStore) ListModels(ctx context.Context, tenantID string, options modelbiz.ListOptions) ([]ListModelsRow, error) {
 	tenant, err := uuid.Parse(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("tenant_id: %w", err)
 	}
-	if limit <= 0 || limit > 1000 {
-		limit = 100
+	beforeTime, beforeID, err := listBoundary(options)
+	if err != nil {
+		return nil, err
 	}
-	return New(s.pool).ListModels(ctx, ListModelsParams{TenantID: uuidType(tenant), Column2: status, Limit: limit})
+	return New(s.pool).ListModels(ctx, ListModelsParams{TenantID: uuidType(tenant), StatusFilter: options.Status, SourceFilter: options.Source, Capability: options.Capability, Keyword: options.Keyword, PageLimit: options.Limit, BeforeCreatedAt: beforeTime, BeforeID: beforeID})
 }
 
-func (s *ModelStore) SoftDeleteModel(ctx context.Context, tenantID, modelID string) error {
-	tenant, id, err := parseModelIDs(tenantID, modelID)
-	if err != nil {
-		return err
+func listBoundary(options modelbiz.ListOptions) (pgtype.Timestamptz, pgtype.UUID, error) {
+	if options.Limit < 1 || options.Limit > 1001 {
+		return pgtype.Timestamptz{}, pgtype.UUID{}, fmt.Errorf("invalid list limit")
 	}
-	n, err := New(s.pool).SoftDeleteModel(ctx, SoftDeleteModelParams{TenantID: uuidType(tenant), ID: uuidType(id)})
-	if err != nil {
-		return err
+	if options.BeforeID == "" && options.BeforeCreatedAt.IsZero() {
+		return pgtype.Timestamptz{}, pgtype.UUID{}, nil
 	}
-	if n != 1 {
-		return pgx.ErrNoRows
+	id, err := uuid.Parse(options.BeforeID)
+	if err != nil || id == uuid.Nil || options.BeforeCreatedAt.IsZero() {
+		return pgtype.Timestamptz{}, pgtype.UUID{}, fmt.Errorf("invalid list boundary")
 	}
-	return nil
+	return pgtype.Timestamptz{Time: options.BeforeCreatedAt, Valid: true}, uuidType(id), nil
 }
 
 func parseModelIDs(tenantID, modelID string) (uuid.UUID, uuid.UUID, error) {
@@ -116,17 +115,5 @@ func parseModelIDs(tenantID, modelID string) (uuid.UUID, uuid.UUID, error) {
 }
 
 func (s *ModelStore) GetVersion(ctx context.Context, tenantID, versionID string) (modelbiz.Version, error) {
-	tenant, err := uuid.Parse(tenantID)
-	if err != nil {
-		return modelbiz.Version{}, fmt.Errorf("tenant_id: %w", err)
-	}
-	version, err := uuid.Parse(versionID)
-	if err != nil {
-		return modelbiz.Version{}, fmt.Errorf("model_version_id: %w", err)
-	}
-	row, err := New(s.pool).GetReadyModelVersion(ctx, GetReadyModelVersionParams{TenantID: pgtype.UUID{Bytes: tenant, Valid: true}, ID: pgtype.UUID{Bytes: version, Valid: true}})
-	if err != nil {
-		return modelbiz.Version{}, err
-	}
-	return modelbiz.Version{TenantID: tenantID, ID: versionID, ModelID: uuid.UUID(row.ModelID.Bytes).String(), ExternalModelID: row.ExternalModelID, Version: row.Version, Format: row.Format, Status: row.Status, ArtifactProvider: row.ArtifactProvider, ArtifactReference: row.ArtifactReference, ArtifactSHA256: row.ArtifactSha256, EngineType: row.EngineType, StartupCommand: row.StartupCommand}, nil
+	return NewVersionStore(s.pool).GetVersion(ctx, tenantID, versionID)
 }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	modelbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
+	modelbiz "github.com/liangzai006/ani-model-service/internal/biz/model"
 )
 
 func TestModelAndVersionIdempotencyPostgres(t *testing.T) {

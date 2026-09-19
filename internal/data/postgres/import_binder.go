@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	workbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/work"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/data/importer"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
+	"github.com/liangzai006/ani-model-service/internal/data/importer"
 )
 
 // ImportBinder resolves provider metadata to existing Model-owned records. It

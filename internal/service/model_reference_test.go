@@ -7,9 +7,9 @@ import (
 
 	kratoserrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/jackc/pgx/v5"
-	modelv1 "github.com/zhangzhe-ctrl/ani-model-service/api/model/v1"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/identity"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
+	"github.com/liangzai006/ani-model-service/internal/biz/model"
+	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
 const referenceModelUUID = "11111111-1111-4111-8111-111111111111"
@@ -35,11 +35,14 @@ func (c *referenceCatalog) GetModelByExternalID(ctx context.Context, tenant, id 
 	}
 	return c.GetModel(ctx, tenant, referenceModelUUID)
 }
-func (c *referenceCatalog) SoftDeleteModel(_ context.Context, tenant, id string) error {
-	if tenant != "tenant-a" || id != referenceModelUUID {
+func (c *referenceCatalog) DeleteModel(ctx context.Context, tenant, id string, refs model.ReferenceChecker) error {
+	if tenant != "tenant-a" || (id != referenceModelUUID && id != "Qwen3-32B") {
 		return pgx.ErrNoRows
 	}
-	c.deletedID = id
+	if err := c.catalogFake.DeleteModel(ctx, tenant, id, refs); err != nil {
+		return err
+	}
+	c.deletedID = referenceModelUUID
 	return nil
 }
 
@@ -48,15 +51,15 @@ type referenceVersionCatalog struct {
 	listedID string
 }
 
-func (c *referenceVersionCatalog) ListVersions(_ context.Context, tenant, id string, _ int32) ([]model.Version, error) {
+func (c *referenceVersionCatalog) ListVersions(_ context.Context, tenant, id string, _ model.ListOptions) ([]model.Version, error) {
 	c.listedID = id
 	return []model.Version{{TenantID: tenant, ID: "version-uuid", ModelID: id, Version: "v2", Format: "gguf", Status: "pending"}}, nil
 }
 
-type referenceCheckFunc func(context.Context, string, string) (bool, error)
+type referenceCheckFunc func(context.Context, string, []string) (bool, error)
 
-func (f referenceCheckFunc) HasActiveReferences(ctx context.Context, tenant, id string) (bool, error) {
-	return f(ctx, tenant, id)
+func (f referenceCheckFunc) HasActiveVersionReferences(ctx context.Context, tenant string, ids []string) (bool, error) {
+	return f(ctx, tenant, ids)
 }
 
 func referenceContext(tenant string) context.Context {
@@ -115,26 +118,60 @@ func TestModelReferenceResolutionRejectsTenantMismatchAndMissingModel(t *testing
 	}
 }
 
-func TestDeleteModelChecksBothReferenceIdentifiers(t *testing.T) {
-	for _, blockedID := range []string{"", "Qwen3-32B", referenceModelUUID} {
-		t.Run("blocked="+blockedID, func(t *testing.T) {
-			catalog := &referenceCatalog{}
-			s := NewModelCatalogService(nil, catalog)
-			checked := map[string]bool{}
-			s.SetInferenceReferenceChecker(referenceCheckFunc(func(_ context.Context, tenant, id string) (bool, error) {
-				if tenant != "tenant-a" {
-					t.Fatalf("wrong tenant %s", tenant)
+func TestDeleteModelChecksVersionIdentifiers(t *testing.T) {
+	for _, selector := range []string{"Qwen3-32B", referenceModelUUID} {
+		for _, active := range []bool{true, false} {
+			t.Run(selector, func(t *testing.T) {
+				catalog := &referenceCatalog{}
+				s := NewModelCatalogService(nil, catalog)
+				checked := map[string]bool{}
+				s.SetInferenceReferenceChecker(referenceCheckFunc(func(_ context.Context, tenant string, ids []string) (bool, error) {
+					if tenant != "tenant-a" {
+						t.Fatalf("wrong tenant %s", tenant)
+					}
+					for _, id := range ids {
+						checked[id] = true
+					}
+					return active, nil
+				}))
+				_, err := s.DeleteModel(referenceContext("tenant-a"), &modelv1.DeleteModelRequest{ModelId: selector})
+				if active {
+					if kratoserrors.Code(err) != 409 || catalog.deletedID != "" {
+						t.Fatalf("delete error=%v deleted=%s", err, catalog.deletedID)
+					}
+				} else if err != nil || catalog.deletedID != referenceModelUUID || len(checked) != 1 || !checked["22222222-2222-4222-8222-222222222222"] {
+					t.Fatalf("delete error=%v deleted=%s checked=%v", err, catalog.deletedID, checked)
 				}
-				checked[id] = true
-				return id == blockedID, nil
-			}))
-			_, err := s.DeleteModel(referenceContext("tenant-a"), &modelv1.DeleteModelRequest{ModelId: "Qwen3-32B"})
-			if blockedID != "" {
-				if kratoserrors.Code(err) != 409 || catalog.deletedID != "" {
-					t.Fatalf("delete error=%v deleted=%s", err, catalog.deletedID)
+			})
+		}
+	}
+}
+
+func TestDeleteModelVersionProtection(t *testing.T) {
+	id := "22222222-2222-4222-8222-222222222222"
+	for _, tc := range []struct {
+		name       string
+		checker    model.ReferenceChecker
+		tenant, id string
+		code       int
+	}{
+		{name: "unconfigured", tenant: "tenant-a", id: id, code: 503},
+		{name: "in use", checker: referenceCheckerFake{referenced: true}, tenant: "tenant-a", id: id, code: 409},
+		{name: "provider failure", checker: referenceCheckerFake{err: errors.New("offline")}, tenant: "tenant-a", id: id, code: 503},
+		{name: "not referenced", checker: referenceCheckerFake{}, tenant: "tenant-a", id: id, code: 200},
+		{name: "tenant mismatch", checker: referenceCheckerFake{}, tenant: "tenant-b", id: id, code: 403},
+		{name: "bad id", checker: referenceCheckerFake{}, tenant: "tenant-a", id: "operation-id", code: 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewModelCatalogService(nil, &catalogFake{})
+			s.SetInferenceReferenceChecker(tc.checker)
+			_, err := s.DeleteModelVersion(referenceContext("tenant-a"), &modelv1.DeleteModelVersionRequest{TenantId: tc.tenant, ModelVersionId: tc.id})
+			if tc.code == 200 {
+				if err != nil {
+					t.Fatal(err)
 				}
-			} else if err != nil || catalog.deletedID != referenceModelUUID || !checked[referenceModelUUID] || !checked["Qwen3-32B"] {
-				t.Fatalf("delete error=%v deleted=%s checked=%v", err, catalog.deletedID, checked)
+			} else if kratoserrors.Code(err) != tc.code {
+				t.Fatalf("error=%v code=%d", err, kratoserrors.Code(err))
 			}
 		})
 	}

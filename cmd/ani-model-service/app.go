@@ -9,9 +9,9 @@ import (
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 	kratoshttp "github.com/go-kratos/kratos/v3/transport/http"
 
-	conf "github.com/zhangzhe-ctrl/ani-model-service/api/model/v1"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/server"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/service"
+	conf "github.com/liangzai006/ani-model-service/api/model/v1"
+	"github.com/liangzai006/ani-model-service/internal/server"
+	"github.com/liangzai006/ani-model-service/internal/service"
 )
 
 func buildApp(bc *conf.Bootstrap, logger *slog.Logger) (*kratos.App, error) {
@@ -32,6 +32,8 @@ func buildAppWithModelService(bc *conf.Bootstrap, logger *slog.Logger, modelServ
 	if err != nil {
 		return nil, err
 	}
+	// Identity is supplied by the trusted ingress/IAM boundary. The service
+	// deliberately has no local development principal fallback.
 	middlewares := observability.ServerMiddleware(logger)
 	grpcServer := server.NewGRPCServer(bc.Server.Grpc, middlewares...)
 	conf.RegisterModelServiceServer(grpcServer, modelService)

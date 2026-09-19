@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"errors"
@@ -9,11 +10,29 @@ import (
 	"strings"
 	"testing"
 
-	modelbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/storage"
-	workbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/work"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/data/importer"
+	modelbiz "github.com/liangzai006/ani-model-service/internal/biz/model"
+	"github.com/liangzai006/ani-model-service/internal/biz/storage"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
+	"github.com/liangzai006/ani-model-service/internal/data/importer"
 )
+
+type manifestSourceFake struct{}
+
+func (manifestSourceFake) Fetch(context.Context, importer.Request) (importer.Result, error) {
+	return importer.Result{}, errors.New("manifest source requires bundle path")
+}
+func (manifestSourceFake) ResolveMetadata(context.Context, importer.Request) (importer.Metadata, error) {
+	return importer.Metadata{ExternalModelID: "model", Version: "main"}, nil
+}
+func (manifestSourceFake) ListFiles(context.Context, importer.Request) ([]importer.File, error) {
+	return []importer.File{{Path: "config.json", Size: 2}, {Path: "weights.bin", Size: 3}}, nil
+}
+func (manifestSourceFake) FetchContent(_ context.Context, req importer.Request) (importer.ContentResult, error) {
+	if strings.HasSuffix(req.RepoID, "config.json") {
+		return importer.ContentResult{Result: importer.Result{ObjectRef: "org/model/main/config.json", SizeBytes: 2}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	}
+	return importer.ContentResult{Result: importer.Result{ObjectRef: "org/model/main/weights.bin", SizeBytes: 3}, Body: io.NopCloser(strings.NewReader("123"))}, nil
+}
 
 type sourceFake struct{ result importer.Result }
 
@@ -172,6 +191,33 @@ func TestImportExecutorEnsuresTenantBucketBeforeDownload(t *testing.T) {
 	}
 	if !sf.ensured {
 		t.Fatal("tenant bucket was not ensured")
+	}
+}
+
+func TestImportExecutorArchivesRepositoryManifest(t *testing.T) {
+	sf := &objectFake{exists: true}
+	e := ImportExecutor{Providers: importer.Registry{"huggingface": manifestSourceFake{}}, Storage: sf}
+	if err := e.Execute(context.Background(), workbiz.Task{TenantID: "tenant", Source: "huggingface", RepoID: "org/model", Revision: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	reader := tar.NewReader(strings.NewReader(sf.uploaded))
+	seen := map[string]string{}
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[header.Name] = string(body)
+	}
+	if seen["config.json"] != "{}" || seen["weights.bin"] != "123" || len(seen) != 2 {
+		t.Fatalf("archive entries=%v", seen)
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	modelbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
+	modelbiz "github.com/liangzai006/ani-model-service/internal/biz/model"
 )
 
 // ArtifactStore persists object metadata only. Storage bytes and lifecycle

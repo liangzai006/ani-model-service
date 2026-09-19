@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	bizstorage "github.com/liangzai006/ani-model-service/internal/biz/storage"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	bizstorage "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/storage"
 )
 
 // MinIOAdapter uses either a configured shared bucket or a tenant-named bucket.

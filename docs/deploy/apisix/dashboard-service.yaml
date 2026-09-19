@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ani-apisix-admin-public
+  namespace: ingress-apisix
+  labels:
+    app.kubernetes.io/name: apisix-admin-public
+    app.kubernetes.io/part-of: ani-apisix
+  annotations:
+    ani.kubercloud.com/purpose: "APISIX embedded Dashboard and authenticated Admin API"
+spec:
+  type: NodePort
+  ports:
+    - name: http-admin
+      port: 9180
+      targetPort: 9180
+      nodePort: 30092
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: ani-apisix
+    app.kubernetes.io/name: apisix

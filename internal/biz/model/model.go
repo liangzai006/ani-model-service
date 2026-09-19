@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -20,6 +21,10 @@ type Version struct {
 	EngineType, StartupCommand                                      string
 	StartupArgs                                                     []string
 	IdempotencyKey                                                  string
+	SizeBytes                                                       int64
+	IsEncrypted                                                     bool
+	EncryptAlgo, EncryptHint                                        string
+	CreatedAt                                                       time.Time
 }
 
 // Artifact records the immutable object metadata associated with a model

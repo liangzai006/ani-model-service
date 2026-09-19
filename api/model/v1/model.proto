@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package model.v1;
 
-option go_package = "github.com/zhangzhe-ctrl/ani-model-service/api/model/v1;modelv1";
+option go_package = "github.com/liangzai006/ani-model-service/api/model/v1;modelv1";
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
@@ -19,11 +19,14 @@ service ModelService {
   rpc DeleteModel(DeleteModelRequest) returns (google.protobuf.Empty);
   rpc GetModelVersion(GetModelVersionRequest) returns (GetModelVersionResponse);
   rpc ListModelVersions(ListModelVersionsRequest) returns (ListModelVersionsResponse);
+  rpc DeleteModelVersion(DeleteModelVersionRequest) returns (DeleteModelVersionResponse);
   // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ModelVersion directly.
   rpc CreateModelVersion(CreateModelVersionRequest) returns (ModelVersion);
   rpc GetUploadURL(GetUploadURLRequest) returns (GetUploadURLResponse);
   // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ImportTask directly.
   rpc ImportModel(ImportModelRequest) returns (ImportTask);
+  rpc GetImportTask(GetImportTaskRequest) returns (GetImportTaskResponse);
+  rpc RetryImportTask(RetryImportTaskRequest) returns (RetryImportTaskResponse);
   rpc GetModelDownloadURL(GetModelDownloadURLRequest) returns (GetModelDownloadURLResponse);
 }
 
@@ -83,6 +86,8 @@ message CreateModelRequest {
 
 message GetModelRequest { string tenant_id = 1; string model_id = 2; }
 message DeleteModelRequest { string tenant_id = 1; string model_id = 2; }
+message DeleteModelVersionRequest { string tenant_id = 1; string model_version_id = 2; }
+message DeleteModelVersionResponse {}
 message GetModelVersionRequest {
   string tenant_id = 1;
   string model_version_id = 2;
@@ -171,6 +176,19 @@ message ImportTask {
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp completed_at = 11;
 }
+
+message GetImportTaskRequest {
+  string tenant_id = 1;
+  string task_id = 2;
+}
+
+message RetryImportTaskRequest {
+  string tenant_id = 1;
+  string task_id = 2;
+}
+
+message GetImportTaskResponse { ImportTask task = 1; }
+message RetryImportTaskResponse { ImportTask task = 1; }
 
 message GetModelDownloadURLRequest {
   string tenant_id = 1;

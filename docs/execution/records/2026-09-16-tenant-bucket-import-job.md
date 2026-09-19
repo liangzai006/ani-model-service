@@ -59,3 +59,7 @@ MinIO 上传、ready 和 completed 全部成功，最终 HTTP `200`，退出码�
 第二次真实导入复用已有租户 bucket 的验证脚本已准备，但执行请求连续被自动审批的
 “Selected model is at capacity”拦截，未将其标记为真实通过；同一路径的“已有 bucket 不创建”
 由 `internal/data/storage/minio_test.go` 的 fake API 测试覆盖。
+
+后续补验（2026-09-16）：此前容量限制已解除，已有 bucket 的真实导入和 ready 版本重放
+已通过；详见 [existing bucket replay](2026-09-16-existing-bucket-replay.md)。新增可重复
+集成测试覆盖下载 SHA256、同幂等键任务重放及地址过期；上文未完成描述保留为历史记录。

@@ -6,11 +6,11 @@ import (
 	"time"
 
 	kratoserrors "github.com/go-kratos/kratos/v3/errors"
-	modelv1 "github.com/zhangzhe-ctrl/ani-model-service/api/model/v1"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/storage"
-	workbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/work"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/identity"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
+	"github.com/liangzai006/ani-model-service/internal/biz/model"
+	"github.com/liangzai006/ani-model-service/internal/biz/storage"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
+	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
 type catalogFake struct{ created model.Record }
@@ -22,7 +22,7 @@ func (c *catalogFake) CreateModel(_ context.Context, tenant, id, name, display, 
 func (c *catalogFake) GetModel(_ context.Context, tenant, id string) (model.Record, error) {
 	return model.Record{TenantID: tenant, ID: id}, nil
 }
-func (c *catalogFake) ListModels(context.Context, string, string, int32) ([]model.Record, error) {
+func (c *catalogFake) ListModels(context.Context, string, model.ListOptions) ([]model.Record, error) {
 	return nil, nil
 }
 func (c *catalogFake) SoftDeleteModel(context.Context, string, string) error { return nil }
@@ -32,8 +32,29 @@ type referenceCheckerFake struct {
 	err        error
 }
 
-func (c referenceCheckerFake) HasActiveReferences(context.Context, string, string) (bool, error) {
+func (c referenceCheckerFake) HasActiveVersionReferences(context.Context, string, []string) (bool, error) {
 	return c.referenced, c.err
+}
+
+func (c *catalogFake) DeleteModel(ctx context.Context, tenant, selector string, refs model.ReferenceChecker) error {
+	active, err := refs.HasActiveVersionReferences(ctx, tenant, []string{"22222222-2222-4222-8222-222222222222"})
+	if err != nil {
+		return model.ErrReferenceCheckUnavailable
+	}
+	if active {
+		return model.ErrModelInUse
+	}
+	return nil
+}
+func (c *catalogFake) DeleteVersion(ctx context.Context, tenant, version string, refs model.ReferenceChecker) error {
+	active, err := refs.HasActiveVersionReferences(ctx, tenant, []string{version})
+	if err != nil {
+		return model.ErrReferenceCheckUnavailable
+	}
+	if active {
+		return model.ErrModelInUse
+	}
+	return nil
 }
 
 type storageFake struct{}
@@ -87,7 +108,7 @@ func (f *versionCatalogFake) CreateVersion(_ context.Context, v model.Version) (
 	f.created = v
 	return v, nil
 }
-func (f *versionCatalogFake) ListVersions(context.Context, string, string, int32) ([]model.Version, error) {
+func (f *versionCatalogFake) ListVersions(context.Context, string, string, model.ListOptions) ([]model.Version, error) {
 	return nil, nil
 }
 func (f *versionCatalogFake) MarkReady(context.Context, string, string) error {

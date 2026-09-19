@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	auditbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/audit"
+	auditbiz "github.com/liangzai006/ani-model-service/internal/biz/audit"
 )
 
 type AuditStore struct{ q *Queries }

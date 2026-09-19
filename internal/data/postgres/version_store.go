@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/idempotency"
-	modelbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
+	"github.com/liangzai006/ani-model-service/internal/biz/idempotency"
+	modelbiz "github.com/liangzai006/ani-model-service/internal/biz/model"
 )
 
 type VersionStore struct{ pool DBTX }
@@ -27,7 +27,7 @@ func (s *VersionStore) GetVersion(ctx context.Context, tenant, id string) (model
 	}
 	var args []string
 	_ = json.Unmarshal(r.StartupArgs, &args)
-	return modelbiz.Version{TenantID: tenant, ID: id, ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args}, nil
+	return modelbiz.Version{TenantID: tenant, ID: id, ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}, nil
 }
 
 func (s *VersionStore) GetVersionByExternalRef(ctx context.Context, tenant, externalModelID, version string) (modelbiz.Version, error) {
@@ -41,7 +41,7 @@ func (s *VersionStore) GetVersionByExternalRef(ctx context.Context, tenant, exte
 	}
 	var args []string
 	_ = json.Unmarshal(r.StartupArgs, &args)
-	return modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args}, nil
+	return modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}, nil
 }
 func (s *VersionStore) CreateVersion(ctx context.Context, v modelbiz.Version) (modelbiz.Version, error) {
 	t, id, err := parseModelIDs(v.TenantID, v.ID)
@@ -75,25 +75,30 @@ func (s *VersionStore) CreateVersion(ctx context.Context, v modelbiz.Version) (m
 	}
 	return versionFromRow(r, v.TenantID), nil
 }
-func (s *VersionStore) ListVersions(ctx context.Context, tenant, model string, limit int32) ([]modelbiz.Version, error) {
+func (s *VersionStore) ListVersions(ctx context.Context, tenant, model string, options modelbiz.ListOptions) ([]modelbiz.Version, error) {
 	t, mid, err := parseModelIDs(tenant, model)
 	if err != nil {
 		return nil, err
 	}
-	if limit <= 0 || limit > 1000 {
-		limit = 100
+	beforeTime, beforeID, err := listBoundary(options)
+	if err != nil {
+		return nil, err
 	}
-	rs, err := New(s.pool).ListModelVersions(ctx, ListModelVersionsParams{TenantID: uuidType(t), ModelID: uuidType(mid), Limit: limit})
+	rs, err := New(s.pool).ListModelVersions(ctx, ListModelVersionsParams{TenantID: uuidType(t), ModelID: uuidType(mid), PageLimit: options.Limit, BeforeCreatedAt: beforeTime, BeforeID: beforeID})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]modelbiz.Version, len(rs))
 	for i, r := range rs {
-		var args []string
-		_ = json.Unmarshal(r.StartupArgs, &args)
-		out[i] = modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactSHA256: r.ChecksumSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args}
+		out[i] = listedVersion(r)
 	}
 	return out, nil
+}
+
+func listedVersion(r ListModelVersionsRow) modelbiz.Version {
+	var args []string
+	_ = json.Unmarshal(r.StartupArgs, &args)
+	return modelbiz.Version{TenantID: uuid.UUID(r.TenantID.Bytes).String(), ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ChecksumSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}
 }
 
 func (s *VersionStore) MarkReady(ctx context.Context, tenant, version string) error {
@@ -149,5 +154,5 @@ func (s *VersionStore) SetChecksum(ctx context.Context, tenant, version, checksu
 func versionFromRow(r ModelVersion, tenant string) modelbiz.Version {
 	var args []string
 	_ = json.Unmarshal(r.StartupArgs, &args)
-	return modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), Version: r.Version, Format: r.Format, Status: r.Status, ArtifactSHA256: r.ChecksumSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args}
+	return modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), Version: r.Version, Format: r.Format, Status: r.Status, ArtifactSHA256: r.ChecksumSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}
 }

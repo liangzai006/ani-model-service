@@ -1,0 +1,56 @@
+service:
+  type: NodePort
+  http:
+    enabled: true
+    servicePort: 80
+    containerPort: 9080
+    nodePort: 30090
+
+etcd:
+  enabled: true
+  replicaCount: 1
+  persistence:
+    enabled: true
+    storageClass: ani-block
+    size: 1Gi
+
+apisix:
+  admin:
+    enabled: true
+    type: ClusterIP
+    credentials:
+      secretName: ani-apisix-admin
+      secretAdminKey: admin
+      secretViewerKey: viewer
+
+ingress-controller:
+  enabled: true
+  webhook:
+    enabled: false
+  config:
+    controllerName: apisix.apache.org/ani-apisix-ingress-controller
+    disableGatewayAPI: false
+    listenerPortMatchMode: "off"
+  gatewayProxy:
+    createDefault: true
+    provider:
+      type: ControlPlane
+      controlPlane:
+        service:
+          name: ani-apisix-admin
+          port: 9180
+        auth:
+          type: AdminKey
+          adminKey:
+            valueFrom:
+              secretKeyRef:
+                name: ani-apisix-admin
+                key: admin
+  crds:
+    gatewayAPI:
+      enabled: false
+  apisix:
+    adminService:
+      namespace: ingress-apisix
+      name: ani-apisix-admin
+      port: 9180

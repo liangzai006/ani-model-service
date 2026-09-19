@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/idempotency"
-	workbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/work"
+	"github.com/liangzai006/ani-model-service/internal/biz/idempotency"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
 )
 
 var ErrLeaseLost = errors.New("import task lease lost")
@@ -64,14 +64,41 @@ func (s *WorkStore) Create(ctx context.Context, t workbiz.Task) (workbiz.Task, e
 }
 
 func taskFromIdempotencyRow(r GetImportTaskByIdempotencyRow) workbiz.Task {
-	modelID, versionID := "", ""
-	if r.ModelID.Valid {
-		modelID = uuid.UUID(r.ModelID.Bytes).String()
+	return taskFromFields(r.TenantID, r.ID, r.ModelID, r.ModelVersionID, r.TaskType, r.Source, r.RepoID, r.Revision, r.IdempotencyKey, r.Status, r.AttemptCount, r.ProgressPct, r.LeaseOwner, r.LeaseEpoch, r.LeaseUntil, r.ErrorMessage, r.CreatedAt, r.CompletedAt)
+}
+
+func taskFromFields(tenant, id, modelID, versionID pgtype.UUID, taskType, source, repoID, revision, idempotencyKey, status string, attempts, progress int32, owner string, epoch int64, lease pgtype.Timestamptz, message string, created, completed pgtype.Timestamptz) workbiz.Task {
+	return workbiz.Task{TenantID: uuid.UUID(tenant.Bytes).String(), ID: uuid.UUID(id.Bytes).String(), ModelID: nullableUUIDString(modelID), VersionID: nullableUUIDString(versionID), TaskType: taskType, Source: source, RepoID: repoID, Revision: revision, IdempotencyKey: idempotencyKey, Status: status, AttemptCount: int(attempts), ProgressPct: int(progress), LeaseOwner: owner, LeaseEpoch: epoch, LeaseUntil: lease.Time, ErrorMessage: message, CreatedAt: created.Time, CompletedAt: completed.Time}
+}
+
+func (s *WorkStore) Get(ctx context.Context, tenantID, taskID string) (workbiz.Task, error) {
+	tenant, id, err := parseIDs(tenantID, taskID)
+	if err != nil {
+		return workbiz.Task{}, err
 	}
-	if r.ModelVersionID.Valid {
-		versionID = uuid.UUID(r.ModelVersionID.Bytes).String()
+	r, err := s.q.GetImportTask(ctx, GetImportTaskParams{TenantID: uuidType(tenant), ID: uuidType(id)})
+	if err != nil {
+		return workbiz.Task{}, err
 	}
-	return workbiz.Task{TenantID: uuid.UUID(r.TenantID.Bytes).String(), ID: uuid.UUID(r.ID.Bytes).String(), ModelID: modelID, VersionID: versionID, TaskType: r.TaskType, Source: r.Source, RepoID: r.RepoID, Revision: r.Revision, IdempotencyKey: r.IdempotencyKey, Status: r.Status, AttemptCount: int(r.AttemptCount), LeaseEpoch: r.LeaseEpoch}
+	return taskFromFields(r.TenantID, r.ID, r.ModelID, r.ModelVersionID, r.TaskType, r.Source, r.RepoID, r.Revision, r.IdempotencyKey, r.Status, r.AttemptCount, r.ProgressPct, r.LeaseOwner, r.LeaseEpoch, r.LeaseUntil, r.ErrorMessage, r.CreatedAt, r.CompletedAt), nil
+}
+
+func (s *WorkStore) RetryFailed(ctx context.Context, tenantID, taskID string) (workbiz.Task, error) {
+	tenant, id, err := parseIDs(tenantID, taskID)
+	if err != nil {
+		return workbiz.Task{}, err
+	}
+	r, err := s.q.RetryFailedImportTask(ctx, RetryFailedImportTaskParams{TenantID: uuidType(tenant), ID: uuidType(id)})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			current, getErr := s.Get(ctx, tenantID, taskID)
+			if getErr == nil && current.Status != workbiz.Failed {
+				return workbiz.Task{}, workbiz.ErrInvalidTransition
+			}
+		}
+		return workbiz.Task{}, err
+	}
+	return taskFromFields(r.TenantID, r.ID, r.ModelID, r.ModelVersionID, r.TaskType, r.Source, r.RepoID, r.Revision, r.IdempotencyKey, r.Status, r.AttemptCount, r.ProgressPct, r.LeaseOwner, r.LeaseEpoch, r.LeaseUntil, r.ErrorMessage, r.CreatedAt, r.CompletedAt), nil
 }
 
 func (s *WorkStore) Claim(ctx context.Context, tenantID, taskID, owner string, lease time.Duration) (workbiz.Task, error) {

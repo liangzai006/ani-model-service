@@ -12,12 +12,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	modelv1 "github.com/zhangzhe-ctrl/ani-model-service/api/model/v1"
-	auditbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/audit"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/model"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/biz/storage"
-	workbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/work"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/identity"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
+	auditbiz "github.com/liangzai006/ani-model-service/internal/biz/audit"
+	"github.com/liangzai006/ani-model-service/internal/biz/model"
+	"github.com/liangzai006/ani-model-service/internal/biz/storage"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
+	"github.com/liangzai006/ani-model-service/internal/identity"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
@@ -31,6 +31,8 @@ type ModelService struct {
 	storage    storage.Port
 	artifacts  model.ArtifactStore
 	work       workbiz.Creator
+	taskReader workbiz.Reader
+	taskRetry  workbiz.Retrier
 	audit      auditbiz.Store
 	references InferenceReferenceChecker
 	notifier   ImportNotifier
@@ -44,9 +46,7 @@ type ImportNotifier interface {
 
 // InferenceReferenceChecker is a versioned external contract. Model never
 // reads or writes Inference tables directly.
-type InferenceReferenceChecker interface {
-	HasActiveReferences(context.Context, string, string) (bool, error)
-}
+type InferenceReferenceChecker = model.ReferenceChecker
 
 type externalModelCreator interface {
 	CreateModelWithExternalID(context.Context, string, string, string, string, string, string, string, []byte, string) (model.Record, error)
@@ -56,6 +56,8 @@ func (s *ModelService) SetAuditStore(store auditbiz.Store)                      
 func (s *ModelService) SetInferenceReferenceChecker(c InferenceReferenceChecker) { s.references = c }
 func (s *ModelService) SetArtifactStore(store model.ArtifactStore)               { s.artifacts = store }
 func (s *ModelService) SetImportNotifier(n ImportNotifier)                       { s.notifier = n }
+func (s *ModelService) SetImportTaskReader(r workbiz.Reader)                     { s.taskReader = r }
+func (s *ModelService) SetImportTaskRetrier(r workbiz.Retrier)                   { s.taskRetry = r }
 
 func NewModelService(r model.VersionReader) *ModelService { return &ModelService{reader: r} }
 func NewModelServiceWithDependencies(r model.VersionReader, v model.VersionCatalog, c model.Catalog, st storage.Port, w workbiz.Creator) *ModelService {
@@ -167,15 +169,23 @@ func (s *ModelService) ListModels(ctx context.Context, in *modelv1.ListModelsReq
 	if s.catalog == nil {
 		return nil, errors2.New(503, "MODEL_STORE_UNAVAILABLE", "model store is not configured")
 	}
-	limit := int32(100)
-	if in.GetPage() != nil && in.GetPage().GetLimit() > 0 {
-		limit = in.GetPage().GetLimit()
+	scope := cursorScope(p.TenantID, "models", in.GetStatus(), in.GetKeyword(), in.GetSource(), in.GetCapability())
+	options, err := listPage(in.GetPage(), scope)
+	if err != nil {
+		return nil, err
 	}
-	rs, err := s.catalog.ListModels(ctx, p.TenantID, in.GetStatus(), limit)
+	options.Status, options.Keyword, options.Source, options.Capability = in.GetStatus(), in.GetKeyword(), in.GetSource(), in.GetCapability()
+	rs, err := s.catalog.ListModels(ctx, p.TenantID, options)
 	if err != nil {
 		return nil, errors2.New(500, "MODEL_STORE_ERROR", err.Error())
 	}
-	out := &modelv1.ListModelsResponse{Models: make([]*modelv1.Model, len(rs))}
+	meta := &modelv1.CursorPageMeta{HasMore: len(rs) > int(options.Limit-1)}
+	if meta.HasMore {
+		rs = rs[:options.Limit-1]
+		last := rs[len(rs)-1]
+		meta.NextCursor = nextCursor(scope, last.CreatedAt, last.ID)
+	}
+	out := &modelv1.ListModelsResponse{Models: make([]*modelv1.Model, len(rs)), Meta: meta}
 	for i, r := range rs {
 		out.Models[i] = toProtoModel(r)
 	}
@@ -192,28 +202,50 @@ func (s *ModelService) DeleteModel(ctx context.Context, in *modelv1.DeleteModelR
 	if s.references == nil {
 		return nil, errors2.New(503, "INFERENCE_REFERENCE_CHECK_UNAVAILABLE", "inference reference checker is not configured")
 	}
-	m, err := s.resolveModel(ctx, p.TenantID, in.GetModelId())
-	if err != nil {
-		return nil, err
+	selector := in.GetModelId()
+	if selector == "" || len(selector) > 255 || strings.TrimSpace(selector) != selector || strings.ContainsAny(selector, "\r\n") {
+		return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid model_id")
 	}
-	// Inference snapshots can contain either the legacy UUID or the external ID.
-	ids := []string{m.ID}
-	if m.ExternalModelID != "" && m.ExternalModelID != m.ID {
-		ids = append(ids, m.ExternalModelID)
+	store, ok := s.catalog.(model.DeletionCatalog)
+	if !ok {
+		return nil, errors2.New(503, "MODEL_STORE_UNAVAILABLE", "protected deletion is not configured")
 	}
-	for _, id := range ids {
-		referenced, err := s.references.HasActiveReferences(ctx, p.TenantID, id)
-		if err != nil {
-			return nil, errors2.New(503, "INFERENCE_REFERENCE_CHECK_UNAVAILABLE", "inference reference check failed")
-		}
-		if referenced {
-			return nil, errors2.New(409, "MODEL_IN_USE", "model has active inference references")
-		}
-	}
-	if err := s.catalog.SoftDeleteModel(ctx, p.TenantID, m.ID); err != nil {
-		return nil, mapStore(err)
+	if err := store.DeleteModel(ctx, p.TenantID, selector, s.references); err != nil {
+		return nil, mapDeletion(err)
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (s *ModelService) DeleteModelVersion(ctx context.Context, in *modelv1.DeleteModelVersionRequest) (*modelv1.DeleteModelVersionResponse, error) {
+	p, err := identity.RequireTenant(ctx, in.GetTenantId())
+	if err != nil {
+		return nil, mapIdentity(err)
+	}
+	id, err := uuid.Parse(in.GetModelVersionId())
+	if err != nil || id == uuid.Nil {
+		return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid model_version_id")
+	}
+	if s.references == nil {
+		return nil, mapDeletion(model.ErrReferenceCheckUnavailable)
+	}
+	store, ok := s.catalog.(model.DeletionCatalog)
+	if !ok {
+		return nil, errors2.New(503, "MODEL_STORE_UNAVAILABLE", "protected deletion is not configured")
+	}
+	if err = store.DeleteVersion(ctx, p.TenantID, id.String(), s.references); err != nil {
+		return nil, mapDeletion(err)
+	}
+	return &modelv1.DeleteModelVersionResponse{}, nil
+}
+
+func mapDeletion(err error) error {
+	if stderrors.Is(err, model.ErrModelInUse) {
+		return errors2.New(409, "MODEL_IN_USE", model.ErrModelInUse.Error())
+	}
+	if stderrors.Is(err, model.ErrReferenceCheckUnavailable) {
+		return errors2.New(503, "INFERENCE_REFERENCE_CHECK_UNAVAILABLE", model.ErrReferenceCheckUnavailable.Error())
+	}
+	return mapStore(err)
 }
 
 func (s *ModelService) CreateModelVersion(ctx context.Context, in *modelv1.CreateModelVersionRequest) (*modelv1.ModelVersion, error) {
@@ -293,19 +325,26 @@ func (s *ModelService) ListModelVersions(ctx context.Context, in *modelv1.ListMo
 	if s.versions == nil {
 		return nil, errors2.New(503, "MODEL_STORE_UNAVAILABLE", "model store is not configured")
 	}
-	limit := int32(100)
-	if in.GetPage() != nil && in.GetPage().GetLimit() > 0 {
-		limit = in.GetPage().GetLimit()
-	}
 	m, err := s.resolveModel(ctx, p.TenantID, in.GetModelId())
 	if err != nil {
 		return nil, err
 	}
-	rs, err := s.versions.ListVersions(ctx, p.TenantID, m.ID, limit)
+	scope := cursorScope(p.TenantID, "versions", m.ID)
+	options, err := listPage(in.GetPage(), scope)
+	if err != nil {
+		return nil, err
+	}
+	rs, err := s.versions.ListVersions(ctx, p.TenantID, m.ID, options)
 	if err != nil {
 		return nil, mapStore(err)
 	}
-	out := &modelv1.ListModelVersionsResponse{Versions: make([]*modelv1.ModelVersion, len(rs))}
+	meta := &modelv1.CursorPageMeta{HasMore: len(rs) > int(options.Limit-1)}
+	if meta.HasMore {
+		rs = rs[:options.Limit-1]
+		last := rs[len(rs)-1]
+		meta.NextCursor = nextCursor(scope, last.CreatedAt, last.ID)
+	}
+	out := &modelv1.ListModelVersionsResponse{Versions: make([]*modelv1.ModelVersion, len(rs)), Meta: meta}
 	for i, v := range rs {
 		v.ExternalModelID = m.ExternalModelID
 		out.Versions[i] = toProtoVersion(v)
@@ -339,7 +378,7 @@ func toProtoVersion(v model.Version) *modelv1.ModelVersion {
 	if modelID == "" {
 		modelID = v.ModelID
 	}
-	return &modelv1.ModelVersion{Id: v.ID, ModelId: modelID, Version: v.Version, Format: v.Format, Status: v.Status, ChecksumSha256: v.ArtifactSHA256, StoragePath: v.ArtifactReference, EngineType: v.EngineType, StartupCommand: v.StartupCommand, StartupArgs: v.StartupArgs}
+	return &modelv1.ModelVersion{Id: v.ID, ModelId: modelID, Version: v.Version, Format: v.Format, Status: v.Status, ChecksumSha256: v.ArtifactSHA256, StoragePath: v.ArtifactReference, EngineType: v.EngineType, StartupCommand: v.StartupCommand, StartupArgs: v.StartupArgs, SizeBytes: v.SizeBytes, IsEncrypted: v.IsEncrypted, EncryptAlgo: v.EncryptAlgo, EncryptHint: v.EncryptHint, CreatedAt: protoTime(v.CreatedAt)}
 }
 
 func (s *ModelService) GetModelDownloadURL(ctx context.Context, in *modelv1.GetModelDownloadURLRequest) (*modelv1.GetModelDownloadURLResponse, error) {
@@ -449,6 +488,69 @@ func (s *ModelService) ImportModel(ctx context.Context, in *modelv1.ImportModelR
 	return &modelv1.ImportTask{TaskId: created.ID, TaskType: in.GetSource(), Status: created.Status, ModelId: created.ModelID, ModelVersionId: created.VersionID, AttemptCount: int32(created.AttemptCount)}, nil
 }
 
+func (s *ModelService) GetImportTask(ctx context.Context, in *modelv1.GetImportTaskRequest) (*modelv1.GetImportTaskResponse, error) {
+	p, err := identity.RequireTenant(ctx, in.GetTenantId())
+	if err != nil {
+		return nil, mapIdentity(err)
+	}
+	if _, err := uuid.Parse(in.GetTaskId()); err != nil {
+		return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid task_id")
+	}
+	reader := s.taskReader
+	if reader == nil {
+		if candidate, ok := s.work.(workbiz.Reader); ok {
+			reader = candidate
+		}
+	}
+	if reader == nil {
+		return nil, errors2.New(503, "WORKER_UNAVAILABLE", "import task reader is not configured")
+	}
+	task, err := reader.Get(ctx, p.TenantID, in.GetTaskId())
+	if err != nil {
+		return nil, mapStore(err)
+	}
+	if task.TenantID != "" && task.TenantID != p.TenantID {
+		return nil, mapIdentity(identity.ErrTenantMismatch)
+	}
+	return &modelv1.GetImportTaskResponse{Task: toProtoImportTask(task)}, nil
+}
+
+func (s *ModelService) RetryImportTask(ctx context.Context, in *modelv1.RetryImportTaskRequest) (*modelv1.RetryImportTaskResponse, error) {
+	p, err := identity.RequireTenant(ctx, in.GetTenantId())
+	if err != nil {
+		return nil, mapIdentity(err)
+	}
+	if _, err := uuid.Parse(in.GetTaskId()); err != nil {
+		return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid task_id")
+	}
+	retrier := s.taskRetry
+	if retrier == nil {
+		if candidate, ok := s.work.(workbiz.Retrier); ok {
+			retrier = candidate
+		}
+	}
+	if retrier == nil {
+		return nil, errors2.New(503, "WORKER_UNAVAILABLE", "import task retry is not configured")
+	}
+	task, err := retrier.RetryFailed(ctx, p.TenantID, in.GetTaskId())
+	if err != nil {
+		if stderrors.Is(err, workbiz.ErrInvalidTransition) {
+			return nil, errors2.New(409, "IMPORT_NOT_RETRYABLE", err.Error())
+		}
+		return nil, mapStore(err)
+	}
+	if task.TenantID != "" && task.TenantID != p.TenantID {
+		return nil, mapIdentity(identity.ErrTenantMismatch)
+	}
+	if err := s.recordAudit(ctx, p, "model_import.retry", "failed", task.Status, task.ID); err != nil {
+		return nil, err
+	}
+	if s.notifier != nil {
+		s.notifier.Notify()
+	}
+	return &modelv1.RetryImportTaskResponse{Task: toProtoImportTask(task)}, nil
+}
+
 func (s *ModelService) recordAudit(ctx context.Context, p identity.Principal, operation, before, after, taskID string) error {
 	if s.audit == nil {
 		return nil
@@ -465,7 +567,22 @@ func toProtoModel(r model.Record) *modelv1.Model {
 	if modelID == "" {
 		modelID = r.Name
 	}
-	return &modelv1.Model{TenantId: r.TenantID, Id: r.ID, ModelId: modelID, Name: r.Name, DisplayName: r.DisplayName, Description: r.Description, Source: r.Source, Capabilities: caps, Status: r.Status, TotalSizeBytes: r.TotalSizeBytes}
+	out := &modelv1.Model{TenantId: r.TenantID, Id: r.ID, ModelId: modelID, Name: r.Name, DisplayName: r.DisplayName, Description: r.Description, Source: r.Source, Capabilities: caps, Status: r.Status, TotalSizeBytes: r.TotalSizeBytes, SourceRepoId: r.SourceRepoID, ErrorMessage: r.ErrorMessage, CreatedAt: protoTime(r.CreatedAt), UpdatedAt: protoTime(r.UpdatedAt)}
+	if r.LatestVersion != nil {
+		out.Versions = []*modelv1.ModelVersion{toProtoVersion(*r.LatestVersion)}
+	}
+	return out
+}
+
+func toProtoImportTask(t workbiz.Task) *modelv1.ImportTask {
+	return &modelv1.ImportTask{TaskId: t.ID, TaskType: t.TaskType, Status: t.Status, ModelId: t.ModelID, ModelVersionId: t.VersionID, AttemptCount: int32(t.AttemptCount), ProgressPct: int32(t.ProgressPct), ErrorMessage: t.ErrorMessage, CreatedAt: protoTime(t.CreatedAt), CompletedAt: protoTime(t.CompletedAt)}
+}
+
+func protoTime(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t)
 }
 func mapIdentity(err error) error {
 	if stderrors.Is(err, identity.ErrMissingPrincipal) {

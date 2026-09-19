@@ -23,7 +23,8 @@ FROM public.model_versions v
 JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
 JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
 WHERE v.tenant_id = $1 AND v.id = $2 AND m.status <> 'deleted' AND v.status = 'ready'
-  AND a.sha256 <> '';
+  AND a.sha256 <> ''
+FOR SHARE OF m, v;
 
 -- name: GetReadyModelVersionByExternalRef :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
@@ -37,7 +38,8 @@ FROM public.model_versions v
 JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
 JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
 WHERE v.tenant_id = $1 AND m.model_id = $2 AND v.version = $3
-  AND m.status <> 'deleted' AND v.status = 'ready' AND a.sha256 <> '';
+  AND m.status <> 'deleted' AND v.status = 'ready' AND a.sha256 <> ''
+FOR SHARE OF m, v;
 
 -- name: GetModel :one
 SELECT tenant_id, id, model_id, name, display_name, description, source, source_repo_id,
@@ -66,9 +68,17 @@ SELECT tenant_id, id, model_id, name, display_name, description, source, source_
        idempotency_key, request_fingerprint
 FROM public.models
 WHERE tenant_id = $1 AND status <> 'deleted'
-  AND ($2::text = '' OR status = $2)
+  AND (sqlc.arg(status_filter)::text = '' OR status = sqlc.arg(status_filter))
+  AND (sqlc.arg(source_filter)::text = '' OR source = sqlc.arg(source_filter))
+  AND (sqlc.arg(capability)::text = '' OR capabilities ? sqlc.arg(capability)::text)
+  AND (sqlc.arg(keyword)::text = ''
+       OR strpos(lower(name), lower(sqlc.arg(keyword))) > 0
+       OR strpos(lower(display_name), lower(sqlc.arg(keyword))) > 0
+       OR strpos(lower(model_id), lower(sqlc.arg(keyword))) > 0)
+  AND (sqlc.narg(before_created_at)::timestamptz IS NULL
+       OR (created_at, id) < (sqlc.narg(before_created_at)::timestamptz, sqlc.narg(before_id)::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT $3;
+LIMIT sqlc.arg(page_limit);
 
 -- name: SoftDeleteModel :execrows
 UPDATE public.models
@@ -76,10 +86,18 @@ SET status = 'deleted', deleted_at = clock_timestamp(), updated_at = clock_times
 WHERE tenant_id = $1 AND id = $2 AND status <> 'deleted';
 
 -- name: CreateModelVersion :one
+WITH parent AS (
+ SELECT m.id FROM public.models m
+ WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.id = sqlc.arg(model_id) AND m.status <> 'deleted'
+ FOR KEY SHARE
+)
 INSERT INTO public.model_versions
  (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
   encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, idempotency_key, request_fingerprint)
-VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+SELECT sqlc.arg(tenant_id), sqlc.arg(id), parent.id, sqlc.arg(version), sqlc.arg(format), 'pending',
+       sqlc.arg(is_encrypted), sqlc.arg(encrypt_algo), sqlc.arg(encrypt_hint), sqlc.arg(size_bytes),
+       sqlc.arg(checksum_sha256), sqlc.arg(engine_type), sqlc.arg(startup_command), sqlc.arg(startup_args),
+       sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint) FROM parent
 RETURNING *;
 
 -- name: MarkModelVersionReady :execrows
@@ -131,12 +149,31 @@ WHERE tenant_id = $1 AND id = $2 AND status = 'importing'
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
        v.startup_args, v.error_message, v.created_at, v.updated_at,
-       m.model_id AS external_model_id
+       m.model_id AS external_model_id,
+       COALESCE(a.provider, '')::text AS artifact_provider,
+       COALESCE(a.reference, '')::text AS artifact_reference
 FROM public.model_versions v
 JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
+LEFT JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
 WHERE v.tenant_id = $1 AND v.model_id = $2 AND v.status <> 'deleted' AND m.status <> 'deleted'
+  AND (sqlc.narg(before_created_at)::timestamptz IS NULL
+       OR (v.created_at, v.id) < (sqlc.narg(before_created_at)::timestamptz, sqlc.narg(before_id)::uuid))
 ORDER BY v.created_at DESC, v.id DESC
-LIMIT $3;
+LIMIT sqlc.arg(page_limit);
+
+-- name: LatestModelVersions :many
+SELECT DISTINCT ON (v.model_id)
+       v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
+       v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
+       v.startup_args, v.error_message, v.created_at, v.updated_at,
+       m.model_id AS external_model_id,
+       COALESCE(a.provider, '')::text AS artifact_provider,
+       COALESCE(a.reference, '')::text AS artifact_reference
+FROM public.model_versions v
+JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
+LEFT JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
+WHERE v.tenant_id = $1 AND v.model_id = ANY($2::uuid[]) AND v.status <> 'deleted' AND m.status <> 'deleted'
+ORDER BY v.model_id, v.created_at DESC, v.id DESC;
 
 -- name: ClaimImportTask :one
 UPDATE public.model_import_tasks
@@ -204,6 +241,25 @@ SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
        error_message, created_at, updated_at, completed_at
 FROM public.model_import_tasks
 WHERE tenant_id = $1 AND idempotency_key = $2;
+
+-- name: GetImportTask :one
+SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+       revision, idempotency_key, request_fingerprint, status, attempt_count,
+       progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
+       error_message, created_at, updated_at, completed_at
+FROM public.model_import_tasks
+WHERE tenant_id = $1 AND id = $2;
+
+-- name: RetryFailedImportTask :one
+UPDATE public.model_import_tasks
+SET status = 'pending', attempt_count = 0, progress_pct = 0,
+    lease_owner = '', lease_until = NULL, next_attempt_at = clock_timestamp(),
+    error_message = '', completed_at = NULL, updated_at = clock_timestamp()
+WHERE tenant_id = $1 AND id = $2 AND status = 'failed'
+RETURNING tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+          revision, idempotency_key, request_fingerprint, status, attempt_count,
+          progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
+          error_message, created_at, updated_at, completed_at;
 
 -- name: RenewImportTaskLease :execrows
 UPDATE public.model_import_tasks

@@ -12,6 +12,10 @@ import (
 
 type fake struct{}
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 func (fake) Fetch(context.Context, Request) (Result, error) { return Result{}, nil }
 
 func TestRegistryAllowlist(t *testing.T) {
@@ -70,5 +74,28 @@ func TestHTTPSourceRequiresExplicitFile(t *testing.T) {
 	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
 	if _, err := adapter.FetchContent(context.Background(), Request{RepoID: "org/model", Revision: "main"}); !strings.Contains(err.Error(), "repo_id must be repo#file") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestHTTPSourceResolvesRepositoryMetadataWithoutFile(t *testing.T) {
+	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
+	got, err := adapter.ResolveMetadata(context.Background(), Request{RepoID: "org/model", Revision: "commit"})
+	if err != nil || got.ExternalModelID != "model" || got.Version != "commit" {
+		t.Fatalf("metadata=%+v err=%v", got, err)
+	}
+}
+
+func TestHTTPSourceListsRepositoryManifest(t *testing.T) {
+	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/api/models/org/model" || req.URL.Query().Get("revision") != "main" {
+			t.Fatalf("manifest request=%s", req.URL.String())
+		}
+		body := `{"siblings":[{"rfilename":"config.json"},{"rfilename":"model.safetensors","size":12}]}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	files, err := adapter.ListFiles(context.Background(), Request{RepoID: "org/model"})
+	if err != nil || len(files) != 2 || files[0].Path != "config.json" || files[0].Size != -1 || files[1].Size != 12 {
+		t.Fatalf("files=%+v err=%v", files, err)
 	}
 }

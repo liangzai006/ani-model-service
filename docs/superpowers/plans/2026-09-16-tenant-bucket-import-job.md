@@ -82,7 +82,7 @@
 - Modify: `docs/execution/records/2026-09-16-tenant-bucket-import-job.md`
 
 - [x] Use a new test tenant against the developer Docker PostgreSQL and cluster MinIO.
-- [ ] Verify a missing tenant bucket is created once, then a second import sees it as existing.
+- [x] Verify a missing tenant bucket is created once, then a second import sees it as existing (initial creation recorded above; existing-bucket replay verified on 2026-09-16).
 - [x] Verify real logs show bucket ensure, provider download, upload, checksum, ready, and completion; wake behavior is covered by unit test.
 - [x] Verify the task remains recoverable through the PostgreSQL due scan when wake is not delivered (unit coverage; process crash simulation remains pending).
 - [x] Run internal/full Go tests, vet, build, Buf lint, module checks, and `git diff --check`.

@@ -1,6 +1,6 @@
 # ani-model-service
 
-Module: `github.com/zhangzhe-ctrl/ani-model-service`
+Module: `github.com/liangzai006/ani-model-service`
 
 This repository was generated from ANI's pinned Kratos layout. It is an
 independent source snapshot: builds and runtime do not require the layout.
@@ -54,9 +54,8 @@ Storage integration must use the external service's confirmed, versioned contrac
 The earlier speculative HTTP adapter has been withdrawn; the Storage domain port
 remains, and real Storage integration is `not_verified`.
 
-During development Model and Inference temporarily use the same PostgreSQL
-database account. Model still writes only the `public` schema; credential and
-schema-permission separation is a later deployment hardening step.
+Model writes only the `public` schema. Keep the Model and Inference database
+credentials separate in the deployment configuration.
 
 When MinIO is used directly, set `ANI_MINIO_ENDPOINT`,
 `ANI_MINIO_ACCESS_KEY`, and `ANI_MINIO_SECRET_KEY`; the credentials should be

@@ -1,6 +1,6 @@
 # Scaffold provenance
 
-- target module: `github.com/zhangzhe-ctrl/ani-model-service`
+- target module: `github.com/liangzai006/ani-model-service`
 - service name: `ani-model-service`
 - layout module: `github.com/zhangzhe-ctrl/ani-kratos-layout`
 - layout branch: `layout-input`

@@ -19,17 +19,16 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	conf "github.com/zhangzhe-ctrl/ani-model-service/api/model/v1"
-	bizstorage "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/storage"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/data/importer"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/data/postgres"
-	storagedata "github.com/zhangzhe-ctrl/ani-model-service/internal/data/storage"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/server"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/service"
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/worker"
+	conf "github.com/liangzai006/ani-model-service/api/model/v1"
+	bizstorage "github.com/liangzai006/ani-model-service/internal/biz/storage"
+	"github.com/liangzai006/ani-model-service/internal/data/importer"
+	"github.com/liangzai006/ani-model-service/internal/data/postgres"
+	storagedata "github.com/liangzai006/ani-model-service/internal/data/storage"
+	"github.com/liangzai006/ani-model-service/internal/server"
+	"github.com/liangzai006/ani-model-service/internal/service"
+	"github.com/liangzai006/ani-model-service/internal/worker"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Name and Version can be overridden with -ldflags at build time.
@@ -124,11 +123,9 @@ func run(logger *slog.Logger) error {
 	}
 	if grpcEndpoint != "" {
 		dialCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		opts := []grpc.DialOption{grpc.WithBlock()}
-		if os.Getenv("ANI_STORAGE_GRPC_INSECURE") == "true" {
-			opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		} else {
-			opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: os.Getenv("ANI_STORAGE_GRPC_SERVER_NAME")})))
+		opts := []grpc.DialOption{
+			grpc.WithBlock(),
+			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: os.Getenv("ANI_STORAGE_GRPC_SERVER_NAME")})),
 		}
 		storagePort, storageConn, err = storagedata.DialGRPC(dialCtx, grpcEndpoint, opts...)
 		cancel()
@@ -159,6 +156,8 @@ func run(logger *slog.Logger) error {
 		versionStore := postgres.NewVersionStore(pool)
 		workStore := postgres.NewWorkStore(pool)
 		modelService = service.NewModelServiceWithDependencies(versionStore, versionStore, postgres.NewCatalogStore(modelStore), storagePort, workStore)
+		modelService.SetImportTaskReader(workStore)
+		modelService.SetImportTaskRetrier(workStore)
 		modelService.SetArtifactStore(postgres.NewArtifactStore(pool))
 		modelService.SetAuditStore(postgres.NewAuditStore(pool))
 		if storagePort != nil {
@@ -185,6 +184,12 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	var runners []server.WorkerRunner
+	references, closeReferences, err := configuredInferenceReferences()
+	if err != nil {
+		return fmt.Errorf("configure Inference references: %w", err)
+	}
+	defer closeReferences()
+	modelService.SetInferenceReferenceChecker(references)
 	if importWorker != nil {
 		modelService.SetImportNotifier(importWorker)
 		runners = append(runners, importWorker)

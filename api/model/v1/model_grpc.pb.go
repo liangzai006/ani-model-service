@@ -26,9 +26,12 @@ const (
 	ModelService_DeleteModel_FullMethodName         = "/model.v1.ModelService/DeleteModel"
 	ModelService_GetModelVersion_FullMethodName     = "/model.v1.ModelService/GetModelVersion"
 	ModelService_ListModelVersions_FullMethodName   = "/model.v1.ModelService/ListModelVersions"
+	ModelService_DeleteModelVersion_FullMethodName  = "/model.v1.ModelService/DeleteModelVersion"
 	ModelService_CreateModelVersion_FullMethodName  = "/model.v1.ModelService/CreateModelVersion"
 	ModelService_GetUploadURL_FullMethodName        = "/model.v1.ModelService/GetUploadURL"
 	ModelService_ImportModel_FullMethodName         = "/model.v1.ModelService/ImportModel"
+	ModelService_GetImportTask_FullMethodName       = "/model.v1.ModelService/GetImportTask"
+	ModelService_RetryImportTask_FullMethodName     = "/model.v1.ModelService/RetryImportTask"
 	ModelService_GetModelDownloadURL_FullMethodName = "/model.v1.ModelService/GetModelDownloadURL"
 )
 
@@ -47,11 +50,14 @@ type ModelServiceClient interface {
 	DeleteModel(ctx context.Context, in *DeleteModelRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetModelVersion(ctx context.Context, in *GetModelVersionRequest, opts ...grpc.CallOption) (*GetModelVersionResponse, error)
 	ListModelVersions(ctx context.Context, in *ListModelVersionsRequest, opts ...grpc.CallOption) (*ListModelVersionsResponse, error)
+	DeleteModelVersion(ctx context.Context, in *DeleteModelVersionRequest, opts ...grpc.CallOption) (*DeleteModelVersionResponse, error)
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ModelVersion directly.
 	CreateModelVersion(ctx context.Context, in *CreateModelVersionRequest, opts ...grpc.CallOption) (*ModelVersion, error)
 	GetUploadURL(ctx context.Context, in *GetUploadURLRequest, opts ...grpc.CallOption) (*GetUploadURLResponse, error)
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ImportTask directly.
 	ImportModel(ctx context.Context, in *ImportModelRequest, opts ...grpc.CallOption) (*ImportTask, error)
+	GetImportTask(ctx context.Context, in *GetImportTaskRequest, opts ...grpc.CallOption) (*GetImportTaskResponse, error)
+	RetryImportTask(ctx context.Context, in *RetryImportTaskRequest, opts ...grpc.CallOption) (*RetryImportTaskResponse, error)
 	GetModelDownloadURL(ctx context.Context, in *GetModelDownloadURLRequest, opts ...grpc.CallOption) (*GetModelDownloadURLResponse, error)
 }
 
@@ -123,6 +129,16 @@ func (c *modelServiceClient) ListModelVersions(ctx context.Context, in *ListMode
 	return out, nil
 }
 
+func (c *modelServiceClient) DeleteModelVersion(ctx context.Context, in *DeleteModelVersionRequest, opts ...grpc.CallOption) (*DeleteModelVersionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteModelVersionResponse)
+	err := c.cc.Invoke(ctx, ModelService_DeleteModelVersion_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *modelServiceClient) CreateModelVersion(ctx context.Context, in *CreateModelVersionRequest, opts ...grpc.CallOption) (*ModelVersion, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ModelVersion)
@@ -147,6 +163,26 @@ func (c *modelServiceClient) ImportModel(ctx context.Context, in *ImportModelReq
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ImportTask)
 	err := c.cc.Invoke(ctx, ModelService_ImportModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *modelServiceClient) GetImportTask(ctx context.Context, in *GetImportTaskRequest, opts ...grpc.CallOption) (*GetImportTaskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetImportTaskResponse)
+	err := c.cc.Invoke(ctx, ModelService_GetImportTask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *modelServiceClient) RetryImportTask(ctx context.Context, in *RetryImportTaskRequest, opts ...grpc.CallOption) (*RetryImportTaskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RetryImportTaskResponse)
+	err := c.cc.Invoke(ctx, ModelService_RetryImportTask_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -178,11 +214,14 @@ type ModelServiceServer interface {
 	DeleteModel(context.Context, *DeleteModelRequest) (*emptypb.Empty, error)
 	GetModelVersion(context.Context, *GetModelVersionRequest) (*GetModelVersionResponse, error)
 	ListModelVersions(context.Context, *ListModelVersionsRequest) (*ListModelVersionsResponse, error)
+	DeleteModelVersion(context.Context, *DeleteModelVersionRequest) (*DeleteModelVersionResponse, error)
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ModelVersion directly.
 	CreateModelVersion(context.Context, *CreateModelVersionRequest) (*ModelVersion, error)
 	GetUploadURL(context.Context, *GetUploadURLRequest) (*GetUploadURLResponse, error)
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ImportTask directly.
 	ImportModel(context.Context, *ImportModelRequest) (*ImportTask, error)
+	GetImportTask(context.Context, *GetImportTaskRequest) (*GetImportTaskResponse, error)
+	RetryImportTask(context.Context, *RetryImportTaskRequest) (*RetryImportTaskResponse, error)
 	GetModelDownloadURL(context.Context, *GetModelDownloadURLRequest) (*GetModelDownloadURLResponse, error)
 	mustEmbedUnimplementedModelServiceServer()
 }
@@ -212,6 +251,9 @@ func (UnimplementedModelServiceServer) GetModelVersion(context.Context, *GetMode
 func (UnimplementedModelServiceServer) ListModelVersions(context.Context, *ListModelVersionsRequest) (*ListModelVersionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListModelVersions not implemented")
 }
+func (UnimplementedModelServiceServer) DeleteModelVersion(context.Context, *DeleteModelVersionRequest) (*DeleteModelVersionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteModelVersion not implemented")
+}
 func (UnimplementedModelServiceServer) CreateModelVersion(context.Context, *CreateModelVersionRequest) (*ModelVersion, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateModelVersion not implemented")
 }
@@ -220,6 +262,12 @@ func (UnimplementedModelServiceServer) GetUploadURL(context.Context, *GetUploadU
 }
 func (UnimplementedModelServiceServer) ImportModel(context.Context, *ImportModelRequest) (*ImportTask, error) {
 	return nil, status.Error(codes.Unimplemented, "method ImportModel not implemented")
+}
+func (UnimplementedModelServiceServer) GetImportTask(context.Context, *GetImportTaskRequest) (*GetImportTaskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetImportTask not implemented")
+}
+func (UnimplementedModelServiceServer) RetryImportTask(context.Context, *RetryImportTaskRequest) (*RetryImportTaskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RetryImportTask not implemented")
 }
 func (UnimplementedModelServiceServer) GetModelDownloadURL(context.Context, *GetModelDownloadURLRequest) (*GetModelDownloadURLResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetModelDownloadURL not implemented")
@@ -353,6 +401,24 @@ func _ModelService_ListModelVersions_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ModelService_DeleteModelVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteModelVersionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).DeleteModelVersion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_DeleteModelVersion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).DeleteModelVersion(ctx, req.(*DeleteModelVersionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ModelService_CreateModelVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateModelVersionRequest)
 	if err := dec(in); err != nil {
@@ -407,6 +473,42 @@ func _ModelService_ImportModel_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ModelService_GetImportTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetImportTaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).GetImportTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_GetImportTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).GetImportTask(ctx, req.(*GetImportTaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ModelService_RetryImportTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryImportTaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).RetryImportTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_RetryImportTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).RetryImportTask(ctx, req.(*RetryImportTaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ModelService_GetModelDownloadURL_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetModelDownloadURLRequest)
 	if err := dec(in); err != nil {
@@ -457,6 +559,10 @@ var ModelService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ModelService_ListModelVersions_Handler,
 		},
 		{
+			MethodName: "DeleteModelVersion",
+			Handler:    _ModelService_DeleteModelVersion_Handler,
+		},
+		{
 			MethodName: "CreateModelVersion",
 			Handler:    _ModelService_CreateModelVersion_Handler,
 		},
@@ -467,6 +573,14 @@ var ModelService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ImportModel",
 			Handler:    _ModelService_ImportModel_Handler,
+		},
+		{
+			MethodName: "GetImportTask",
+			Handler:    _ModelService_GetImportTask_Handler,
+		},
+		{
+			MethodName: "RetryImportTask",
+			Handler:    _ModelService_RetryImportTask_Handler,
 		},
 		{
 			MethodName: "GetModelDownloadURL",

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	workbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/work"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
 )
 
 var ErrVersionBindingRequired = errors.New("import task requires model version binding")

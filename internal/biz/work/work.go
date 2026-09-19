@@ -10,6 +10,14 @@ type Creator interface {
 	Create(context.Context, Task) (Task, error)
 }
 
+type Reader interface {
+	Get(context.Context, string, string) (Task, error)
+}
+
+type Retrier interface {
+	RetryFailed(context.Context, string, string) (Task, error)
+}
+
 var (
 	ErrInvalidTransition = errors.New("invalid import task transition")
 	ErrLeaseFenced       = errors.New("import task lease fenced")
@@ -29,6 +37,9 @@ type Task struct {
 	Status                                                                 string
 	LeaseUntil                                                             time.Time
 	AttemptCount                                                           int
+	ProgressPct                                                            int
+	ErrorMessage                                                           string
+	CreatedAt, CompletedAt                                                 time.Time
 }
 
 func (t Task) Claim(owner string, now time.Time, lease time.Duration) (Task, error) {

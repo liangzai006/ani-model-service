@@ -292,17 +292,24 @@ func (q *Queries) CreateModelArtifact(ctx context.Context, arg CreateModelArtifa
 }
 
 const createModelVersion = `-- name: CreateModelVersion :one
+WITH parent AS (
+ SELECT m.id FROM public.models m
+ WHERE m.tenant_id = $1 AND m.id = $15 AND m.status <> 'deleted'
+ FOR KEY SHARE
+)
 INSERT INTO public.model_versions
  (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
   encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, idempotency_key, request_fingerprint)
-VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+SELECT $1, $2, parent.id, $3, $4, 'pending',
+       $5, $6, $7, $8,
+       $9, $10, $11, $12,
+       $13, $14 FROM parent
 RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint
 `
 
 type CreateModelVersionParams struct {
 	TenantID           pgtype.UUID `json:"tenant_id"`
 	ID                 pgtype.UUID `json:"id"`
-	ModelID            pgtype.UUID `json:"model_id"`
 	Version            string      `json:"version"`
 	Format             string      `json:"format"`
 	IsEncrypted        bool        `json:"is_encrypted"`
@@ -315,13 +322,13 @@ type CreateModelVersionParams struct {
 	StartupArgs        []byte      `json:"startup_args"`
 	IdempotencyKey     string      `json:"idempotency_key"`
 	RequestFingerprint string      `json:"request_fingerprint"`
+	ModelID            pgtype.UUID `json:"model_id"`
 }
 
 func (q *Queries) CreateModelVersion(ctx context.Context, arg CreateModelVersionParams) (ModelVersion, error) {
 	row := q.db.QueryRow(ctx, createModelVersion,
 		arg.TenantID,
 		arg.ID,
-		arg.ModelID,
 		arg.Version,
 		arg.Format,
 		arg.IsEncrypted,
@@ -334,6 +341,7 @@ func (q *Queries) CreateModelVersion(ctx context.Context, arg CreateModelVersion
 		arg.StartupArgs,
 		arg.IdempotencyKey,
 		arg.RequestFingerprint,
+		arg.ModelID,
 	)
 	var i ModelVersion
 	err := row.Scan(
@@ -388,6 +396,73 @@ func (q *Queries) FailImportTask(ctx context.Context, arg FailImportTaskParams) 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getImportTask = `-- name: GetImportTask :one
+SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+       revision, idempotency_key, request_fingerprint, status, attempt_count,
+       progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
+       error_message, created_at, updated_at, completed_at
+FROM public.model_import_tasks
+WHERE tenant_id = $1 AND id = $2
+`
+
+type GetImportTaskParams struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+type GetImportTaskRow struct {
+	TenantID           pgtype.UUID        `json:"tenant_id"`
+	ID                 pgtype.UUID        `json:"id"`
+	ModelID            pgtype.UUID        `json:"model_id"`
+	ModelVersionID     pgtype.UUID        `json:"model_version_id"`
+	TaskType           string             `json:"task_type"`
+	Source             string             `json:"source"`
+	RepoID             string             `json:"repo_id"`
+	Revision           string             `json:"revision"`
+	IdempotencyKey     string             `json:"idempotency_key"`
+	RequestFingerprint string             `json:"request_fingerprint"`
+	Status             string             `json:"status"`
+	AttemptCount       int32              `json:"attempt_count"`
+	ProgressPct        int32              `json:"progress_pct"`
+	LeaseOwner         string             `json:"lease_owner"`
+	LeaseEpoch         int64              `json:"lease_epoch"`
+	LeaseUntil         pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt      pgtype.Timestamptz `json:"next_attempt_at"`
+	ErrorMessage       string             `json:"error_message"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+}
+
+func (q *Queries) GetImportTask(ctx context.Context, arg GetImportTaskParams) (GetImportTaskRow, error) {
+	row := q.db.QueryRow(ctx, getImportTask, arg.TenantID, arg.ID)
+	var i GetImportTaskRow
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.ModelID,
+		&i.ModelVersionID,
+		&i.TaskType,
+		&i.Source,
+		&i.RepoID,
+		&i.Revision,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.Status,
+		&i.AttemptCount,
+		&i.ProgressPct,
+		&i.LeaseOwner,
+		&i.LeaseEpoch,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
 }
 
 const getImportTaskByIdempotency = `-- name: GetImportTaskByIdempotency :one
@@ -776,6 +851,7 @@ JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
 JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
 WHERE v.tenant_id = $1 AND v.id = $2 AND m.status <> 'deleted' AND v.status = 'ready'
   AND a.sha256 <> ''
+FOR SHARE OF m, v
 `
 
 type GetReadyModelVersionParams struct {
@@ -851,6 +927,7 @@ JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
 JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
 WHERE v.tenant_id = $1 AND m.model_id = $2 AND v.version = $3
   AND m.status <> 'deleted' AND v.status = 'ready' AND a.sha256 <> ''
+FOR SHARE OF m, v
 `
 
 type GetReadyModelVersionByExternalRefParams struct {
@@ -951,6 +1028,90 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 	return err
 }
 
+const latestModelVersions = `-- name: LatestModelVersions :many
+SELECT DISTINCT ON (v.model_id)
+       v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
+       v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
+       v.startup_args, v.error_message, v.created_at, v.updated_at,
+       m.model_id AS external_model_id,
+       COALESCE(a.provider, '')::text AS artifact_provider,
+       COALESCE(a.reference, '')::text AS artifact_reference
+FROM public.model_versions v
+JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
+LEFT JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
+WHERE v.tenant_id = $1 AND v.model_id = ANY($2::uuid[]) AND v.status <> 'deleted' AND m.status <> 'deleted'
+ORDER BY v.model_id, v.created_at DESC, v.id DESC
+`
+
+type LatestModelVersionsParams struct {
+	TenantID pgtype.UUID   `json:"tenant_id"`
+	Column2  []pgtype.UUID `json:"column_2"`
+}
+
+type LatestModelVersionsRow struct {
+	TenantID          pgtype.UUID        `json:"tenant_id"`
+	ID                pgtype.UUID        `json:"id"`
+	ModelID           pgtype.UUID        `json:"model_id"`
+	Version           string             `json:"version"`
+	Format            string             `json:"format"`
+	Status            string             `json:"status"`
+	IsEncrypted       bool               `json:"is_encrypted"`
+	EncryptAlgo       string             `json:"encrypt_algo"`
+	EncryptHint       string             `json:"encrypt_hint"`
+	SizeBytes         int64              `json:"size_bytes"`
+	ChecksumSha256    string             `json:"checksum_sha256"`
+	EngineType        string             `json:"engine_type"`
+	StartupCommand    string             `json:"startup_command"`
+	StartupArgs       []byte             `json:"startup_args"`
+	ErrorMessage      string             `json:"error_message"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ExternalModelID   string             `json:"external_model_id"`
+	ArtifactProvider  string             `json:"artifact_provider"`
+	ArtifactReference string             `json:"artifact_reference"`
+}
+
+func (q *Queries) LatestModelVersions(ctx context.Context, arg LatestModelVersionsParams) ([]LatestModelVersionsRow, error) {
+	rows, err := q.db.Query(ctx, latestModelVersions, arg.TenantID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LatestModelVersionsRow{}
+	for rows.Next() {
+		var i LatestModelVersionsRow
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.ID,
+			&i.ModelID,
+			&i.Version,
+			&i.Format,
+			&i.Status,
+			&i.IsEncrypted,
+			&i.EncryptAlgo,
+			&i.EncryptHint,
+			&i.SizeBytes,
+			&i.ChecksumSha256,
+			&i.EngineType,
+			&i.StartupCommand,
+			&i.StartupArgs,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExternalModelID,
+			&i.ArtifactProvider,
+			&i.ArtifactReference,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDueImportTasks = `-- name: ListDueImportTasks :many
 SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
        revision, idempotency_key, status, attempt_count, progress_pct,
@@ -1037,43 +1198,58 @@ const listModelVersions = `-- name: ListModelVersions :many
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
        v.startup_args, v.error_message, v.created_at, v.updated_at,
-       m.model_id AS external_model_id
+       m.model_id AS external_model_id,
+       COALESCE(a.provider, '')::text AS artifact_provider,
+       COALESCE(a.reference, '')::text AS artifact_reference
 FROM public.model_versions v
 JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
+LEFT JOIN public.model_artifacts a ON a.tenant_id = v.tenant_id AND a.model_version_id = v.id
 WHERE v.tenant_id = $1 AND v.model_id = $2 AND v.status <> 'deleted' AND m.status <> 'deleted'
+  AND ($3::timestamptz IS NULL
+       OR (v.created_at, v.id) < ($3::timestamptz, $4::uuid))
 ORDER BY v.created_at DESC, v.id DESC
-LIMIT $3
+LIMIT $5
 `
 
 type ListModelVersionsParams struct {
-	TenantID pgtype.UUID `json:"tenant_id"`
-	ModelID  pgtype.UUID `json:"model_id"`
-	Limit    int32       `json:"limit"`
+	TenantID        pgtype.UUID        `json:"tenant_id"`
+	ModelID         pgtype.UUID        `json:"model_id"`
+	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
+	BeforeID        pgtype.UUID        `json:"before_id"`
+	PageLimit       int32              `json:"page_limit"`
 }
 
 type ListModelVersionsRow struct {
-	TenantID        pgtype.UUID        `json:"tenant_id"`
-	ID              pgtype.UUID        `json:"id"`
-	ModelID         pgtype.UUID        `json:"model_id"`
-	Version         string             `json:"version"`
-	Format          string             `json:"format"`
-	Status          string             `json:"status"`
-	IsEncrypted     bool               `json:"is_encrypted"`
-	EncryptAlgo     string             `json:"encrypt_algo"`
-	EncryptHint     string             `json:"encrypt_hint"`
-	SizeBytes       int64              `json:"size_bytes"`
-	ChecksumSha256  string             `json:"checksum_sha256"`
-	EngineType      string             `json:"engine_type"`
-	StartupCommand  string             `json:"startup_command"`
-	StartupArgs     []byte             `json:"startup_args"`
-	ErrorMessage    string             `json:"error_message"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	ExternalModelID string             `json:"external_model_id"`
+	TenantID          pgtype.UUID        `json:"tenant_id"`
+	ID                pgtype.UUID        `json:"id"`
+	ModelID           pgtype.UUID        `json:"model_id"`
+	Version           string             `json:"version"`
+	Format            string             `json:"format"`
+	Status            string             `json:"status"`
+	IsEncrypted       bool               `json:"is_encrypted"`
+	EncryptAlgo       string             `json:"encrypt_algo"`
+	EncryptHint       string             `json:"encrypt_hint"`
+	SizeBytes         int64              `json:"size_bytes"`
+	ChecksumSha256    string             `json:"checksum_sha256"`
+	EngineType        string             `json:"engine_type"`
+	StartupCommand    string             `json:"startup_command"`
+	StartupArgs       []byte             `json:"startup_args"`
+	ErrorMessage      string             `json:"error_message"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ExternalModelID   string             `json:"external_model_id"`
+	ArtifactProvider  string             `json:"artifact_provider"`
+	ArtifactReference string             `json:"artifact_reference"`
 }
 
 func (q *Queries) ListModelVersions(ctx context.Context, arg ListModelVersionsParams) ([]ListModelVersionsRow, error) {
-	rows, err := q.db.Query(ctx, listModelVersions, arg.TenantID, arg.ModelID, arg.Limit)
+	rows, err := q.db.Query(ctx, listModelVersions,
+		arg.TenantID,
+		arg.ModelID,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1100,6 +1276,8 @@ func (q *Queries) ListModelVersions(ctx context.Context, arg ListModelVersionsPa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ExternalModelID,
+			&i.ArtifactProvider,
+			&i.ArtifactReference,
 		); err != nil {
 			return nil, err
 		}
@@ -1118,14 +1296,27 @@ SELECT tenant_id, id, model_id, name, display_name, description, source, source_
 FROM public.models
 WHERE tenant_id = $1 AND status <> 'deleted'
   AND ($2::text = '' OR status = $2)
+  AND ($3::text = '' OR source = $3)
+  AND ($4::text = '' OR capabilities ? $4::text)
+  AND ($5::text = ''
+       OR strpos(lower(name), lower($5)) > 0
+       OR strpos(lower(display_name), lower($5)) > 0
+       OR strpos(lower(model_id), lower($5)) > 0)
+  AND ($6::timestamptz IS NULL
+       OR (created_at, id) < ($6::timestamptz, $7::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT $3
+LIMIT $8
 `
 
 type ListModelsParams struct {
-	TenantID pgtype.UUID `json:"tenant_id"`
-	Column2  string      `json:"column_2"`
-	Limit    int32       `json:"limit"`
+	TenantID        pgtype.UUID        `json:"tenant_id"`
+	StatusFilter    string             `json:"status_filter"`
+	SourceFilter    string             `json:"source_filter"`
+	Capability      string             `json:"capability"`
+	Keyword         string             `json:"keyword"`
+	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
+	BeforeID        pgtype.UUID        `json:"before_id"`
+	PageLimit       int32              `json:"page_limit"`
 }
 
 type ListModelsRow struct {
@@ -1148,7 +1339,16 @@ type ListModelsRow struct {
 }
 
 func (q *Queries) ListModels(ctx context.Context, arg ListModelsParams) ([]ListModelsRow, error) {
-	rows, err := q.db.Query(ctx, listModels, arg.TenantID, arg.Column2, arg.Limit)
+	rows, err := q.db.Query(ctx, listModels,
+		arg.TenantID,
+		arg.StatusFilter,
+		arg.SourceFilter,
+		arg.Capability,
+		arg.Keyword,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1259,6 +1459,76 @@ func (q *Queries) RenewImportTaskLease(ctx context.Context, arg RenewImportTaskL
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const retryFailedImportTask = `-- name: RetryFailedImportTask :one
+UPDATE public.model_import_tasks
+SET status = 'pending', attempt_count = 0, progress_pct = 0,
+    lease_owner = '', lease_until = NULL, next_attempt_at = clock_timestamp(),
+    error_message = '', completed_at = NULL, updated_at = clock_timestamp()
+WHERE tenant_id = $1 AND id = $2 AND status = 'failed'
+RETURNING tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+          revision, idempotency_key, request_fingerprint, status, attempt_count,
+          progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
+          error_message, created_at, updated_at, completed_at
+`
+
+type RetryFailedImportTaskParams struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+type RetryFailedImportTaskRow struct {
+	TenantID           pgtype.UUID        `json:"tenant_id"`
+	ID                 pgtype.UUID        `json:"id"`
+	ModelID            pgtype.UUID        `json:"model_id"`
+	ModelVersionID     pgtype.UUID        `json:"model_version_id"`
+	TaskType           string             `json:"task_type"`
+	Source             string             `json:"source"`
+	RepoID             string             `json:"repo_id"`
+	Revision           string             `json:"revision"`
+	IdempotencyKey     string             `json:"idempotency_key"`
+	RequestFingerprint string             `json:"request_fingerprint"`
+	Status             string             `json:"status"`
+	AttemptCount       int32              `json:"attempt_count"`
+	ProgressPct        int32              `json:"progress_pct"`
+	LeaseOwner         string             `json:"lease_owner"`
+	LeaseEpoch         int64              `json:"lease_epoch"`
+	LeaseUntil         pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt      pgtype.Timestamptz `json:"next_attempt_at"`
+	ErrorMessage       string             `json:"error_message"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+}
+
+func (q *Queries) RetryFailedImportTask(ctx context.Context, arg RetryFailedImportTaskParams) (RetryFailedImportTaskRow, error) {
+	row := q.db.QueryRow(ctx, retryFailedImportTask, arg.TenantID, arg.ID)
+	var i RetryFailedImportTaskRow
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.ModelID,
+		&i.ModelVersionID,
+		&i.TaskType,
+		&i.Source,
+		&i.RepoID,
+		&i.Revision,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.Status,
+		&i.AttemptCount,
+		&i.ProgressPct,
+		&i.LeaseOwner,
+		&i.LeaseEpoch,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
 }
 
 const retryImportTask = `-- name: RetryImportTask :execrows

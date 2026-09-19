@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	biz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/storage"
+	biz "github.com/liangzai006/ani-model-service/internal/biz/storage"
 )
 
 type HTTPAdapter struct {

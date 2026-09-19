@@ -20,6 +20,11 @@ type Metadata struct {
 	Version         string
 }
 
+type File struct {
+	Path string
+	Size int64
+}
+
 type MetadataSource interface {
 	ResolveMetadata(context.Context, Request) (Metadata, error)
 }
@@ -35,6 +40,10 @@ type ContentResult struct {
 
 type ContentSource interface {
 	FetchContent(context.Context, Request) (ContentResult, error)
+}
+
+type ManifestSource interface {
+	ListFiles(context.Context, Request) ([]File, error)
 }
 
 // SourceAdapter downloads metadata/content through an external provider. It

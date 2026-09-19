@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	workbiz "github.com/zhangzhe-ctrl/ani-model-service/internal/biz/work"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
 )
 
 type workerStoreFake struct {

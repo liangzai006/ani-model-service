@@ -1,6 +1,12 @@
 # Model 服务执行状态
 
-更新日期：2026-09-16。
+## 2026-09-18 continuation
+
+- `pass`：C 已新增 Model `GetImportTask`/`RetryImportTask`，失败任务会重置为 pending、清零尝试次数和进度；HuggingFace/ModelScope provider 支持 manifest 读取，worker 会安全打包完整仓库为 tar 并复用 checksum、artifact、ready 链路。真实 HuggingFace 完整仓库、Storage、artifact、ready、任务查询和重试均已通过，见 `records/2026-09-18-model-manifest-import.md`。
+- `partial`：A、B、C 已完成真实数据库/Storage 和完整门禁验收。D 的 ModelVersion 切换已接入 Inference Update：通过 Model gRPC 重新校验 ready 快照并将新版本写入下一代 spec，定向测试、Inference 全量测试/vet/build、Buf lint 和真实 PostgreSQL 更新测试通过；通用引擎/容量、真实生命周期恢复仍待完成。E 的调用测试、策略和 429 仍未实现。
+- `pass`：已移除本地 development principal、明文 Storage/Inference 连接分支、样例 bundle uploader、SmolLM fixture 打包器和开发启动脚本；生产进程只保留 TLS 和外部可信身份边界。自动化单元/集成测试仍保留在源码与 CI 中。
+
+更新日期：2026-09-18。
 
 ## 当前状态
 
@@ -15,23 +21,26 @@
 - `partial`：上传确认路径已接入 `CreateModelVersion`：Storage 对象存在性和 SHA256 校验通过后写入 `model_artifacts`，再执行 ready CAS；成功重放直接返回 ready 版本。完整客户端上传流程仍为 `not_verified`；真实 MinIO 对象、SHA256 和短期地址过期已在导入 E2E 中验证。
 - `partial`：DeleteModel 已接入版本化 Inference 引用检查端口；有引用或检查未知时拒绝软删除，正式 Inference gRPC/API checker 仍未配置。
 - `pass`：可信 `Principal` context、tenant 交叉校验和 scope 检查包及测试。
-- `pass`：新增可插拔可信 `PrincipalResolver` 端口及 Kratos middleware；resolver 成功时将完整 Principal 注入 context，缺失、无效或解析失败统一映射为 401，未配置 resolver 时不伪造身份。IAM/Gateway resolver 的正式接入仍为 `not_verified`。
+- `decision`：IAM 分支当前只发布 Inference data-plane receiver target，没有 Model 管理接口的 reviewed target；Model 不自行发明权限操作，继续保留可信 Principal 端口、middleware、tenant 交叉校验和 401/403 测试，等待 IAM/Gateway 发布 Model target 后接入。
+- `partial`：Model ↔ Inference 的 client、创建时快照写入和 Update 的 ModelVersion 切换已写回两个实际仓库；Inference 真实仓库的全量测试、vet、build、Buf lint 和 ModelVersion PostgreSQL 更新测试通过。正式双进程部署、IAM/Gateway 身份链路和 Kubernetes 生命周期联调仍未验证。详见 [Model–Inference contract](records/2026-09-16-model-inference-contract.md) 和 [ModelVersion switch](records/2026-09-18-model-version-switch.md)。
 - `pass`：开发机网络环境下 `make verify` 全部通过，包含 Buf 1.60.0 固定版本校验、生成稳定性、`go test ./...`、`go vet ./...`、`go build ./...`、`go mod verify` 和 `git diff --check`。
+- `pass`：宿主机 `govulncheck` 已发现并修复 grpc、pgx 和 x/crypto 的直接调用链漏洞；升级至 `google.golang.org/grpc v1.83.2`、`github.com/jackc/pgx/v5 v5.9.2`、`golang.org/x/crypto v0.56.0` 后再次扫描显示 0 个代码受影响漏洞。Gitleaks 扫描无泄漏。
+- `pass`：在不修改当前仓库历史的隔离 clean 快照中完成 CycloneDX SBOM、license review 和 supply-chain 验证；当前仓库已同步 `docs/scaffold/bom.cdx.json` 与 `docs/scaffold/license-review.md`。SBOM 包含 52 个运行时组件，license evidence 完整，固定 layout notice hash 校验通过。
 - `pass`：导入 worker、Provider 下载和 Storage 上传现在输出带 tenant/task/provider 阶段字段的 JSON 结构化日志；本地终端和 Kubernetes `kubectl logs -f` 查看方式已记录。真实 HuggingFace→MinIO E2E 已捕获完整生命周期日志并以退出码 0 完成，见 `docs/execution/records/2026-09-15-import-e2e.md`。
 - `pass`：`ImportModel` 成功落库后会非阻塞唤醒同一 Model Pod 内的持久 worker；真实 E2E 已捕获 `import worker wake requested`，随后完成租户 bucket 检查/创建、Provider 下载、MinIO 上传、checksum、ready 和 completed。worker 仍保留 PostgreSQL due scan 作为重启兜底。见 `docs/execution/records/2026-09-16-tenant-bucket-import-job.md`。
-- `partial`：租户 bucket 的首次真实创建和完整导入已通过；已有 bucket 的第二次真实导入因执行环境审批模型容量不足暂未完成，fake API 的 no-op 创建测试通过。正式 Kubernetes crash/restart 仍为 `not_verified`。
+- `pass`：租户 bucket 首次真实创建、已有 bucket 的再次真实导入及 ready 版本重放均已通过。新增可重复集成测试验证同幂等键返回同一任务、下载 SHA256 一致、短期地址过期返回 HTTP 403；正式 Kubernetes crash/restart 仍为 `not_verified`。见 [Existing bucket replay](records/2026-09-16-existing-bucket-replay.md)。
 - `partial`：Model gRPC `GetModelVersion` handler 已实现可信 Principal、tenant 交叉校验、ready 制品完整性检查并注册到 Kratos server；sqlc CRUD 查询、ModelStore 基础 CRUD 与 gRPC Model CRUD handler 已补齐；导入任务、CreateModel 和 CreateModelVersion 均已持久化 request fingerprint，支持同 payload 重放、不同 payload 冲突；跨资源审计事务仍待接入；ModelVersion gRPC 创建/列表 handler 与 VersionCatalog PostgreSQL adapter 已补齐。
 - `partial`：已新增版本化 `api/storage/v1` gRPC 契约和 `GRPCAdapter`，并由组合根通过 `ANI_STORAGE_GRPC_ADDR` 注入 Model；TLS 默认启用，明文仅显式配置，未配置时 readiness 保持未就绪。bufconn 成功/失败语义、runtime 和 `make verify` 已通过；正式 Storage 服务端接入、真实对象 checksum 和地址过期验证仍为 `not_verified`。自行假定的 HTTP adapter 已撤出编译源码并归档。
 - `pass`（边界核对）：明确客户端 HTTP → 独立 Gateway → Model gRPC；Model 仅保留运维 HTTP，不实现 Gateway。Gateway 部署及端到端转发仍 `not_verified`。见 [入口边界纠正](records/2026-09-14-gateway-boundary.md)。
-- `partial`：导入任务 lease/CAS fencing 领域状态机及 PostgreSQL sqlc adapter 已实现并测试；worker due scan、lease renew、执行循环已实现；ImportModel 现在把 source/repo_id/revision/idempotency_key 持久化到任务，worker 可据此选择外部 provider；已实现 provider→Storage 对象存在性/checksum 执行器；远程任务支持先不绑定 model/version，避免从 repo_id 伪造模型身份；provider 元数据解析、按租户查找既有模型/版本和 lease CAS 绑定已通过真实 HuggingFace→PostgreSQL/MinIO E2E，进程重启/crash 集成测试仍未完成。
+- `partial`：导入任务 lease/CAS fencing 领域状态机及 PostgreSQL sqlc adapter 已实现并测试；worker due scan、lease renew、执行循环已实现；ImportModel 现在把 source/repo_id/revision/idempotency_key 持久化到任务，worker 可据此选择外部 provider；已实现 provider→Storage 对象存在性/checksum 执行器；远程任务支持先不绑定 model/version，避免从 repo_id 伪造模型身份；provider 元数据解析、按租户查找既有模型/版本和 lease CAS 绑定已通过真实 HuggingFace→PostgreSQL/MinIO E2E；新增真实 PostgreSQL 过期 lease 重领测试覆盖“进程中断后重启 worker”核心 fencing 语义，正式 Kubernetes crash/restart 仍未完成。
 - `partial`：worker 对已绑定版本的成功任务会先执行 ready CAS，再确认任务 completed；ready 失败进入 retry。未绑定远程任务现在先执行 provider 元数据绑定，失败时保持 pending 并重试。
 - `pass`：导入 worker 增加有界重试和 `failed` 终态；默认五次尝试，provider、Storage、checksum、绑定和 ready finalization 错误在达到上限后通过 owner/lease_epoch CAS 写入失败状态，旧 worker 结果仍被 fencing。
 - `pass`：远程导入在 provider 未提供摘要时，会在 Storage 内容校验后以一次性 CAS 写入版本 checksum/大小，再执行 artifact 和 ready；预置且一致的摘要可幂等重放，不一致摘要拒绝。
 - `partial`：审计事件领域结构与必填字段校验已实现；Model、ModelVersion、ImportModel 成功受理路径已接入 `audit.Store` 和 PostgreSQL adapter；worker backlog/retry/checksum/provider 指标已接入 Prometheus registry。跨资源原子事务仍待接入。
 - `partial`：Readiness 已支持 PostgreSQL/Storage/worker 依赖门控；新增 WorkerSupervisor 管理 durable worker 启停，worker 循环退出会清除 readiness。组合根现已注入 PostgreSQL WorkStore、正式 provider 和 worker 实例；进程重启/crash 集成测试仍未完成。
-- `pass`：已实现可配置 HuggingFace/ModelScope HTTP source adapter（显式 `repo#file` 下载）、流式上传到 Storage、对象存在性和 SHA256 校验，并由组合根在 PostgreSQL + Storage + `ANI_IMPORT_WORKER_TENANT_ID` 配置齐全时实例化 worker；已用真实 HuggingFace 小文件和集群 MinIO 跑通 gRPC→worker→ready→下载，进程重启/crash 集成测试仍 `not_verified`。
+- `pass`：已实现可配置 HuggingFace/ModelScope HTTP source adapter、完整 manifest tar、流式上传到 Storage、对象存在性和 SHA256 校验，并用真实 HuggingFace 完整仓库和集群 MinIO 跑通 gRPC→worker→artifact→ready→下载及任务重试；正式 Kubernetes crash/restart 仍 `not_verified`。
 - `pass`：修正远程导入任务 schema 与运行语义不一致的问题；`model_import_tasks.model_id` 允许在 provider 元数据解析前为空，并提供兼容已有数据库的 `000002` migration；ModelVersion 的 `model_id` 仍必填。见 [unbound import task schema](records/2026-09-15-unbound-import-task-schema.md)。
-- `partial`：`ImportModelRequest` 现支持可选 Model/ModelVersion 绑定；绑定任务执行成功后会持久化 artifact 并通过 lease/CAS 置版本 ready，artifact 重试具备不可变事实校验；未绑定任务会由 provider 元数据解析并绑定到既有模型版本。真实 provider 和 PostgreSQL 绑定联调仍未完成。见 [provider metadata binding](records/2026-09-15-provider-metadata-binding.md)。
+- `pass`：`ImportModelRequest` 现支持可选 Model/ModelVersion 绑定；绑定任务执行成功后会持久化 artifact 并通过 lease/CAS 置版本 ready，artifact 重试具备不可变事实校验；未绑定任务会由 provider 元数据解析并绑定到既有模型版本。真实 provider、PostgreSQL、Storage 和完整 manifest 绑定联调已通过。见 [provider metadata binding](records/2026-09-15-provider-metadata-binding.md) 和 [完整仓库导入](records/2026-09-18-model-manifest-import.md)。
 - `pass`：worker 已阻止未绑定任务被错误完成；此类任务保持 pending 并通过 CAS retry 延后，只有绑定 `model_version_id` 的任务才会执行 provider、写 artifact 和置 ready。见 [unbound worker deferral](records/2026-09-15-unbound-worker-deferral.md)。
 - `pass`：worker 续租 CAS 失败会立即取消 provider/Storage 执行并进入 retry，旧 lease 不能继续完成任务。见 [lease renewal fencing](records/2026-09-15-lease-renew-fencing.md)。
 - `pass`：正式 Model client 的 ready 版本映射已修正；空启动命令不再生成伪造的 `command_argv[0]`，并保留 artifact 引用、SHA256 和 engine 默认值映射。见 [Inference runtime mapping](records/2026-09-15-inference-runtime-mapping.md)。

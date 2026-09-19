@@ -69,7 +69,7 @@ generate: config
 
 build:
 	mkdir -p bin
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(SERVICE_NAME) ./cmd/...
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(SERVICE_NAME) ./cmd/$(SERVICE_NAME)
 
 test:
 	$(GO) test -count=1 ./...

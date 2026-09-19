@@ -23,7 +23,7 @@ import (
 	traceSdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/identity"
+	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
 type Observability struct {

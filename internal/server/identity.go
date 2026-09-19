@@ -7,7 +7,7 @@ import (
 	kratoserrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/go-kratos/kratos/v3/middleware"
 
-	"github.com/zhangzhe-ctrl/ani-model-service/internal/identity"
+	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
 // PrincipalMiddleware binds a trusted identity to the request context before
