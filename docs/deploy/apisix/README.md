@@ -6,9 +6,10 @@ not delete or modify the existing Envoy `GatewayClass/ani-aigw` or its
 namespaces.
 
 The first slice exposes plain HTTP through a NodePort and routes an HTTPRoute to
-one vLLM Service. Authentication, rate limiting, HTTPS, gRPC routes, IAM,
-Quota, and production Publication integration are intentionally deferred until
-their contracts are available.
+one vLLM Service. Authentication, rate limiting, HTTPS, gRPC routes, IAM and
+Quota remain deferred. The production Publication adapter now lives in the
+Inference repository and creates or withdraws these HTTPRoutes through the
+APISIX Gateway API controller.
 
 ## Install
 
