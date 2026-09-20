@@ -56,8 +56,10 @@ APISIX_NODE_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@
   docs/deploy/apisix/verify-vllm.sh
 ```
 
-The check sends `GET /v1/models` with `Host: smollm2.vllm.test` through APISIX
-and expects a JSON response from the vLLM Service.
+The check sends `GET /v1/models` directly to the APISIX NodePort and expects a
+JSON response from the vLLM Service. The route is a catch-all path route, so no
+`Host` header is required. When DNS is configured later, use the DNS name in
+the URL; it should resolve to the same APISIX node address.
 
 ## Remove the smoke route or release
 
