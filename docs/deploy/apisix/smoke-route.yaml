@@ -8,8 +8,6 @@ spec:
     - name: ani-apisix
       namespace: ingress-apisix
       sectionName: http
-  hostnames:
-    - smollm2.vllm.test
   rules:
     - matches:
         - path:

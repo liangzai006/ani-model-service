@@ -8,7 +8,6 @@ grep -q 'Accepted=True' <<<"$route_status"
 grep -q 'ResolvedRefs=True' <<<"$route_status"
 
 response="$(curl --fail-with-body --silent --show-error --max-time 20 \
-  -H 'Host: smollm2.vllm.test' \
   "http://${APISIX_NODE_IP}:30090/v1/models")"
 grep -Eq '"data"|"object"|"model"' <<<"$response"
 printf '%s\n' "$response"
