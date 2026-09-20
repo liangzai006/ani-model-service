@@ -8,12 +8,11 @@
 - provider 以 HTTP response body 流式返回，不把模型文件整体读入内存。
 - Storage adapter 通过 gRPC `CreateUploadURL` 获取短期地址，再以 HTTP PUT 流式上传；Model 不创建 bucket 或管理对象生命周期。
 - worker 上传后检查对象存在性并调用 Storage checksum 校验。
-- 组合根在 PostgreSQL、Storage 和 `ANI_IMPORT_WORKER_TENANT_ID` 都配置时构造 provider registry、ImportExecutor 和 WorkerSupervisor；缺少任一依赖时保持未就绪。
+- 组合根在 PostgreSQL 和 Storage 配置后构造 provider registry、ImportExecutor 和 WorkerSupervisor；worker 扫描任务自身的 tenant_id，不依赖 Deployment 中的固定租户 UUID。
 
 ## 配置
 
 ```text
-ANI_IMPORT_WORKER_TENANT_ID=<tenant UUID>
 ANI_IMPORT_WORKER_OWNER=<optional worker owner>
 ANI_HUGGINGFACE_BASE_URL=<optional API base, default https://huggingface.co>
 ANI_MODELSCOPE_BASE_URL=<optional API base, default https://www.modelscope.cn>

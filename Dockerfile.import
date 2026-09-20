@@ -1,0 +1,16 @@
+# Build the one-shot importer used by the dynamically-created Kubernetes Job.
+# The runtime image intentionally contains the provider CLIs; the Model Pod
+# only creates and observes the Job.
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/ani-model-import ./cmd/minio-provision
+
+FROM python:3.11-slim
+ENV PYTHONUNBUFFERED=1 \
+    HOME=/staging
+RUN pip install --no-cache-dir modelscope huggingface_hub
+COPY --from=build /out/ani-model-import /ani-model-import
+ENTRYPOINT ["/ani-model-import"]

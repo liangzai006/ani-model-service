@@ -22,6 +22,7 @@ import (
 	conf "github.com/liangzai006/ani-model-service/api/model/v1"
 	bizstorage "github.com/liangzai006/ani-model-service/internal/biz/storage"
 	"github.com/liangzai006/ani-model-service/internal/data/importer"
+	kubedata "github.com/liangzai006/ani-model-service/internal/data/kubernetes"
 	"github.com/liangzai006/ani-model-service/internal/data/postgres"
 	storagedata "github.com/liangzai006/ani-model-service/internal/data/storage"
 	"github.com/liangzai006/ani-model-service/internal/server"
@@ -29,6 +30,8 @@ import (
 	"github.com/liangzai006/ani-model-service/internal/worker"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	k8sclient "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // Name and Version can be overridden with -ldflags at build time.
@@ -81,41 +84,32 @@ func run(logger *slog.Logger) error {
 	var storageConn *grpc.ClientConn
 	storageReady := false
 	minioEndpoint := strings.TrimSpace(os.Getenv("ANI_MINIO_ENDPOINT"))
+	minioSecure := os.Getenv("ANI_MINIO_SECURE") == "true"
+	minioTenantBuckets := strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_MINIO_TENANT_BUCKETS")), "true")
+	minioBucket := firstEnv("ANI_MINIO_BUCKET", "ani-models")
+	kubernetesImportMode := strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_IMPORT_EXECUTION_MODE")), "kubernetes")
 	grpcEndpoint := strings.TrimSpace(os.Getenv("ANI_STORAGE_GRPC_ADDR"))
 	if minioEndpoint != "" && grpcEndpoint != "" {
 		return fmt.Errorf("configure only one of ANI_MINIO_ENDPOINT and ANI_STORAGE_GRPC_ADDR")
 	}
 	if minioEndpoint != "" {
-		secure := os.Getenv("ANI_MINIO_SECURE") == "true"
-		tenantBuckets := strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_MINIO_TENANT_BUCKETS")), "true")
 		var minioStorage *storagedata.MinIOAdapter
 		var createErr error
-		if tenantBuckets {
-			minioStorage, createErr = storagedata.NewMinIOTenantBucketAdapter(minioEndpoint, os.Getenv("ANI_MINIO_ACCESS_KEY"), os.Getenv("ANI_MINIO_SECRET_KEY"), secure)
+		if minioTenantBuckets {
+			minioStorage, createErr = storagedata.NewMinIOTenantBucketAdapter(minioEndpoint, os.Getenv("ANI_MINIO_ACCESS_KEY"), os.Getenv("ANI_MINIO_SECRET_KEY"), minioSecure)
 		} else {
-			bucket := strings.TrimSpace(os.Getenv("ANI_MINIO_BUCKET"))
-			if bucket == "" {
-				bucket = "ani-models"
-			}
-			minioStorage, createErr = storagedata.NewMinIOAdapter(minioEndpoint, os.Getenv("ANI_MINIO_ACCESS_KEY"), os.Getenv("ANI_MINIO_SECRET_KEY"), bucket, secure)
+			minioStorage, createErr = storagedata.NewMinIOAdapter(minioEndpoint, os.Getenv("ANI_MINIO_ACCESS_KEY"), os.Getenv("ANI_MINIO_SECRET_KEY"), minioBucket, minioSecure)
 		}
 		err = createErr
 		if err != nil {
 			return fmt.Errorf("configure MinIO Storage: %w", err)
 		}
-		if !tenantBuckets {
+		if !minioTenantBuckets && !kubernetesImportMode {
 			checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			err = minioStorage.CheckBucket(checkCtx)
 			cancel()
 			if err != nil {
 				return fmt.Errorf("check MinIO bucket: %w", err)
-			}
-		} else if tenantID := strings.TrimSpace(os.Getenv("ANI_IMPORT_WORKER_TENANT_ID")); tenantID != "" {
-			checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err = minioStorage.CheckTenantConnection(checkCtx, tenantID)
-			cancel()
-			if err != nil {
-				return fmt.Errorf("check MinIO tenant access: %w", err)
 			}
 		}
 		storagePort = minioStorage
@@ -161,25 +155,63 @@ func run(logger *slog.Logger) error {
 		modelService.SetArtifactStore(postgres.NewArtifactStore(pool))
 		modelService.SetAuditStore(postgres.NewAuditStore(pool))
 		if storagePort != nil {
-			if tenantID := strings.TrimSpace(os.Getenv("ANI_IMPORT_WORKER_TENANT_ID")); tenantID != "" {
-				owner := strings.TrimSpace(os.Getenv("ANI_IMPORT_WORKER_OWNER"))
-				if owner == "" {
-					owner = id
+			owner := strings.TrimSpace(os.Getenv("ANI_IMPORT_WORKER_OWNER"))
+			if owner == "" {
+				owner = id
+			}
+			providers := importer.Registry{
+				"huggingface": importer.NewHuggingFaceAdapter(os.Getenv("ANI_HUGGINGFACE_BASE_URL"), nil),
+				"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), nil),
+			}
+			artifactStore := postgres.NewArtifactStore(pool)
+			var executor worker.Executor = worker.ImportExecutor{
+				Providers: providers,
+				Storage:   storagePort,
+				Artifacts: artifactStore,
+				Checksums: versionStore,
+				Logger:    logger,
+			}
+			if kubernetesImportMode {
+				if minioEndpoint == "" {
+					return fmt.Errorf("ANI_IMPORT_EXECUTION_MODE=kubernetes requires direct MinIO configuration via ANI_MINIO_ENDPOINT")
 				}
-				providers := importer.Registry{
-					"huggingface": importer.NewHuggingFaceAdapter(os.Getenv("ANI_HUGGINGFACE_BASE_URL"), nil),
-					"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), nil),
+				kubeConfig, configErr := rest.InClusterConfig()
+				if configErr != nil {
+					return fmt.Errorf("configure Kubernetes import Job: %w", configErr)
 				}
-				importWorker = &worker.Worker{
-					Store: workStore, Binder: postgres.NewImportBinder(pool, providers), Executor: worker.ImportExecutor{
-						Providers: providers,
-						Storage:   storagePort,
-						Artifacts: postgres.NewArtifactStore(pool),
-						Checksums: versionStore,
-						Logger:    logger,
-					},
-					Finalizer: versionStore, TenantID: tenantID, Owner: owner, Logger: logger,
+				kubeClient, clientErr := k8sclient.NewForConfig(kubeConfig)
+				if clientErr != nil {
+					return fmt.Errorf("create Kubernetes import client: %w", clientErr)
 				}
+				executor = worker.KubernetesImportExecutor{
+					Jobs:               kubedata.NewImportJobClient(kubeClient),
+					Storage:            storagePort,
+					Artifacts:          artifactStore,
+					Checksums:          versionStore,
+					Providers:          providers,
+					Namespace:          firstEnv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model-inference"),
+					Image:              strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")),
+					ServiceAccount:     strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_SERVICE_ACCOUNT")),
+					MinIOSecretName:    strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")),
+					ProviderSecretName: strings.TrimSpace(os.Getenv("ANI_IMPORT_PROVIDER_SECRET")),
+					MinIOEndpoint:      minioEndpoint,
+					MinIOBucket:        minioBucket,
+					MinIOTenantBuckets: minioTenantBuckets,
+					MinIOSecure:        minioSecure,
+					StorageClass:       strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CLASS")),
+					StorageSize:        strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_SIZE")),
+					PollInterval:       time.Second,
+				}
+				if strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")) == "" {
+					return fmt.Errorf("ANI_IMPORT_JOB_IMAGE is required in Kubernetes import mode")
+				}
+				if strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")) == "" {
+					return fmt.Errorf("ANI_IMPORT_MINIO_SECRET is required in Kubernetes import mode")
+				}
+			}
+			importWorker = &worker.Worker{
+				Store: workStore, Binder: postgres.NewImportBinder(pool, providers), Executor: executor,
+				Finalizer: versionStore, TenantID: "", Owner: owner, Logger: logger,
 			}
 		}
 	}
@@ -202,6 +234,13 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("run app: %w", err)
 	}
 	return nil
+}
+
+func firstEnv(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func newRuntimeLogger(writer io.Writer) *slog.Logger {

@@ -1,0 +1,23 @@
+.git
+.planning
+.tmp
+.tools
+bin
+*.log
+Dockerfile*
+README.md
+AGENTS.md
+
+docs
+migrations
+queries
+configs
+api
+# Keep the source needed by the Dockerfile.
+!go.mod
+!go.sum
+!cmd/
+!cmd/minio-provision/
+!cmd/minio-provision/**
+!internal/
+!internal/**

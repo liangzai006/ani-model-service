@@ -228,11 +228,24 @@ SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
        lease_owner, lease_epoch, lease_until, next_attempt_at, error_message,
        created_at, updated_at, completed_at
 FROM public.model_import_tasks
-WHERE tenant_id = $1 AND status IN ('pending','importing')
+WHERE ($1::uuid IS NULL OR tenant_id = $1)
+  AND status IN ('pending','importing')
   AND next_attempt_at <= clock_timestamp()
   AND (lease_until IS NULL OR lease_until <= clock_timestamp())
 ORDER BY next_attempt_at, created_at, id
 LIMIT $2;
+
+-- name: ListDueImportTasksAll :many
+SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+       revision, idempotency_key, status, attempt_count, progress_pct,
+       lease_owner, lease_epoch, lease_until, next_attempt_at, error_message,
+       created_at, updated_at, completed_at
+FROM public.model_import_tasks
+WHERE status IN ('pending','importing')
+  AND next_attempt_at <= clock_timestamp()
+  AND (lease_until IS NULL OR lease_until <= clock_timestamp())
+ORDER BY next_attempt_at, created_at, id
+LIMIT $1;
 
 -- name: GetImportTaskByIdempotency :one
 SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,

@@ -18,6 +18,11 @@ type HTTPSourceAdapter struct {
 	Client      *http.Client
 	Resolve     func(repoID, revision, file string) string
 	ManifestURL func(repoID, revision string) string
+	// DefaultRevision is provider-specific because Hugging Face uses main
+	// while ModelScope's default branch is master.
+	DefaultRevision string
+	// ManifestKind selects the wire format used by ListFiles.
+	ManifestKind string
 }
 
 func (a *HTTPSourceAdapter) ResolveMetadata(_ context.Context, req Request) (Metadata, error) {
@@ -25,10 +30,7 @@ func (a *HTTPSourceAdapter) ResolveMetadata(_ context.Context, req Request) (Met
 	if err != nil {
 		return Metadata{}, err
 	}
-	version := req.Revision
-	if version == "" {
-		version = "main"
-	}
+	version := a.revision(req.Revision)
 	modelID := path.Base(repo)
 	if modelID == "." || modelID == "/" || modelID == "" {
 		return Metadata{}, fmt.Errorf("%w: model id is empty", ErrProvider)
@@ -40,7 +42,7 @@ func NewHuggingFaceAdapter(baseURL string, client *http.Client) *HTTPSourceAdapt
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://huggingface.co"
 	}
-	return &HTTPSourceAdapter{BaseURL: strings.TrimRight(baseURL, "/"), Client: client, Resolve: func(repo, revision, file string) string {
+	return &HTTPSourceAdapter{BaseURL: strings.TrimRight(baseURL, "/"), Client: client, DefaultRevision: "main", ManifestKind: "huggingface", Resolve: func(repo, revision, file string) string {
 		return strings.TrimRight(baseURL, "/") + "/" + escapePath(repo) + "/resolve/" + url.PathEscape(revision) + "/" + escapePath(file) + "?download=true"
 	}, ManifestURL: func(repo, revision string) string {
 		return strings.TrimRight(baseURL, "/") + "/api/models/" + escapePath(repo) + "?revision=" + url.QueryEscape(revision)
@@ -51,11 +53,21 @@ func NewModelScopeAdapter(baseURL string, client *http.Client) *HTTPSourceAdapte
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://www.modelscope.cn"
 	}
-	return &HTTPSourceAdapter{BaseURL: strings.TrimRight(baseURL, "/"), Client: client, Resolve: func(repo, revision, file string) string {
+	return &HTTPSourceAdapter{BaseURL: strings.TrimRight(baseURL, "/"), Client: client, DefaultRevision: "master", ManifestKind: "modelscope", Resolve: func(repo, revision, file string) string {
 		return strings.TrimRight(baseURL, "/") + "/models/" + escapePath(repo) + "/resolve/" + url.PathEscape(revision) + "/" + escapePath(file)
 	}, ManifestURL: func(repo, revision string) string {
-		return strings.TrimRight(baseURL, "/") + "/api/v1/models/" + escapePath(repo) + "/repo/files?Revision=" + url.QueryEscape(revision)
+		return strings.TrimRight(baseURL, "/") + "/api/v1/models/" + escapePath(repo) + "/repo/files?Revision=" + url.QueryEscape(revision) + "&Recursive=true"
 	}}
+}
+
+func (a *HTTPSourceAdapter) revision(value string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	if a.DefaultRevision != "" {
+		return a.DefaultRevision
+	}
+	return "main"
 }
 
 func (a *HTTPSourceAdapter) Fetch(ctx context.Context, req Request) (Result, error) {
@@ -74,10 +86,7 @@ func (a *HTTPSourceAdapter) FetchContent(ctx context.Context, req Request) (Cont
 	if err != nil {
 		return ContentResult{}, err
 	}
-	revision := req.Revision
-	if revision == "" {
-		revision = "main"
-	}
+	revision := a.revision(req.Revision)
 	if a.Resolve == nil {
 		return ContentResult{}, fmt.Errorf("%w: resolver is not configured", ErrProvider)
 	}
@@ -109,10 +118,7 @@ func (a *HTTPSourceAdapter) ListFiles(ctx context.Context, req Request) ([]File,
 	if err != nil {
 		return nil, err
 	}
-	revision := req.Revision
-	if revision == "" {
-		revision = "main"
-	}
+	revision := a.revision(req.Revision)
 	if a.ManifestURL == nil {
 		return nil, fmt.Errorf("%w: manifest resolver is not configured", ErrProvider)
 	}
@@ -135,19 +141,37 @@ func (a *HTTPSourceAdapter) ListFiles(ctx context.Context, req Request) ([]File,
 	var payload struct {
 		Siblings []struct {
 			Path string `json:"rfilename"`
-			Size int64  `json:"size"`
+			Size *int64 `json:"size"`
 		} `json:"siblings"`
+		Data struct {
+			Files []struct {
+				Path string `json:"Path"`
+				Size int64  `json:"Size"`
+				Type string `json:"Type"`
+			} `json:"Files"`
+		} `json:"Data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: decode manifest: %v", ErrProvider, err)
 	}
-	files := make([]File, 0, len(payload.Siblings))
-	for _, sibling := range payload.Siblings {
-		if strings.TrimSpace(sibling.Path) != "" {
-			if sibling.Size == 0 {
-				sibling.Size = -1
+	files := make([]File, 0, len(payload.Siblings)+len(payload.Data.Files))
+	if a.ManifestKind == "modelscope" {
+		for _, file := range payload.Data.Files {
+			if strings.TrimSpace(file.Path) == "" || strings.EqualFold(file.Type, "tree") {
+				continue
 			}
-			files = append(files, File{Path: sibling.Path, Size: sibling.Size})
+			files = append(files, File{Path: file.Path, Size: file.Size})
+		}
+	} else {
+		for _, sibling := range payload.Siblings {
+			if strings.TrimSpace(sibling.Path) == "" {
+				continue
+			}
+			size := int64(-1)
+			if sibling.Size != nil {
+				size = *sibling.Size
+			}
+			files = append(files, File{Path: sibling.Path, Size: size})
 		}
 	}
 	if len(files) == 0 {

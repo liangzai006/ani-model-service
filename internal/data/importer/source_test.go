@@ -99,3 +99,22 @@ func TestHTTPSourceListsRepositoryManifest(t *testing.T) {
 		t.Fatalf("files=%+v err=%v", files, err)
 	}
 }
+
+func TestModelScopeAdapterListsFilesAndSizes(t *testing.T) {
+	adapter := NewModelScopeAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/api/v1/models/org/model/repo/files" || req.URL.Query().Get("Revision") != "master" || req.URL.Query().Get("Recursive") != "true" {
+			t.Fatalf("manifest request=%s", req.URL.String())
+		}
+		body := `{"Code":200,"Success":true,"Data":{"Files":[{"Path":"config.json","Size":2,"Type":"blob"},{"Path":"weights","Size":0,"Type":"tree"},{"Path":"model.safetensors","Size":123,"Type":"blob"}]}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	files, err := adapter.ListFiles(context.Background(), Request{RepoID: "org/model"})
+	if err != nil || len(files) != 2 || files[0].Path != "config.json" || files[0].Size != 2 || files[1].Size != 123 {
+		t.Fatalf("files=%+v err=%v", files, err)
+	}
+	metadata, err := adapter.ResolveMetadata(context.Background(), Request{RepoID: "org/model"})
+	if err != nil || metadata.Version != "master" {
+		t.Fatalf("metadata=%+v err=%v", metadata, err)
+	}
+}

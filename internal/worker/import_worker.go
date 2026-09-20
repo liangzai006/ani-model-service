@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 )
 
 var ErrVersionBindingRequired = errors.New("import task requires model version binding")
+var ErrMultiTenantStoreUnavailable = errors.New("worker store does not support multi-tenant due scans")
 
 type Store interface {
 	ListDue(context.Context, string, int32) ([]workbiz.Task, error)
@@ -21,6 +23,13 @@ type Store interface {
 	Retry(context.Context, string, string, string, int64, time.Duration, string) error
 	Renew(context.Context, string, string, string, int64, time.Duration) error
 	Bind(context.Context, string, string, string, int64, string, string) error
+}
+
+// AllTenantStore is implemented by the durable store used by the production
+// worker. A non-empty Worker.TenantID can still be used to keep the legacy
+// single-tenant scope for an isolated deployment.
+type AllTenantStore interface {
+	ListDueAll(context.Context, int32) ([]workbiz.Task, error)
 }
 type Executor interface {
 	Execute(context.Context, workbiz.Task) error
@@ -100,12 +109,16 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 }
 func (w *Worker) runOnce(ctx context.Context) error {
-	tasks, err := w.Store.ListDue(ctx, w.TenantID, w.Batch)
+	tasks, err := w.listDue(ctx)
 	if err != nil {
 		return err
 	}
 	for _, t := range tasks {
-		claimed, err := w.Store.Claim(ctx, w.TenantID, t.ID, w.Owner, w.Lease)
+		tenantID := t.TenantID
+		if tenantID == "" {
+			tenantID = w.TenantID
+		}
+		claimed, err := w.Store.Claim(ctx, tenantID, t.ID, w.Owner, w.Lease)
 		if err != nil {
 			w.log(ctx, "import task claim failed", t, slog.String("error_class", errorClass(err)))
 			continue
@@ -129,7 +142,7 @@ func (w *Worker) runOnce(ctx context.Context) error {
 				_ = w.retryOrFail(ctx, claimed, bindErr, time.Second)
 				continue
 			}
-			if bindErr = w.Store.Bind(ctx, w.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch, modelID, versionID); bindErr != nil {
+			if bindErr = w.Store.Bind(ctx, claimed.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch, modelID, versionID); bindErr != nil {
 				w.log(ctx, "import task bind CAS failed", claimed, slog.String("error_class", errorClass(bindErr)))
 				_ = w.retryOrFail(ctx, claimed, bindErr, time.Second)
 				continue
@@ -147,7 +160,7 @@ func (w *Worker) runOnce(ctx context.Context) error {
 			for {
 				select {
 				case <-ticker.C:
-					if err := w.Store.Renew(ctx, w.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch, w.Lease); err != nil {
+					if err := w.Store.Renew(ctx, claimed.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch, w.Lease); err != nil {
 						select {
 						case renewErr <- err:
 						default:
@@ -178,14 +191,14 @@ func (w *Worker) runOnce(ctx context.Context) error {
 		}
 		w.log(ctx, "import execution completed", claimed)
 		if w.Finalizer != nil && claimed.VersionID != "" {
-			if err := w.Finalizer.MarkReady(ctx, w.TenantID, claimed.VersionID); err != nil {
+			if err := w.Finalizer.MarkReady(ctx, claimed.TenantID, claimed.VersionID); err != nil {
 				w.log(ctx, "import version ready transition failed", claimed, slog.String("error_class", errorClass(err)))
 				_ = w.retryOrFail(ctx, claimed, err, time.Second)
 				continue
 			}
 			w.log(ctx, "import version ready", claimed, slog.String("version_id", claimed.VersionID))
 		}
-		if err := w.Store.Complete(ctx, w.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch); err != nil {
+		if err := w.Store.Complete(ctx, claimed.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch); err != nil {
 			w.log(ctx, "import task completion failed", claimed, slog.String("error_class", errorClass(err)))
 			continue
 		}
@@ -194,13 +207,24 @@ func (w *Worker) runOnce(ctx context.Context) error {
 	return nil
 }
 
+func (w *Worker) listDue(ctx context.Context) ([]workbiz.Task, error) {
+	if strings.TrimSpace(w.TenantID) != "" {
+		return w.Store.ListDue(ctx, w.TenantID, w.Batch)
+	}
+	store, ok := w.Store.(AllTenantStore)
+	if !ok {
+		return nil, ErrMultiTenantStoreUnavailable
+	}
+	return store.ListDueAll(ctx, w.Batch)
+}
+
 func (w *Worker) retryOrFail(ctx context.Context, task workbiz.Task, err error, after time.Duration) error {
 	if w.MaxAttempts > 0 && task.AttemptCount >= w.MaxAttempts {
 		w.log(ctx, "import task failed", task, slog.String("error_class", errorClass(err)), slog.String("terminal", "true"))
-		return w.Store.Fail(ctx, w.TenantID, task.ID, w.Owner, task.LeaseEpoch, err.Error())
+		return w.Store.Fail(ctx, task.TenantID, task.ID, w.Owner, task.LeaseEpoch, err.Error())
 	}
 	w.log(ctx, "import task retry scheduled", task, slog.String("error_class", errorClass(err)), slog.Duration("retry_after", after))
-	return w.Store.Retry(ctx, w.TenantID, task.ID, w.Owner, task.LeaseEpoch, after, err.Error())
+	return w.Store.Retry(ctx, task.TenantID, task.ID, w.Owner, task.LeaseEpoch, after, err.Error())
 }
 
 func (w *Worker) log(ctx context.Context, message string, t workbiz.Task, attrs ...any) {

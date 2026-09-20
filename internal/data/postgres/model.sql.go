@@ -1118,7 +1118,8 @@ SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
        lease_owner, lease_epoch, lease_until, next_attempt_at, error_message,
        created_at, updated_at, completed_at
 FROM public.model_import_tasks
-WHERE tenant_id = $1 AND status IN ('pending','importing')
+WHERE ($1::uuid IS NULL OR tenant_id = $1)
+  AND status IN ('pending','importing')
   AND next_attempt_at <= clock_timestamp()
   AND (lease_until IS NULL OR lease_until <= clock_timestamp())
 ORDER BY next_attempt_at, created_at, id
@@ -1126,8 +1127,8 @@ LIMIT $2
 `
 
 type ListDueImportTasksParams struct {
-	TenantID pgtype.UUID `json:"tenant_id"`
-	Limit    int32       `json:"limit"`
+	Column1 pgtype.UUID `json:"column_1"`
+	Limit   int32       `json:"limit"`
 }
 
 type ListDueImportTasksRow struct {
@@ -1154,7 +1155,7 @@ type ListDueImportTasksRow struct {
 }
 
 func (q *Queries) ListDueImportTasks(ctx context.Context, arg ListDueImportTasksParams) ([]ListDueImportTasksRow, error) {
-	rows, err := q.db.Query(ctx, listDueImportTasks, arg.TenantID, arg.Limit)
+	rows, err := q.db.Query(ctx, listDueImportTasks, arg.Column1, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1162,6 +1163,83 @@ func (q *Queries) ListDueImportTasks(ctx context.Context, arg ListDueImportTasks
 	items := []ListDueImportTasksRow{}
 	for rows.Next() {
 		var i ListDueImportTasksRow
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.ID,
+			&i.ModelID,
+			&i.ModelVersionID,
+			&i.TaskType,
+			&i.Source,
+			&i.RepoID,
+			&i.Revision,
+			&i.IdempotencyKey,
+			&i.Status,
+			&i.AttemptCount,
+			&i.ProgressPct,
+			&i.LeaseOwner,
+			&i.LeaseEpoch,
+			&i.LeaseUntil,
+			&i.NextAttemptAt,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDueImportTasksAll = `-- name: ListDueImportTasksAll :many
+SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+       revision, idempotency_key, status, attempt_count, progress_pct,
+       lease_owner, lease_epoch, lease_until, next_attempt_at, error_message,
+       created_at, updated_at, completed_at
+FROM public.model_import_tasks
+WHERE status IN ('pending','importing')
+  AND next_attempt_at <= clock_timestamp()
+  AND (lease_until IS NULL OR lease_until <= clock_timestamp())
+ORDER BY next_attempt_at, created_at, id
+LIMIT $1
+`
+
+type ListDueImportTasksAllRow struct {
+	TenantID       pgtype.UUID        `json:"tenant_id"`
+	ID             pgtype.UUID        `json:"id"`
+	ModelID        pgtype.UUID        `json:"model_id"`
+	ModelVersionID pgtype.UUID        `json:"model_version_id"`
+	TaskType       string             `json:"task_type"`
+	Source         string             `json:"source"`
+	RepoID         string             `json:"repo_id"`
+	Revision       string             `json:"revision"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	Status         string             `json:"status"`
+	AttemptCount   int32              `json:"attempt_count"`
+	ProgressPct    int32              `json:"progress_pct"`
+	LeaseOwner     string             `json:"lease_owner"`
+	LeaseEpoch     int64              `json:"lease_epoch"`
+	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	ErrorMessage   string             `json:"error_message"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+}
+
+func (q *Queries) ListDueImportTasksAll(ctx context.Context, limit int32) ([]ListDueImportTasksAllRow, error) {
+	rows, err := q.db.Query(ctx, listDueImportTasksAll, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDueImportTasksAllRow{}
+	for rows.Next() {
+		var i ListDueImportTasksAllRow
 		if err := rows.Scan(
 			&i.TenantID,
 			&i.ID,

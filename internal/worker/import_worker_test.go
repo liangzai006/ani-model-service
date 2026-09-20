@@ -19,6 +19,20 @@ type workerStoreFake struct {
 	renewErr                          error
 }
 
+type allTenantStoreFake struct {
+	workerStoreFake
+	claimTenant string
+}
+
+func (s *allTenantStoreFake) ListDueAll(context.Context, int32) ([]workbiz.Task, error) {
+	return []workbiz.Task{s.task}, nil
+}
+
+func (s *allTenantStoreFake) Claim(ctx context.Context, tenantID, taskID, owner string, lease time.Duration) (workbiz.Task, error) {
+	s.claimTenant = tenantID
+	return s.workerStoreFake.Claim(ctx, tenantID, taskID, owner, lease)
+}
+
 func (s *workerStoreFake) ListDue(context.Context, string, int32) ([]workbiz.Task, error) {
 	return []workbiz.Task{s.task}, nil
 }
@@ -101,11 +115,12 @@ func (b bindingFake) ResolveBinding(context.Context, workbiz.Task) (string, stri
 
 type finalizerFake struct {
 	err     error
+	tenant  string
 	version string
 }
 
-func (f *finalizerFake) MarkReady(_ context.Context, _, version string) error {
-	f.version = version
+func (f *finalizerFake) MarkReady(_ context.Context, tenant, version string) error {
+	f.tenant, f.version = tenant, version
 	return f.err
 }
 
@@ -118,6 +133,21 @@ func TestWorkerFinalizesVersionBeforeCompletingTask(t *testing.T) {
 	}
 	if finalizer.version != "version" || !store.completed || store.retried {
 		t.Fatalf("finalize/complete order failed: version=%q completed=%v retried=%v", finalizer.version, store.completed, store.retried)
+	}
+}
+
+func TestWorkerUsesTaskTenantWhenScopeIsEmpty(t *testing.T) {
+	store := &allTenantStoreFake{workerStoreFake: workerStoreFake{task: workbiz.Task{TenantID: "tenant-from-task", ID: "task", VersionID: "version", Status: workbiz.Pending}}}
+	finalizer := &finalizerFake{}
+	w := &Worker{Store: store, Executor: workerExecutorFake{}, Finalizer: finalizer, Owner: "worker", Lease: time.Minute}
+	if err := w.runOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.claimTenant != "tenant-from-task" {
+		t.Fatalf("claim tenant = %q, want tenant-from-task", store.claimTenant)
+	}
+	if finalizer.tenant != "tenant-from-task" {
+		t.Fatalf("finalizer tenant = %q, want tenant-from-task", finalizer.tenant)
 	}
 }
 

@@ -8,6 +8,10 @@
 
 更新日期：2026-09-18。
 
+## 2026-09-20 continuation
+
+- `partial`：导入入口已改为独立 Kubernetes Job 路径。Model worker 创建 Job/PVC 并观察状态，`cmd/minio-provision` 在 Job 中先幂等检查/创建共享或租户 bucket，再用 ModelScope/Hugging Face CLI 下载并流式上传 tar；结果经对象存在性和 SHA-256 校验后写 artifact/ready。StorageClass 可使用集群默认值，容量可按 provider manifest 动态估算；真实集群 Job、真实大模型和 Inference 物化尚未验收。详见 [Kubernetes import Job](records/2026-09-20-kubernetes-import-job.md)。
+
 ## 当前状态
 
 - `pass`：固定 `ani-kratos-layout` 骨架生成、Kratos gRPC/admin/health 生命周期、API 配置 Proto 迁移到 `api/model/v1`。

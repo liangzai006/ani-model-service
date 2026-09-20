@@ -17,18 +17,20 @@ make verify
 go run ./cmd/ani-model-service -conf ./configs
 ```
 
-导入下载不是写入 Model 进程本地磁盘，而是由 Provider 流式传给已配置的
-Storage adapter，再写入外部 Storage（MinIO 时为配置的 bucket）。导入阶段日志写到
-进程标准输出，包含 `tenant_id`、`task_id`、Provider、字节数和状态阶段；不会输出凭据
-或签名 URL。查看方式：
+生产导入使用独立的 Kubernetes Job，不占用 Model Pod 的本地磁盘。Model 服务先把任务
+写入 PostgreSQL，再创建一个带大容量 PVC 的 Job；Job 以
+`/ani-model-import`（`cmd/minio-provision`）为入口，先检查并幂等创建目标 bucket，
+然后调用 ModelScope/Hugging Face CLI 下载到 PVC，打包后上传 MinIO。Job 完成后，Model
+worker 校验对象和 SHA-256，再写入 artifact 并把版本置为 ready。导入日志写到 Job
+标准输出，包含 provider、任务和阶段信息；不会输出凭据或签名 URL。查看方式：
 
 ```bash
 # 本地
 go run ./cmd/ani-model-service -conf ./configs 2>&1 | tee model-service.log
 
 # Kubernetes
-kubectl -n <model-namespace> get pods
-kubectl -n <model-namespace> logs <model-pod> -f
+kubectl -n <import-namespace> get jobs,pods -l ani.liangzai006.io/import-job=true
+kubectl -n <import-namespace> logs job/<job-name> -c import -f
 ```
 
 真实导入成功后，`public.model_artifacts.reference` 保存 Storage 对象引用，
@@ -61,15 +63,30 @@ When MinIO is used directly, set `ANI_MINIO_ENDPOINT`,
 `ANI_MINIO_ACCESS_KEY`, and `ANI_MINIO_SECRET_KEY`; the credentials should be
 injected from a Kubernetes Secret. `ANI_MINIO_BUCKET` defaults to
 `ani-models` for shared-bucket compatibility. With
-`ANI_MINIO_TENANT_BUCKETS=true`, each tenant uses a bucket named by its UUID and
-the import job checks/creates that bucket immediately before downloading.
+`ANI_MINIO_TENANT_BUCKETS=true`, each tenant uses a bucket named by its UUID;
+otherwise the shared bucket stores objects under the tenant prefix. The Job
+checks and creates the selected bucket immediately before downloading.
 
-The provisioning command can pre-create a tenant bucket, while the tenant-bucket
-import path also creates a missing bucket idempotently at download time:
+Set `ANI_IMPORT_EXECUTION_MODE=kubernetes` on the Model Deployment and provide
+`ANI_IMPORT_JOB_IMAGE` and `ANI_IMPORT_KUBERNETES_NAMESPACE`. You may omit
+`ANI_IMPORT_STORAGE_CLASS`; Kubernetes then uses its configured default
+StorageClass. You may also omit `ANI_IMPORT_STORAGE_SIZE`: the worker sums the
+provider manifest and adds headroom before creating the PVC. If the provider
+does not expose sizes (for example a private manifest that the Model Pod
+cannot read), the task asks for an explicit size instead. The Model Pod's
+service account needs permission to create/get Jobs and PVCs and read Job Pods'
+logs. `ANI_IMPORT_MINIO_SECRET` supplies MinIO credentials to the Job and
+`ANI_IMPORT_PROVIDER_SECRET` may supply `MODELSCOPE_API_TOKEN` or Hugging Face
+credentials. See [the Job deployment example](docs/deploy/import-job.yaml).
 
-```bash
-go run ./cmd/minio-provision
-```
+The PostgreSQL-backed worker scans due tasks across tenants and passes each
+task's real tenant ID to the Job. The Deployment does not contain a tenant UUID.
+
+The import image must contain the compiled command at `/ani-model-import`, the
+`modelscope` CLI, and optionally the `hf` CLI. `Dockerfile.import` is a minimal
+image example. The command streams the tar upload and does not impose the old
+512 MiB in-process limit; the available PVC and MinIO capacity remain the
+physical limits.
 
 - Kratos lifecycle with graceful shutdown.
 - gRPC and a separate admin HTTP server.

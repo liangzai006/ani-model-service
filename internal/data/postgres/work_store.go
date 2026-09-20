@@ -129,19 +129,50 @@ func nullableUUIDString(value pgtype.UUID) string {
 }
 
 func (s *WorkStore) ListDue(ctx context.Context, tenantID string, limit int32) ([]workbiz.Task, error) {
-	t, err := uuid.Parse(tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("tenant_id: %w", err)
+	var tenant pgtype.UUID
+	if tenantID != "" {
+		t, err := uuid.Parse(tenantID)
+		if err != nil {
+			return nil, fmt.Errorf("tenant_id: %w", err)
+		}
+		tenant = uuidType(t)
 	}
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	rs, err := s.q.ListDueImportTasks(ctx, ListDueImportTasksParams{TenantID: uuidType(t), Limit: limit})
+	rs, err := s.q.ListDueImportTasks(ctx, ListDueImportTasksParams{Column1: tenant, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]workbiz.Task, len(rs))
 	for i, r := range rs {
+		modelID := ""
+		if r.ModelID.Valid {
+			modelID = uuid.UUID(r.ModelID.Bytes).String()
+		}
+		versionID := ""
+		if r.ModelVersionID.Valid {
+			versionID = uuid.UUID(r.ModelVersionID.Bytes).String()
+		}
+		out[i] = workbiz.Task{TenantID: uuid.UUID(r.TenantID.Bytes).String(), ID: uuid.UUID(r.ID.Bytes).String(), ModelID: modelID, VersionID: versionID, TaskType: r.TaskType, Source: r.Source, RepoID: r.RepoID, Revision: r.Revision, IdempotencyKey: r.IdempotencyKey, Status: r.Status, LeaseOwner: r.LeaseOwner, LeaseEpoch: r.LeaseEpoch, AttemptCount: int(r.AttemptCount), LeaseUntil: r.LeaseUntil.Time}
+	}
+	return out, nil
+}
+
+// ListDueAll returns due import tasks across tenants. The worker uses the
+// tenant from each returned task when claiming and finalizing it, so the
+// deployment does not need a hard-coded tenant UUID.
+func (s *WorkStore) ListDueAll(ctx context.Context, limit int32) ([]workbiz.Task, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rs, err := s.q.ListDueImportTasksAll(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]workbiz.Task, len(rs))
+	for i, r := range rs {
+		tenantID := uuid.UUID(r.TenantID.Bytes).String()
 		modelID := ""
 		if r.ModelID.Valid {
 			modelID = uuid.UUID(r.ModelID.Bytes).String()

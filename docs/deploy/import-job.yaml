@@ -1,0 +1,68 @@
+# RBAC for the Model Pod that creates and observes import Jobs.
+# Bind this Role to the service account used by the ani-model-service
+# Deployment. The dynamically-created import Job uses a separate account and
+# does not need Kubernetes API permissions.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ani-model-import-job
+  namespace: ani-model-inference
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ani-model-import-controller
+  namespace: ani-model-inference
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ani-model-import-controller
+  namespace: ani-model-inference
+subjects:
+  # Change this name to the ServiceAccount on the ani-model-service Deployment.
+  - kind: ServiceAccount
+    name: ani-model-service
+    namespace: ani-model-inference
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ani-model-import-controller
+
+# Add these variables to the Model Deployment:
+#
+#   ANI_IMPORT_EXECUTION_MODE=kubernetes
+#   ANI_IMPORT_KUBERNETES_NAMESPACE=ani-model-inference
+#   ANI_IMPORT_JOB_IMAGE=registry.example/ani-model-import:v1
+#   ANI_IMPORT_JOB_SERVICE_ACCOUNT=ani-model-import-job
+#   ANI_IMPORT_MINIO_SECRET=ani-model-import-minio
+#   ANI_IMPORT_PROVIDER_SECRET=ani-model-import-provider
+#   ANI_IMPORT_STORAGE_CLASS=cephfs       # optional; empty uses cluster default
+#   ANI_IMPORT_STORAGE_SIZE=512Gi         # optional; empty estimates manifest size
+#
+# If the provider manifest cannot be read by the Model Pod, set
+# ANI_IMPORT_STORAGE_SIZE explicitly; the worker will reject an unknown size
+# rather than create an undersized PVC.
+#
+# Create the two Secrets out of band. The MinIO Secret must contain
+# ANI_MINIO_ACCESS_KEY and ANI_MINIO_SECRET_KEY. The provider Secret can contain
+# MODELSCOPE_API_TOKEN and/or HF_TOKEN; the provider CLI reads those variables.
+#
+#   kubectl -n ani-model-inference create secret generic ani-model-import-minio \
+#     --from-literal=ANI_MINIO_ACCESS_KEY='...' \
+#     --from-literal=ANI_MINIO_SECRET_KEY='...'
+#   kubectl -n ani-model-inference create secret generic ani-model-import-provider \
+#     --from-literal=MODELSCOPE_API_TOKEN='...'
