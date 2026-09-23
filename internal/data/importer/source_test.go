@@ -88,7 +88,7 @@ func TestHTTPSourceResolvesRepositoryMetadataWithoutFile(t *testing.T) {
 func TestHTTPSourceListsRepositoryManifest(t *testing.T) {
 	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
 	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/api/models/org/model" || req.URL.Query().Get("revision") != "main" {
+		if req.URL.Path != "/api/models/org/model/revision/main" || req.URL.Query().Get("blobs") != "true" {
 			t.Fatalf("manifest request=%s", req.URL.String())
 		}
 		body := `{"siblings":[{"rfilename":"config.json"},{"rfilename":"model.safetensors","size":12}]}`
@@ -96,6 +96,21 @@ func TestHTTPSourceListsRepositoryManifest(t *testing.T) {
 	})}
 	files, err := adapter.ListFiles(context.Background(), Request{RepoID: "org/model"})
 	if err != nil || len(files) != 2 || files[0].Path != "config.json" || files[0].Size != -1 || files[1].Size != 12 {
+		t.Fatalf("files=%+v err=%v", files, err)
+	}
+}
+
+func TestHuggingFaceManifestPinsRevisionAndRequestsSizes(t *testing.T) {
+	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.EscapedPath() != "/api/models/org/model/revision/refs%2Fpr%2F42" || req.URL.Query().Get("blobs") != "true" {
+			t.Fatalf("manifest request=%s", req.URL.String())
+		}
+		body := `{"sha":"refs-pr-42","siblings":[{"rfilename":"model.safetensors","size":123}]}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	files, err := adapter.ListFiles(context.Background(), Request{RepoID: "org/model", Revision: "refs/pr/42"})
+	if err != nil || len(files) != 1 || files[0].Path != "model.safetensors" || files[0].Size != 123 {
 		t.Fatalf("files=%+v err=%v", files, err)
 	}
 }

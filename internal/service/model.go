@@ -260,7 +260,7 @@ func (s *ModelService) CreateModelVersion(ctx context.Context, in *modelv1.Creat
 	if err != nil {
 		return nil, err
 	}
-	v := model.Version{TenantID: p.TenantID, ID: uuid.NewString(), ModelID: m.ID, ExternalModelID: m.ExternalModelID, Version: in.GetVersion(), Format: in.GetFormat(), Status: "pending", ArtifactSHA256: in.GetChecksumSha256(), EngineType: in.GetEngineType(), StartupCommand: in.GetStartupCommand(), StartupArgs: in.GetStartupArgs(), IdempotencyKey: in.GetIdempotencyKey()}
+	v := model.Version{TenantID: p.TenantID, ID: uuid.NewString(), ModelID: m.ID, ExternalModelID: m.ExternalModelID, Version: in.GetVersion(), Format: in.GetFormat(), Status: "pending", SizeBytes: in.GetSizeBytes(), ArtifactSHA256: in.GetChecksumSha256(), EngineType: in.GetEngineType(), StartupCommand: in.GetStartupCommand(), StartupArgs: in.GetStartupArgs(), IdempotencyKey: in.GetIdempotencyKey()}
 	if err := v.Validate(); err != nil || model.ValidateEngine(v.EngineType, v.StartupCommand, v.StartupArgs) != nil {
 		return nil, errors2.New(400, "INVALID_ARGUMENT", "invalid model version")
 	}

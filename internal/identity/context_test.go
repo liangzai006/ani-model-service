@@ -18,8 +18,9 @@ func TestRequireTenantUsesTrustedContext(t *testing.T) {
 	}
 }
 
-func TestRequireTenantRejectsMissingPrincipal(t *testing.T) {
-	if _, err := RequireTenant(context.Background(), "tenant-a"); !errors.Is(err, ErrMissingPrincipal) {
-		t.Fatalf("got %v, want missing principal", err)
+func TestRequireTenantAllowsDirectRequestTenant(t *testing.T) {
+	got, err := RequireTenant(context.Background(), "tenant-a")
+	if err != nil || got.TenantID != "tenant-a" || got.Actor != "direct" || got.Workload != "direct" || got.RequestID == "" {
+		t.Fatalf("direct principal = %#v, err = %v", got, err)
 	}
 }

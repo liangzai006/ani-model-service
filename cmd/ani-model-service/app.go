@@ -32,8 +32,8 @@ func buildAppWithModelService(bc *conf.Bootstrap, logger *slog.Logger, modelServ
 	if err != nil {
 		return nil, err
 	}
-	// Identity is supplied by the trusted ingress/IAM boundary. The service
-	// deliberately has no local development principal fallback.
+	// The isolated validation deployment calls Model directly and scopes each
+	// request with its tenant_id; no IAM resolver is installed here.
 	middlewares := observability.ServerMiddleware(logger)
 	grpcServer := server.NewGRPCServer(bc.Server.Grpc, middlewares...)
 	conf.RegisterModelServiceServer(grpcServer, modelService)

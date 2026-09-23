@@ -1,0 +1,70 @@
+# One-shot Model schema migration for the new-cluster PostgreSQL instance.
+# Create the ConfigMap from the repository's migrations/ directory before
+# applying this Job. The Job reads only ani-foundation/postgres and uses the
+# new-cluster Secret; it does not touch the Inference schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-migrations-20260921
+  namespace: ani-foundation
+  labels:
+    app.kubernetes.io/name: model-migrations
+    ani.liangzai006.io/environment: new-cluster
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: model-migrations
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: quay.io/sclorg/postgresql-16-c9s@sha256:8cfb29c886b54dd2c535e24896dffe45ff47a3006b9e880ef864415683f1daed
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-auth
+                  key: username
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-auth
+                  key: password
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-auth
+                  key: database
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+          command:
+            - sh
+            - -ec
+            - |
+              export PGPASSWORD="$POSTGRESQL_PASSWORD"
+              for file in $(find /migrations -maxdepth 1 \( -type f -o -type l \) -name '*.sql' | sort); do
+                echo "applying $(basename "$file")"
+                psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$POSTGRESQL_USER" -d "$POSTGRESQL_DATABASE" -f "$file"
+              done
+              psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$POSTGRESQL_USER" -d "$POSTGRESQL_DATABASE" -Atqc "select 'model_migrations=' || count(*) from information_schema.tables where table_schema='public' and table_name in ('models', 'model_versions', 'model_artifacts', 'model_import_tasks', 'audit_events')"
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: migrations
+          configMap:
+            name: model-migrations-20260921

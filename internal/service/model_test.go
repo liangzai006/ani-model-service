@@ -127,13 +127,12 @@ func (f *artifactFake) GetArtifact(context.Context, string, string) (model.Artif
 	return f.created, nil
 }
 
-func TestGetModelVersionRequiresTrustedTenant(t *testing.T) {
+func TestGetModelVersionUsesRequestTenantWithoutPrincipal(t *testing.T) {
 	s := NewModelService(versionReaderFunc(func(context.Context, string, string) (model.Version, error) {
-		t.Fatal("reader called")
-		return model.Version{}, nil
+		return model.Version{TenantID: "t", ID: "v", Status: "pending"}, nil
 	}))
 	_, err := s.GetModelVersion(context.Background(), &modelv1.GetModelVersionRequest{TenantId: "t", ModelVersionId: "v"})
-	if kratoserrors.Code(err) != 401 {
+	if kratoserrors.Code(err) != 404 {
 		t.Fatalf("code=%v err=%v", kratoserrors.Code(err), err)
 	}
 }
@@ -269,7 +268,7 @@ func TestCreateModelVersionFinalizesUploadedArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateModelVersion() error = %v", err)
 	}
-	if !versions.ready || got.GetStatus() != "ready" || artifacts.created.Reference != "tenant-a/model-a/v1/model.gguf" || artifacts.created.SHA256 != checksum {
+	if !versions.ready || got.GetStatus() != "ready" || got.GetSizeBytes() != 42 || versions.created.SizeBytes != 42 || artifacts.created.Reference != "tenant-a/model-a/v1/model.gguf" || artifacts.created.SHA256 != checksum {
 		t.Fatalf("version=%+v ready=%v artifact=%+v", got, versions.ready, artifacts.created)
 	}
 }

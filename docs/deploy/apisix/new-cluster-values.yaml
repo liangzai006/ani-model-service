@@ -1,0 +1,87 @@
+# APISIX values for the isolated cluster described by .clusterenv.
+# Keep the legacy docs/deploy/apisix/values.yaml unchanged; it targets the
+# existing environment and its storage class.
+
+global:
+  # The etcd image is mirrored into the isolated Harbor registry.
+  security:
+    allowInsecureImages: true
+
+service:
+  type: NodePort
+  http:
+    enabled: true
+    servicePort: 80
+    containerPort: 9080
+    nodePort: 30090
+
+image:
+  repository: docker.changqingyun.cn/ani/apisix
+  pullPolicy: IfNotPresent
+  tag: new-cluster-20260921-r1
+
+initContainer:
+  image: docker.changqingyun.cn/ani/apisix-busybox
+  tag: new-cluster-20260921-r1
+
+etcd:
+  enabled: true
+  replicaCount: 1
+  image:
+    registry: docker.changqingyun.cn
+    repository: ani/apisix-etcd
+    tag: new-cluster-20260921-r1
+  persistence:
+    enabled: true
+    storageClass: rook-ceph-block
+    size: 1Gi
+
+apisix:
+  admin:
+    enabled: true
+    type: ClusterIP
+    credentials:
+      secretName: ani-apisix-admin
+      secretAdminKey: admin
+      secretViewerKey: viewer
+
+ingress-controller:
+  enabled: true
+  webhook:
+    enabled: false
+  deployment:
+    image:
+      repository: docker.changqingyun.cn/ani/apisix-ingress-controller
+      pullPolicy: IfNotPresent
+      tag: new-cluster-20260921-r1
+    adcContainer:
+      image:
+        repository: docker.changqingyun.cn/ani/apisix-adc
+        tag: new-cluster-20260921-r1
+  config:
+    controllerName: apisix.apache.org/ani-apisix-ingress-controller
+    disableGatewayAPI: false
+    listenerPortMatchMode: "off"
+  gatewayProxy:
+    createDefault: true
+    provider:
+      type: ControlPlane
+      controlPlane:
+        service:
+          name: ani-apisix-admin
+          port: 9180
+        auth:
+          type: AdminKey
+          adminKey:
+            valueFrom:
+              secretKeyRef:
+                name: ani-apisix-admin
+                key: admin
+  crds:
+    gatewayAPI:
+      enabled: false
+  apisix:
+    adminService:
+      namespace: ingress-apisix
+      name: ani-apisix-admin
+      port: 9180

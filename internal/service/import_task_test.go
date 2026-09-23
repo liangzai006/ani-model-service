@@ -63,10 +63,10 @@ func TestRetryImportTaskResetsFailedTask(t *testing.T) {
 	}
 }
 
-func TestRetryImportTaskRequiresTrustedTenant(t *testing.T) {
+func TestRetryImportTaskUsesRequestTenantWithoutPrincipal(t *testing.T) {
 	s := NewModelImportService(nil)
 	_, err := s.RetryImportTask(context.Background(), &modelv1.RetryImportTaskRequest{TenantId: "tenant-a", TaskId: "task-a"})
-	if kratoserrors.Code(err) != 401 {
+	if kratoserrors.Code(err) != 400 {
 		t.Fatalf("code=%v err=%v", kratoserrors.Code(err), err)
 	}
 }

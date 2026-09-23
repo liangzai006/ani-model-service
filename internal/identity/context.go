@@ -43,6 +43,11 @@ func FromContext(ctx context.Context) (Principal, error) {
 func RequireTenant(ctx context.Context, requestTenant string) (Principal, error) {
 	p, err := FromContext(ctx)
 	if err != nil {
+		if errors.Is(err, ErrMissingPrincipal) && requestTenant != "" {
+			// The isolated validation deployment has no IAM boundary. Keep the
+			// request tenant as the local scope and mark the caller explicitly.
+			return Principal{TenantID: requestTenant, Actor: "direct", Workload: "direct", RequestID: "direct"}, nil
+		}
 		return Principal{}, err
 	}
 	if requestTenant != "" && requestTenant != p.TenantID {

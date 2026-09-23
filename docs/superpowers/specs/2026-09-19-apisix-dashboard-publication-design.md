@@ -54,7 +54,7 @@ same resource conditions.
 ## Composition and persistence
 
 `cmd/ani-inference-service/main.go` constructs the Kubernetes publication
-adapter when `ANI_KUBERNETES_ENABLED=true`, alongside the existing Runtime
+adapter alongside the existing Runtime
 Executor. Configuration supplies the APISIX Gateway namespace/name, route
 hostname suffix, and path prefix. PostgreSQL persists the resulting URL and
 observed phase through the existing `SavePublication` path; no second route

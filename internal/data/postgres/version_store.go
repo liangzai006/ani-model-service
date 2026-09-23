@@ -69,7 +69,7 @@ func (s *VersionStore) CreateVersion(ctx context.Context, v modelbiz.Version) (m
 			return modelbiz.Version{}, lookupErr
 		}
 	}
-	r, err := q.CreateModelVersion(ctx, CreateModelVersionParams{TenantID: uuidType(t), ID: uuidType(id), ModelID: uuidType(mid), Version: v.Version, Format: v.Format, ChecksumSha256: v.ArtifactSHA256, EngineType: v.EngineType, StartupCommand: v.StartupCommand, StartupArgs: args, IdempotencyKey: v.IdempotencyKey, RequestFingerprint: fingerprint})
+	r, err := q.CreateModelVersion(ctx, CreateModelVersionParams{TenantID: uuidType(t), ID: uuidType(id), ModelID: uuidType(mid), Version: v.Version, Format: v.Format, SizeBytes: v.SizeBytes, ChecksumSha256: v.ArtifactSHA256, EngineType: v.EngineType, StartupCommand: v.StartupCommand, StartupArgs: args, IdempotencyKey: v.IdempotencyKey, RequestFingerprint: fingerprint})
 	if err != nil {
 		return modelbiz.Version{}, err
 	}

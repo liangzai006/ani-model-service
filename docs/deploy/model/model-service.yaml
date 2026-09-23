@@ -1,0 +1,195 @@
+# New-cluster Model service only. Secrets are created out of band in the
+# ani-model namespace and are intentionally not stored in this manifest.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ani-model
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: model-service
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ani-model-service
+  namespace: ani-model
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ani-model-import-job
+  namespace: ani-model
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ani-model-import-controller
+  namespace: ani-model
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ani-model-import-controller
+  namespace: ani-model
+subjects:
+  - kind: ServiceAccount
+    name: ani-model-service
+    namespace: ani-model
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ani-model-import-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ani-model-service
+  namespace: ani-model
+  labels:
+    app.kubernetes.io/name: ani-model-service
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ani-model-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ani-model-service
+        app.kubernetes.io/component: control-plane
+    spec:
+      serviceAccountName: ani-model-service
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+      containers:
+        - name: model
+          image: docker.changqingyun.cn/ani/model-service:ani-model-new-20260923-r10@sha256:7bca715f1f24c60acadc6b7b7cbd45deb7d4a7570df3b86d9846afe1f23c9bfa
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ANI_SERVER_GRPC_ADDR
+              value: 0.0.0.0:19090
+            - name: ANI_SERVER_GRPC_TIMEOUT
+              value: 30s
+            - name: ANI_SERVER_ADMIN_ADDR
+              value: 0.0.0.0:19091
+            - name: ANI_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: ani-model-database
+                  key: dsn
+            - name: ANI_MINIO_ENDPOINT
+              value: minio.ani-foundation.svc.cluster.local:9000
+            - name: ANI_MINIO_SECURE
+              value: "false"
+            - name: ANI_MINIO_BUCKET
+              value: ani-models
+            # Shared-bucket mode matches the current importer/finalizer key
+            # contract. Tenant buckets remain disabled until that contract is
+            # corrected and regression-tested.
+            - name: ANI_MINIO_TENANT_BUCKETS
+              value: "false"
+            - name: ANI_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ani-model-minio
+                  key: ANI_MINIO_ACCESS_KEY
+            - name: ANI_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ani-model-minio
+                  key: ANI_MINIO_SECRET_KEY
+            - name: ANI_IMPORT_EXECUTION_MODE
+              value: kubernetes
+            - name: ANI_IMPORT_KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ANI_IMPORT_JOB_IMAGE
+              value: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260921-r1@sha256:c8283c4e5b45a246c4684d6cb3ef6e298846c3c0c7798468f557e6cd22ba8e16
+            - name: ANI_IMPORT_JOB_SERVICE_ACCOUNT
+              value: ani-model-import-job
+            - name: ANI_IMPORT_MINIO_SECRET
+              value: ani-model-minio
+            - name: ANI_IMPORT_STORAGE_CLASS
+              value: cephfs
+            # Leave empty so the provider manifest estimates staging capacity
+            # for larger repositories instead of imposing a 1Gi fixed cap.
+            - name: ANI_IMPORT_WORKER_OWNER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: grpc
+              containerPort: 19090
+            - name: admin
+              containerPort: 19091
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ani-model-grpc
+  namespace: ani-model
+  labels:
+    app.kubernetes.io/name: ani-model-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ani-model-service
+  ports:
+    - name: grpc
+      port: 19090
+      targetPort: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ani-model-admin
+  namespace: ani-model
+  labels:
+    app.kubernetes.io/name: ani-model-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ani-model-service
+  ports:
+    - name: admin
+      port: 19091
+      targetPort: admin

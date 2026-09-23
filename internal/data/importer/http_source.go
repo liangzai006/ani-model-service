@@ -45,7 +45,7 @@ func NewHuggingFaceAdapter(baseURL string, client *http.Client) *HTTPSourceAdapt
 	return &HTTPSourceAdapter{BaseURL: strings.TrimRight(baseURL, "/"), Client: client, DefaultRevision: "main", ManifestKind: "huggingface", Resolve: func(repo, revision, file string) string {
 		return strings.TrimRight(baseURL, "/") + "/" + escapePath(repo) + "/resolve/" + url.PathEscape(revision) + "/" + escapePath(file) + "?download=true"
 	}, ManifestURL: func(repo, revision string) string {
-		return strings.TrimRight(baseURL, "/") + "/api/models/" + escapePath(repo) + "?revision=" + url.QueryEscape(revision)
+		return strings.TrimRight(baseURL, "/") + "/api/models/" + escapePath(repo) + "/revision/" + url.PathEscape(revision) + "?blobs=true"
 	}}
 }
 
