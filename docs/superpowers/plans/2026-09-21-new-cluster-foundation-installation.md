@@ -88,7 +88,7 @@ Expected result: service-to-service TLS and tenant identity are real deployment 
 
 - [x] Publish immutable Model and Import Job images to a registry reachable by the new nodes.
 - [x] Apply Model Deployment, gRPC/admin Services, ConfigMap, Secret references, ServiceAccount, and import-controller RBAC in the dedicated `ani-model` namespace.
-- [x] Configure `ANI_DATABASE_DSN`, `ANI_MINIO_ENDPOINT`, `ANI_IMPORT_EXECUTION_MODE=kubernetes`, `ANI_IMPORT_JOB_IMAGE`, `ANI_IMPORT_MINIO_SECRET`, `ANI_IMPORT_KUBERNETES_NAMESPACE`, and `ANI_IMPORT_STORAGE_CLASS=cephfs`.
+- [x] Configure `ANI_DATABASE_DSN`, `ANI_MINIO_ENDPOINT`, `ANI_IMPORT_JOB_IMAGE`, `ANI_IMPORT_MINIO_SECRET`, `ANI_IMPORT_KUBERNETES_NAMESPACE`, and `ANI_IMPORT_STORAGE_CLASS=cephfs`; imports always run as Kubernetes Jobs and size their staging PVC from the provider manifest.
 - [x] Verify `/healthz`, `/readyz`, PostgreSQL/Storage readiness, and namespace-scoped import RBAC without touching unrelated namespaces.
 - [ ] Verify an authenticated Model gRPC request and run one import after the trusted IAM resolver is available.
 - [ ] Run one small-model import and verify the ModelVersion artifact checksum and ready state.

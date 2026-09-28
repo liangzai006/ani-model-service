@@ -84,7 +84,7 @@ func ValidateEngine(engine, command string, args []string) error {
 	if engine == "" && command == "" && len(args) == 0 {
 		return nil
 	}
-	if engine != "vllm" && engine != "sglang" && engine != "tgi" {
+	if strings.TrimSpace(engine) == "" {
 		return ErrInvalidModelVersion
 	}
 	if strings.TrimSpace(command) == "" || strings.ContainsAny(command, "\r\n") {

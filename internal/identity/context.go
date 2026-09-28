@@ -3,6 +3,8 @@ package identity
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 )
 
 var (
@@ -44,6 +46,12 @@ func RequireTenant(ctx context.Context, requestTenant string) (Principal, error)
 	p, err := FromContext(ctx)
 	if err != nil {
 		if errors.Is(err, ErrMissingPrincipal) && requestTenant != "" {
+			// SECURITY: Authentication bypass for isolated deployments ONLY.
+			// Set ANI_ALLOW_DIRECT_ACCESS=true explicitly to enable this mode.
+			// DO NOT enable in production with external traffic.
+			if !isDirectAccessAllowed() {
+				return Principal{}, ErrMissingPrincipal
+			}
 			// The isolated validation deployment has no IAM boundary. Keep the
 			// request tenant as the local scope and mark the caller explicitly.
 			return Principal{TenantID: requestTenant, Actor: "direct", Workload: "direct", RequestID: "direct"}, nil
@@ -54,6 +62,13 @@ func RequireTenant(ctx context.Context, requestTenant string) (Principal, error)
 		return Principal{}, ErrTenantMismatch
 	}
 	return p, nil
+}
+
+// isDirectAccessAllowed checks if the authentication bypass is explicitly enabled.
+// This should ONLY be true in isolated development/testing environments.
+func isDirectAccessAllowed() bool {
+	value := os.Getenv("ANI_ALLOW_DIRECT_ACCESS")
+	return strings.EqualFold(strings.TrimSpace(value), "true")
 }
 
 func HasScope(p Principal, scope string) bool {

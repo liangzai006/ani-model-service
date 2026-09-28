@@ -11,7 +11,7 @@ Import Job 的入口。它按以下顺序执行：
 4. 将 staging 目录流式打成 `imports/<task-id>/model.tar`，上传 MinIO，计算 SHA-256，并输出
    `ANI_IMPORT_RESULT` 结果行。
 
-Model worker 在 `ANI_IMPORT_EXECUTION_MODE=kubernetes` 时创建 PVC 和 Job。Job 名称由 task
+Model worker 统一创建 PVC 和 Job。Job 名称由 task
 和 attempt 组成：同一 attempt 在 worker 重启后复用，不同 attempt 使用新 Job/PVC。成功后
 worker 读取结果行，校验对象存在性和 checksum，再写入 artifact 并完成原有 ready/CAS 流程。
 
@@ -19,9 +19,9 @@ Deployment 不配置租户 UUID。PostgreSQL worker 扫描所有租户的 due ta
 自身的 `tenant_id` 完成 claim、bucket 和 Job 环境注入。
 
 `ANI_IMPORT_STORAGE_CLASS` 为空时，PVC 的 `storageClassName` 保持为空，由 Kubernetes
-选择集群默认 StorageClass。`ANI_IMPORT_STORAGE_SIZE` 为空时，Model worker 读取 provider
-manifest 的文件大小，按总大小增加 20% 且至少增加 10Gi，再向上取整到 Gi；manifest 无法
-读取或存在未知文件大小时拒绝创建 Job，要求显式配置容量，避免为大模型创建不足的 PVC。
+选择集群默认 StorageClass。Model worker 始终读取 provider manifest 的文件大小，按总大小
+增加 20% 且至少增加 10Gi，再向上取整到 Gi；manifest 无法读取或存在未知文件大小时拒绝
+创建 Job，避免为大模型创建不足的 PVC。容量没有手工覆盖参数。
 
 本地证据：
 

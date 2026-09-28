@@ -13,12 +13,12 @@ func TestReadyVersionRequiresVerifiedArtifact(t *testing.T) {
 	}
 }
 
-func TestValidateEngineUsesAllowlist(t *testing.T) {
-	if err := ValidateEngine("bash", "/bin/sh", nil); err == nil {
-		t.Fatal("untrusted engine accepted")
+func TestValidateEngineAcceptsCallerOwnedRuntime(t *testing.T) {
+	if err := ValidateEngine("custom-runtime", "/opt/custom-server", []string{"--model", "/models"}); err != nil {
+		t.Fatalf("caller-owned runtime rejected: %v", err)
 	}
-	if err := ValidateEngine("vllm", "python", []string{"-m", "vllm.entrypoints.openai.api_server"}); err != nil {
-		t.Fatalf("vllm rejected: %v", err)
+	if err := ValidateEngine("custom-runtime", "", nil); err == nil {
+		t.Fatal("incomplete runtime accepted")
 	}
 }
 

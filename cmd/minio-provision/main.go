@@ -152,7 +152,7 @@ func downloadCommand(source, repoID, revision, staging string, get getenv) (stri
 	switch source {
 	case "modelscope":
 		bin := firstNonEmpty(strings.TrimSpace(get("ANI_MODELSCOPE_CLI")), "modelscope")
-		args := []string{"download", "--model", repo, "--revision", revision, "--local_dir", staging}
+		args := []string{"download", "--revision", revision, "--local-dir", staging, repo}
 		if file != "" {
 			args = append(args, file)
 		}

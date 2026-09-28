@@ -64,9 +64,10 @@ func TestRetryImportTaskResetsFailedTask(t *testing.T) {
 }
 
 func TestRetryImportTaskUsesRequestTenantWithoutPrincipal(t *testing.T) {
+	// SECURITY: Without principal and without ANI_ALLOW_DIRECT_ACCESS, should fail auth
 	s := NewModelImportService(nil)
 	_, err := s.RetryImportTask(context.Background(), &modelv1.RetryImportTaskRequest{TenantId: "tenant-a", TaskId: "task-a"})
-	if kratoserrors.Code(err) != 400 {
+	if kratoserrors.Code(err) != 401 {
 		t.Fatalf("code=%v err=%v", kratoserrors.Code(err), err)
 	}
 }

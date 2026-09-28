@@ -128,11 +128,12 @@ func (f *artifactFake) GetArtifact(context.Context, string, string) (model.Artif
 }
 
 func TestGetModelVersionUsesRequestTenantWithoutPrincipal(t *testing.T) {
+	// SECURITY: Without principal and without ANI_ALLOW_DIRECT_ACCESS, should fail auth
 	s := NewModelService(versionReaderFunc(func(context.Context, string, string) (model.Version, error) {
 		return model.Version{TenantID: "t", ID: "v", Status: "pending"}, nil
 	}))
 	_, err := s.GetModelVersion(context.Background(), &modelv1.GetModelVersionRequest{TenantId: "t", ModelVersionId: "v"})
-	if kratoserrors.Code(err) != 404 {
+	if kratoserrors.Code(err) != 401 {
 		t.Fatalf("code=%v err=%v", kratoserrors.Code(err), err)
 	}
 }

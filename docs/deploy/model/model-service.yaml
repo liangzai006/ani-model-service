@@ -14,12 +14,6 @@ metadata:
   name: ani-model-service
   namespace: ani-model
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: ani-model-import-job
-  namespace: ani-model
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -79,7 +73,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: model
-          image: docker.changqingyun.cn/ani/model-service:ani-model-new-20260923-r10@sha256:7bca715f1f24c60acadc6b7b7cbd45deb7d4a7570df3b86d9846afe1f23c9bfa
+          image: docker.changqingyun.cn/ani/model-service:ani-model-new-20260928-r2@sha256:4745cafa1c3579f22ebb1d52d075923fd01e2485fec2a3fba271297d2ae608d4
           imagePullPolicy: IfNotPresent
           env:
             - name: ANI_SERVER_GRPC_ADDR
@@ -114,26 +108,22 @@ spec:
                 secretKeyRef:
                   name: ani-model-minio
                   key: ANI_MINIO_SECRET_KEY
-            - name: ANI_IMPORT_EXECUTION_MODE
-              value: kubernetes
             - name: ANI_IMPORT_KUBERNETES_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: ANI_IMPORT_JOB_IMAGE
-              value: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260921-r1@sha256:c8283c4e5b45a246c4684d6cb3ef6e298846c3c0c7798468f557e6cd22ba8e16
-            - name: ANI_IMPORT_JOB_SERVICE_ACCOUNT
-              value: ani-model-import-job
+              value: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260928-r2@sha256:e8cbf686d3fa4f3661cb396f2d8d67e5767ae4d790b8331b0df5831bd0f5e8f0
             - name: ANI_IMPORT_MINIO_SECRET
               value: ani-model-minio
             - name: ANI_IMPORT_STORAGE_CLASS
               value: cephfs
-            # Leave empty so the provider manifest estimates staging capacity
-            # for larger repositories instead of imposing a 1Gi fixed cap.
             - name: ANI_IMPORT_WORKER_OWNER
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: ANI_ALLOW_DIRECT_ACCESS
+              value: "true"
           ports:
             - name: grpc
               containerPort: 19090

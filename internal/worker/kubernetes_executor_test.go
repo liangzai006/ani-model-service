@@ -25,17 +25,16 @@ func TestParseImportResultUsesLastStableResultLine(t *testing.T) {
 	}
 }
 
-func TestKubernetesImportExecutorJobSpecUsesImportEntrypoint(t *testing.T) {
+func TestKubernetesImportExecutorJobSpecUsesImageEntrypoint(t *testing.T) {
 	e := KubernetesImportExecutor{
 		Namespace:          "ani-models",
 		Image:              "registry.example/ani-model-importer:v1",
-		ServiceAccount:     "ani-model-importer",
 		MinIOSecretName:    "ani-minio",
 		ProviderSecretName: "ani-model-provider",
 		MinIOEndpoint:      "minio.storage:9000",
 		MinIOBucket:        "ani-models",
 		StorageClass:       "cephfs",
-		StorageSize:        "512Gi",
+		Providers:          importer.Registry{"modelscope": manifestSizeSource{}},
 	}
 	spec, pvc, err := e.jobSpec(context.Background(), workbiz.Task{
 		TenantID: "99999999-9999-4999-8999-999999999999",
@@ -47,10 +46,10 @@ func TestKubernetesImportExecutorJobSpecUsesImportEntrypoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Command == nil || len(spec.Command) != 1 || spec.Command[0] != "/ani-model-import" {
-		t.Fatalf("command = %#v", spec.Command)
+	if len(spec.Command) != 0 {
+		t.Fatalf("command = %#v, want image entrypoint", spec.Command)
 	}
-	if spec.Namespace != e.Namespace || spec.Image != e.Image || spec.ServiceAccountName != e.ServiceAccount {
+	if spec.Namespace != e.Namespace || spec.Image != e.Image || spec.ServiceAccountName != "ani-model-service" {
 		t.Fatalf("job identity = %#v", spec)
 	}
 	if pvc.Name == "" || pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != "cephfs" {
@@ -75,7 +74,7 @@ func TestKubernetesImportExecutorJobNameIsStablePerAttempt(t *testing.T) {
 		Namespace:    "ani-models",
 		Image:        "registry.example/ani-model-importer:v1",
 		StorageClass: "cephfs",
-		StorageSize:  "512Gi",
+		Providers:    importer.Registry{"modelscope": manifestSizeSource{}},
 	}
 	task := workbiz.Task{
 		TenantID: "99999999-9999-4999-8999-999999999999",
@@ -142,8 +141,10 @@ func TestKubernetesImportExecutorUsesClusterDefaultAndEstimatesPVCSize(t *testin
 	if got := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; got.String() != "11Gi" {
 		t.Fatalf("estimated storage = %s, want 11Gi", got.String())
 	}
-	if got := envValue(spec.Env, "ANI_IMPORT_STORAGE_SIZE"); got != "11Gi" {
-		t.Fatalf("storage env = %q, want 11Gi", got)
+	for _, env := range spec.Env {
+		if env.Name == "ANI_IMPORT_STORAGE_SIZE" {
+			t.Fatalf("unexpected manual storage-size environment: %q", env.Name)
+		}
 	}
 }
 
@@ -152,8 +153,8 @@ func TestKubernetesImportExecutorReusesFailedJobForSameAttempt(t *testing.T) {
 		Namespace:    "ani-models",
 		Image:        "registry.example/ani-model-importer:v1",
 		StorageClass: "cephfs",
-		StorageSize:  "512Gi",
 		PollInterval: time.Millisecond,
+		Providers:    importer.Registry{"modelscope": manifestSizeSource{}},
 	}
 	task := workbiz.Task{
 		TenantID:     "99999999-9999-4999-8999-999999999999",

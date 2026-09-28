@@ -19,8 +19,18 @@ func TestRequireTenantUsesTrustedContext(t *testing.T) {
 }
 
 func TestRequireTenantAllowsDirectRequestTenant(t *testing.T) {
+	// SECURITY: This test validates that direct access requires explicit opt-in
+	t.Setenv("ANI_ALLOW_DIRECT_ACCESS", "true")
 	got, err := RequireTenant(context.Background(), "tenant-a")
 	if err != nil || got.TenantID != "tenant-a" || got.Actor != "direct" || got.Workload != "direct" || got.RequestID == "" {
 		t.Fatalf("direct principal = %#v, err = %v", got, err)
+	}
+}
+
+func TestRequireTenantDeniesDirectAccessByDefault(t *testing.T) {
+	// SECURITY: Without ANI_ALLOW_DIRECT_ACCESS, direct mode should fail
+	_, err := RequireTenant(context.Background(), "tenant-123")
+	if !errors.Is(err, ErrMissingPrincipal) {
+		t.Fatalf("expected ErrMissingPrincipal, got %v", err)
 	}
 }

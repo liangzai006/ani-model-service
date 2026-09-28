@@ -59,7 +59,7 @@ startup_command
 startup_args
 ```
 
-它们表示 Model 服务维护的受信默认运行建议。Model 服务只允许经过 engine allowlist 和参数校验的配置；Inference 可以按自身契约合并允许的覆盖，并把最终 `engine_runtime`/`command_argv` 保存到自己的 spec，不能接受任意租户命令。
+这些字段仅为兼容旧 Model 契约而保留，不是 Inference 的运行时默认值。Inference 创建或更新推理服务时，调用方必须在请求中提供 engine 类型、镜像和完整启动命令；Model 不限制引擎类型，也不拼接、补全或覆盖任何引擎参数。
 
 ## 状态和异步任务
 
@@ -78,10 +78,10 @@ pending → importing → ready
 
 Model 服务负责模型元数据、版本、制品可用性、导入任务、下载授权和相关审计。资源变更、任务受理和幂等结果与审计事件在本地事务中提交；事件至少包含 tenant、Actor、Workload、RequestID、operation/task ID、动作、before/after 状态和错误分类。它不创建或观察 Inference Deployment/LWS/Service，不管理推理配额，不判断推理 Pod 是否 ready，也不发布推理 endpoint。
 
-Inference 负责把 Model 返回的制品和默认启动配置应用到自己的 runtime，并持续观察模型加载和调用健康。
+Inference 负责把 Model 返回的制品和请求中明确提供的引擎配置应用到自己的 runtime，并持续观察模型加载和调用健康。
 
 ## 验证范围
 
-正式进程的 `/readyz` 必须检查 PostgreSQL、Storage adapter 和导入 worker；依赖未配置时保持未就绪。必须验证：sqlc 租户隔离、真实 PostgreSQL migration、导入任务重启恢复、SHA256 校验、幂等重放、`GetModelVersion` 与 `GetModelDownloadURL` 的权限和过期语义、删除引用检查、启动命令 allowlist，以及 Inference 使用正式 Model gRPC 的端到端联调。
+正式进程的 `/readyz` 必须检查 PostgreSQL、Storage adapter 和导入 worker；依赖未配置时保持未就绪。必须验证：sqlc 租户隔离、真实 PostgreSQL migration、导入任务重启恢复、SHA256 校验、幂等重放、`GetModelVersion` 与 `GetModelDownloadURL` 的权限和过期语义、删除引用检查，以及 Inference 使用正式 Model gRPC 的端到端联调。
 
 不能用 fake Model provider、固定模型或固定配额证明正式链路完成。

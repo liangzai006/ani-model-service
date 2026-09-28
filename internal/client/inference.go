@@ -8,8 +8,7 @@ import (
 )
 
 type RuntimeModel struct {
-	VersionID, ModelID, ArtifactRef, ArtifactSHA256, EngineRuntime string
-	CommandArgv                                                    []string
+	VersionID, ModelID, ArtifactRef, ArtifactSHA256 string
 }
 type ArtifactDownload struct {
 	URL, StoragePath string
@@ -37,11 +36,7 @@ func runtimeModelFromVersion(v *modelv1.ModelVersion) (RuntimeModel, error) {
 	if v.GetStatus() != "ready" || v.GetStoragePath() == "" || v.GetChecksumSha256() == "" {
 		return RuntimeModel{}, errors.New(412, "MODEL_NOT_READY", "model version is not deployment ready")
 	}
-	argv := append([]string(nil), v.GetStartupArgs()...)
-	if v.GetStartupCommand() != "" {
-		argv = append([]string{v.GetStartupCommand()}, argv...)
-	}
-	return RuntimeModel{VersionID: v.GetId(), ModelID: v.GetModelId(), ArtifactRef: v.GetStoragePath(), ArtifactSHA256: v.GetChecksumSha256(), EngineRuntime: v.GetEngineType(), CommandArgv: argv}, nil
+	return RuntimeModel{VersionID: v.GetId(), ModelID: v.GetModelId(), ArtifactRef: v.GetStoragePath(), ArtifactSHA256: v.GetChecksumSha256()}, nil
 }
 
 func (c *ModelClient) GetArtifactDownloadURL(ctx context.Context, tenant, versionID, requester string) (ArtifactDownload, error) {

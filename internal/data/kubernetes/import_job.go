@@ -165,6 +165,18 @@ func (c *ImportJobClient) GetPVC(ctx context.Context, namespace, name string) (*
 	return pvc, nil
 }
 
+// DeletePVC deletes a PersistentVolumeClaim. This is best-effort cleanup after job completion.
+func (c *ImportJobClient) DeletePVC(ctx context.Context, namespace, name string) error {
+	if c == nil || c.client == nil {
+		return ErrKubernetesClientUnavailable
+	}
+	err := c.client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("delete import pvc %s/%s: %w", namespace, name, err)
+	}
+	return nil
+}
+
 func (c *ImportJobClient) Logs(ctx context.Context, namespace, name string) (string, error) {
 	if c == nil || c.client == nil {
 		return "", ErrKubernetesClientUnavailable

@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -50,6 +53,13 @@ func main() {
 	flag.Parse()
 	logger := newRuntimeLogger(os.Stdout)
 	log.SetDefault(logger)
+
+	// Validate all required configuration early, before any resource initialization
+	if err := validateRequiredConfig(); err != nil {
+		logger.Error("configuration validation failed", "error", err)
+		os.Exit(1)
+	}
+
 	if err := run(logger); err != nil {
 		logger.Error("service terminated", "error", err)
 		os.Exit(1)
@@ -87,7 +97,6 @@ func run(logger *slog.Logger) error {
 	minioSecure := os.Getenv("ANI_MINIO_SECURE") == "true"
 	minioTenantBuckets := strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_MINIO_TENANT_BUCKETS")), "true")
 	minioBucket := firstEnv("ANI_MINIO_BUCKET", "ani-models")
-	kubernetesImportMode := strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_IMPORT_EXECUTION_MODE")), "kubernetes")
 	grpcEndpoint := strings.TrimSpace(os.Getenv("ANI_STORAGE_GRPC_ADDR"))
 	if minioEndpoint != "" && grpcEndpoint != "" {
 		return fmt.Errorf("configure only one of ANI_MINIO_ENDPOINT and ANI_STORAGE_GRPC_ADDR")
@@ -104,22 +113,18 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return fmt.Errorf("configure MinIO Storage: %w", err)
 		}
-		if !minioTenantBuckets && !kubernetesImportMode {
-			checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err = minioStorage.CheckBucket(checkCtx)
-			cancel()
-			if err != nil {
-				return fmt.Errorf("check MinIO bucket: %w", err)
-			}
-		}
 		storagePort = minioStorage
 		storageReady = true
 	}
 	if grpcEndpoint != "" {
+		tlsConfig, tlsErr := buildStorageTLSConfig()
+		if tlsErr != nil {
+			return fmt.Errorf("configure Storage TLS: %w", tlsErr)
+		}
 		dialCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		opts := []grpc.DialOption{
 			grpc.WithBlock(),
-			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: os.Getenv("ANI_STORAGE_GRPC_SERVER_NAME")})),
+			grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		}
 		storagePort, storageConn, err = storagedata.DialGRPC(dialCtx, grpcEndpoint, opts...)
 		cancel()
@@ -134,17 +139,19 @@ func run(logger *slog.Logger) error {
 	if dsn := os.Getenv("ANI_DATABASE_DSN"); dsn != "" {
 		pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		pool, err = pgxpool.New(pingCtx, dsn)
-		if err == nil {
-			err = pool.Ping(pingCtx)
-		}
 		cancel()
 		if err != nil {
-			if pool != nil {
-				pool.Close()
-			}
 			return fmt.Errorf("connect PostgreSQL: %w", err)
 		}
+		// Ensure pool is closed on any subsequent error
 		defer pool.Close()
+
+		pingCtx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+		err = pool.Ping(pingCtx2)
+		cancel2()
+		if err != nil {
+			return fmt.Errorf("ping PostgreSQL: %w", err)
+		}
 		postgresReady = true
 		modelStore := postgres.NewModelStore(pool)
 		versionStore := postgres.NewVersionStore(pool)
@@ -159,55 +166,48 @@ func run(logger *slog.Logger) error {
 			if owner == "" {
 				owner = id
 			}
+
+			// Create HTTP client with proper timeouts for external providers
+			httpClient := newImporterHTTPClient()
+
 			providers := importer.Registry{
-				"huggingface": importer.NewHuggingFaceAdapter(os.Getenv("ANI_HUGGINGFACE_BASE_URL"), nil),
-				"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), nil),
+				"huggingface": importer.NewHuggingFaceAdapter(os.Getenv("ANI_HUGGINGFACE_BASE_URL"), httpClient),
+				"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), httpClient),
 			}
 			artifactStore := postgres.NewArtifactStore(pool)
-			var executor worker.Executor = worker.ImportExecutor{
-				Providers: providers,
-				Storage:   storagePort,
-				Artifacts: artifactStore,
-				Checksums: versionStore,
-				Logger:    logger,
+			if minioEndpoint == "" {
+				return fmt.Errorf("Kubernetes import requires direct MinIO configuration via ANI_MINIO_ENDPOINT")
 			}
-			if kubernetesImportMode {
-				if minioEndpoint == "" {
-					return fmt.Errorf("ANI_IMPORT_EXECUTION_MODE=kubernetes requires direct MinIO configuration via ANI_MINIO_ENDPOINT")
-				}
-				kubeConfig, configErr := rest.InClusterConfig()
-				if configErr != nil {
-					return fmt.Errorf("configure Kubernetes import Job: %w", configErr)
-				}
-				kubeClient, clientErr := k8sclient.NewForConfig(kubeConfig)
-				if clientErr != nil {
-					return fmt.Errorf("create Kubernetes import client: %w", clientErr)
-				}
-				executor = worker.KubernetesImportExecutor{
-					Jobs:               kubedata.NewImportJobClient(kubeClient),
-					Storage:            storagePort,
-					Artifacts:          artifactStore,
-					Checksums:          versionStore,
-					Providers:          providers,
-					Namespace:          firstEnv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model-inference"),
-					Image:              strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")),
-					ServiceAccount:     strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_SERVICE_ACCOUNT")),
-					MinIOSecretName:    strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")),
-					ProviderSecretName: strings.TrimSpace(os.Getenv("ANI_IMPORT_PROVIDER_SECRET")),
-					MinIOEndpoint:      minioEndpoint,
-					MinIOBucket:        minioBucket,
-					MinIOTenantBuckets: minioTenantBuckets,
-					MinIOSecure:        minioSecure,
-					StorageClass:       strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CLASS")),
-					StorageSize:        strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_SIZE")),
-					PollInterval:       time.Second,
-				}
-				if strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")) == "" {
-					return fmt.Errorf("ANI_IMPORT_JOB_IMAGE is required in Kubernetes import mode")
-				}
-				if strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")) == "" {
-					return fmt.Errorf("ANI_IMPORT_MINIO_SECRET is required in Kubernetes import mode")
-				}
+			kubeConfig, configErr := rest.InClusterConfig()
+			if configErr != nil {
+				return fmt.Errorf("configure Kubernetes import Job: %w", configErr)
+			}
+			kubeClient, clientErr := k8sclient.NewForConfig(kubeConfig)
+			if clientErr != nil {
+				return fmt.Errorf("create Kubernetes import client: %w", clientErr)
+			}
+			executor := worker.KubernetesImportExecutor{
+				Jobs:               kubedata.NewImportJobClient(kubeClient),
+				Storage:            storagePort,
+				Artifacts:          artifactStore,
+				Checksums:          versionStore,
+				Providers:          providers,
+				Namespace:          firstEnv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model"),
+				Image:              strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")),
+				MinIOSecretName:    strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")),
+				ProviderSecretName: strings.TrimSpace(os.Getenv("ANI_IMPORT_PROVIDER_SECRET")),
+				MinIOEndpoint:      minioEndpoint,
+				MinIOBucket:        minioBucket,
+				MinIOTenantBuckets: minioTenantBuckets,
+				MinIOSecure:        minioSecure,
+				StorageClass:       strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CLASS")),
+				PollInterval:       time.Second,
+			}
+			if strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")) == "" {
+				return fmt.Errorf("ANI_IMPORT_JOB_IMAGE is required")
+			}
+			if strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")) == "" {
+				return fmt.Errorf("ANI_IMPORT_MINIO_SECRET is required")
 			}
 			importWorker = &worker.Worker{
 				Store: workStore, Binder: postgres.NewImportBinder(pool, providers), Executor: executor,
@@ -266,4 +266,150 @@ func newRuntimeLogger(writer io.Writer) *slog.Logger {
 		slog.String("service.name", Name),
 		slog.String("service.version", Version),
 	)
+}
+
+// buildStorageTLSConfig creates a TLS configuration for Storage gRPC connection.
+// It supports three modes:
+// 1. System cert pool (default)
+// 2. Custom CA cert from file (ANI_STORAGE_GRPC_CA_CERT)
+// 3. Custom CA cert from environment variable (ANI_STORAGE_GRPC_CA_CERT_PEM)
+func buildStorageTLSConfig() (*tls.Config, error) {
+	config := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		ServerName: os.Getenv("ANI_STORAGE_GRPC_SERVER_NAME"),
+	}
+
+	// Try to load custom CA certificate
+	caCertPath := os.Getenv("ANI_STORAGE_GRPC_CA_CERT")
+	caCertPEM := os.Getenv("ANI_STORAGE_GRPC_CA_CERT_PEM")
+
+	if caCertPath != "" {
+		// Load CA from file (Kubernetes Secret mount)
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("load CA cert from %s: %w", caCertPath, err)
+		}
+		rootCAs := x509.NewCertPool()
+		if !rootCAs.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("invalid CA certificate in %s", caCertPath)
+		}
+		config.RootCAs = rootCAs
+		return config, nil
+	}
+
+	if caCertPEM != "" {
+		// Load CA from environment variable (inline PEM)
+		rootCAs := x509.NewCertPool()
+		if !rootCAs.AppendCertsFromPEM([]byte(caCertPEM)) {
+			return nil, fmt.Errorf("invalid CA certificate in ANI_STORAGE_GRPC_CA_CERT_PEM")
+		}
+		config.RootCAs = rootCAs
+		return config, nil
+	}
+
+	// Use system cert pool (default)
+	rootCAs, err := x509.SystemCertPool()
+	if err != nil {
+		// Fallback to empty pool if system pool is unavailable
+		rootCAs = x509.NewCertPool()
+	}
+	config.RootCAs = rootCAs
+
+	return config, nil
+}
+
+// newImporterHTTPClient creates an HTTP client with proper timeouts for external
+// provider APIs (HuggingFace, ModelScope). This prevents goroutine leaks and
+// service hangs when providers are slow or unresponsive.
+func newImporterHTTPClient() *http.Client {
+	// Parse timeout from environment variable or use default
+	timeout := 15 * time.Minute
+	if val := os.Getenv("ANI_IMPORTER_HTTP_TIMEOUT"); val != "" {
+		if d, err := time.ParseDuration(val); err == nil && d > 0 {
+			timeout = d
+		}
+	}
+
+	dialTimeout := 30 * time.Second
+	if val := os.Getenv("ANI_IMPORTER_DIAL_TIMEOUT"); val != "" {
+		if d, err := time.ParseDuration(val); err == nil && d > 0 {
+			dialTimeout = d
+		}
+	}
+
+	return &http.Client{
+		// Overall request timeout (including large model downloads)
+		Timeout: timeout,
+		Transport: &http.Transport{
+			// TCP connection establishment timeout
+			DialContext: (&net.Dialer{
+				Timeout:   dialTimeout,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			// TLS handshake timeout
+			TLSHandshakeTimeout: 10 * time.Second,
+			// Timeout waiting for response headers
+			ResponseHeaderTimeout: 30 * time.Second,
+			// Expect: 100-continue timeout
+			ExpectContinueTimeout: 1 * time.Second,
+			// Connection pool settings
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+}
+
+// validateRequiredConfig validates all required environment variables before
+// any resource initialization. This provides fast feedback and prevents partial
+// initialization when configuration is incomplete.
+func validateRequiredConfig() error {
+	var missing []string
+
+	// Database is always required
+	if strings.TrimSpace(os.Getenv("ANI_DATABASE_DSN")) == "" {
+		missing = append(missing, "ANI_DATABASE_DSN")
+	}
+
+	// Storage backend (at least one is required)
+	hasMinIO := strings.TrimSpace(os.Getenv("ANI_MINIO_ENDPOINT")) != ""
+	hasStorageGRPC := strings.TrimSpace(os.Getenv("ANI_STORAGE_GRPC_ADDR")) != ""
+
+	if !hasMinIO && !hasStorageGRPC {
+		missing = append(missing, "ANI_MINIO_ENDPOINT or ANI_STORAGE_GRPC_ADDR")
+	}
+
+	// MinIO specific configuration
+	if hasMinIO {
+		if strings.TrimSpace(os.Getenv("ANI_MINIO_ACCESS_KEY")) == "" {
+			missing = append(missing, "ANI_MINIO_ACCESS_KEY")
+		}
+		if strings.TrimSpace(os.Getenv("ANI_MINIO_SECRET_KEY")) == "" {
+			missing = append(missing, "ANI_MINIO_SECRET_KEY")
+		}
+
+		// Import worker requires additional MinIO configuration
+		if strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")) == "" {
+			missing = append(missing, "ANI_IMPORT_JOB_IMAGE")
+		}
+		if strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")) == "" {
+			missing = append(missing, "ANI_IMPORT_MINIO_SECRET")
+		}
+		if strings.TrimSpace(os.Getenv("ANI_IMPORT_KUBERNETES_NAMESPACE")) == "" {
+			missing = append(missing, "ANI_IMPORT_KUBERNETES_NAMESPACE")
+		}
+	}
+
+	// Storage gRPC specific configuration
+	if hasStorageGRPC {
+		if strings.TrimSpace(os.Getenv("ANI_STORAGE_GRPC_SERVER_NAME")) == "" {
+			missing = append(missing, "ANI_STORAGE_GRPC_SERVER_NAME")
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	}
+
+	return nil
 }

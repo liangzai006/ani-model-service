@@ -221,6 +221,20 @@ func TestImportExecutorArchivesRepositoryManifest(t *testing.T) {
 	}
 }
 
+func TestManifestRevisionDefaultsByProvider(t *testing.T) {
+	for _, tc := range []struct {
+		source, revision, want string
+	}{
+		{source: "huggingface", want: "main"},
+		{source: "modelscope", want: "master"},
+		{source: "modelscope", revision: "release-1", want: "release-1"},
+	} {
+		if got := manifestRevision(tc.source, tc.revision); got != tc.want {
+			t.Fatalf("manifestRevision(%q, %q) = %q, want %q", tc.source, tc.revision, got, tc.want)
+		}
+	}
+}
+
 func TestImportExecutorStopsBeforeDownloadWhenBucketEnsureFails(t *testing.T) {
 	source := &recordingContentSource{}
 	sf := &objectFake{ensureErr: errors.New("bucket unavailable")}

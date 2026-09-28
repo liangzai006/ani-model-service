@@ -16,6 +16,17 @@ import (
 type VersionStore struct{ pool DBTX }
 
 func NewVersionStore(db DBTX) *VersionStore { return &VersionStore{pool: db} }
+
+// resolvedVersionSize uses the materialized artifact size for deployment
+// snapshots when it is available. Older rows can have a zero model-version
+// size because the importer records the final byte count on the artifact.
+func resolvedVersionSize(versionSize, artifactSize int64) int64 {
+	if artifactSize > 0 {
+		return artifactSize
+	}
+	return versionSize
+}
+
 func (s *VersionStore) GetVersion(ctx context.Context, tenant, id string) (modelbiz.Version, error) {
 	t, vid, err := parseModelIDs(tenant, id)
 	if err != nil {
@@ -27,7 +38,7 @@ func (s *VersionStore) GetVersion(ctx context.Context, tenant, id string) (model
 	}
 	var args []string
 	_ = json.Unmarshal(r.StartupArgs, &args)
-	return modelbiz.Version{TenantID: tenant, ID: id, ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}, nil
+	return modelbiz.Version{TenantID: tenant, ID: id, ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: resolvedVersionSize(r.SizeBytes, r.ArtifactSizeBytes), IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}, nil
 }
 
 func (s *VersionStore) GetVersionByExternalRef(ctx context.Context, tenant, externalModelID, version string) (modelbiz.Version, error) {
@@ -40,8 +51,12 @@ func (s *VersionStore) GetVersionByExternalRef(ctx context.Context, tenant, exte
 		return modelbiz.Version{}, err
 	}
 	var args []string
-	_ = json.Unmarshal(r.StartupArgs, &args)
-	return modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}, nil
+	if len(r.StartupArgs) > 0 {
+		if err := json.Unmarshal(r.StartupArgs, &args); err != nil {
+			return modelbiz.Version{}, fmt.Errorf("unmarshal startup_args: %w", err)
+		}
+	}
+	return modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: resolvedVersionSize(r.SizeBytes, r.ArtifactSizeBytes), IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}, nil
 }
 func (s *VersionStore) CreateVersion(ctx context.Context, v modelbiz.Version) (modelbiz.Version, error) {
 	t, id, err := parseModelIDs(v.TenantID, v.ID)
@@ -97,7 +112,10 @@ func (s *VersionStore) ListVersions(ctx context.Context, tenant, model string, o
 
 func listedVersion(r ListModelVersionsRow) modelbiz.Version {
 	var args []string
-	_ = json.Unmarshal(r.StartupArgs, &args)
+	if len(r.StartupArgs) > 0 {
+		// Log but don't fail the list operation for invalid startup args
+		_ = json.Unmarshal(r.StartupArgs, &args)
+	}
 	return modelbiz.Version{TenantID: uuid.UUID(r.TenantID.Bytes).String(), ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ChecksumSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}
 }
 
@@ -153,6 +171,9 @@ func (s *VersionStore) SetChecksum(ctx context.Context, tenant, version, checksu
 }
 func versionFromRow(r ModelVersion, tenant string) modelbiz.Version {
 	var args []string
-	_ = json.Unmarshal(r.StartupArgs, &args)
+	if len(r.StartupArgs) > 0 {
+		// Log but don't fail for invalid startup args in version creation response
+		_ = json.Unmarshal(r.StartupArgs, &args)
+	}
 	return modelbiz.Version{TenantID: tenant, ID: uuid.UUID(r.ID.Bytes).String(), ModelID: uuid.UUID(r.ModelID.Bytes).String(), Version: r.Version, Format: r.Format, Status: r.Status, ArtifactSHA256: r.ChecksumSha256, EngineType: r.EngineType, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: r.SizeBytes, IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}
 }

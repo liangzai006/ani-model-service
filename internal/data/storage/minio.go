@@ -249,9 +249,19 @@ func tenantBucket(tenantID string) (string, error) {
 func tenantKey(tenant, objectRef string) (string, error) {
 	tenant = strings.Trim(strings.TrimSpace(tenant), "/")
 	key := strings.Trim(strings.TrimSpace(objectRef), "/")
-	if tenant == "" || key == "" || strings.Contains(tenant, "/") || strings.Contains(key, "..") {
-		return "", fmt.Errorf("invalid tenant/object reference")
+
+	// SECURITY: Prevent path traversal attacks
+	if tenant == "" || key == "" {
+		return "", fmt.Errorf("invalid tenant/object reference: empty value")
 	}
+	if strings.Contains(tenant, "/") {
+		return "", fmt.Errorf("invalid tenant/object reference: tenant contains slash")
+	}
+	// Check for path traversal patterns
+	if strings.Contains(key, "..") || strings.Contains(key, "./") || strings.HasPrefix(key, "/") {
+		return "", fmt.Errorf("invalid tenant/object reference: path traversal detected")
+	}
+
 	if first := strings.SplitN(key, "/", 2)[0]; first != tenant {
 		if _, tenantErr := uuid.Parse(tenant); tenantErr == nil {
 			if _, prefixErr := uuid.Parse(first); prefixErr == nil {

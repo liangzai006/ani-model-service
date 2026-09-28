@@ -3,6 +3,63 @@
 当前范围仅包括 Model 目录、模型导入、制品存储和 Inference 运行时协作；
 Notebook、Kubeflow 用户工作流不属于本状态文件。
 
+## 2026-09-24 Inference API → KServe LWS 真实链路
+
+- `pass`：仅在新集群数据库应用 `000015`，部署静态 Inference r3 镜像；真实 gRPC
+  Create 请求使用 `runtime.provider=kserve`、`leader_worker_set` 和调用方提供的
+  完整启动命令，创建并观察到 KServe LLMI、原生 LWS、跨节点两个 Ready Pod、生成的
+  Service 和 HTTPRoute。
+- `pass`：通过 Higress NodePort `192.168.102.68:30090` 的固定
+  `/v1/completions` 入口返回 HTTP 200；真实 Delete API 也成功，测试 LLMI/LWS、
+  HTTPRoute、物化 PVC/Job/Secret 已按 service-id 清理。
+- `limit`：本次使用轻量调用方 HTTP 命令验证编排和路由；新集群没有 GPU，真正多机多卡
+  模型推理需等 GPU 和模型对应的并行启动参数具备。现有 `smollm2-135m-cpu-real`
+  保持 ready，未被修改。
+- 详情见 [KServe LWS real API validation](records/2026-09-24-kserve-lws-api-validation.md)。
+
+## 2026-09-24 ModelScope 导入验证
+
+- `pass`：新集群通过 Model gRPC → Kubernetes Import Job → ModelScope → MinIO →
+  ModelVersion ready 完成 `Qwen/Qwen2-0.5B-Instruct` 导入；任务
+  `22cd917d-66b7-4e4a-a984-a18ff165d16c` 完成，制品为 `999602688` 字节，SHA256
+  为 `e1fc761d399f82372857717c6b38c87ad238f9dc85cf033111b7b2d07bb89e1c`。
+- `pass`：后续 ModelScope Job 使用 r2 import worker 和 `--revision`、`--local-dir`
+  的真实 CLI 参数；Hugging Face 因网络出口问题暂缓，不作为当前验证前置条件。
+- `limit`：该 0.5B 制品的 KServe CPU 冒烟在 4Gi 限制下 OOM；worker-2 内存请求约
+  87%，更大 KServe 模型需要先增加节点容量或释放现有请求。测试资源已精确清理，
+  既有服务未修改。
+- 详情见 [ModelScope import verification](records/2026-09-24-modelscope-import.md)。
+
+## 2026-09-24 ModelScope + KServe 0.5B 真实推理
+
+- `pass`：使用已 ready 的 ModelScope `Qwen/Qwen2-0.5B-Instruct` 制品创建 KServe
+  RawDeployment 推理服务；4 CPU/8Gi predictor Ready，物化校验为 `999602688` 字节、
+  11 个文件和匹配的 SHA256。
+- `pass`：Higress 固定 `/v1/completions` 入口收到只带 JSON `model` 字段的请求后，
+  自动按模型别名分流并返回 HTTP 200 非空文本，不需要调用方手工设置路由 Header。
+- `pass`：验证后已删除该 canary 的 KServe/HTTPRoute/物化 Job、PVC、Secret 和运行时
+  绑定；ModelScope MinIO 制品及 ready 版本保留，worker-2 请求恢复至约 `310m CPU /
+  490Mi`。
+- `limit`：新集群没有 GPU；更大的模型需要在释放容量后串行验证。
+- 详情见 [ModelScope KServe 0.5B verification](records/2026-09-24-modelscope-kserve-0.5b.md)。
+
+## 2026-09-24 新集群资源释放
+
+- `pass`：按 service-id 清理了未再使用的 Qwen/KServe 测试服务和旧 SmolLM 测试
+  服务，保留已验证的 `smollm2-135m-cpu-real`；worker-2 当前无 Pending 推理 Pod，
+  调度请求约为 `490Mi/0.31 CPU`。
+- `pass`：删除已完成 ModelScope 导入 Job 的 11Gi `Unused` staging PVC，保留 MinIO
+  模型制品和 ready 版本。详情见 [resource release](records/2026-09-24-resource-release.md)。
+
+## 2026-09-23 KServe 适配器验证
+
+- `pass`：新集群显式上下文 `kubernetes-admin@kubekey` 的 KServe 0.15 RawDeployment 适配器完成真实生命周期验证：创建 InferenceService、等待 predictor Ready、重复 apply、Higress 固定 `/v1/completions` 实际返回、撤销路由、前台删除及子 Deployment/Service 清理均通过。
+- `pass`：KServe 绑定迁移 `000013` 和每代 provider 迁移 `000014` 已应用到新集群 Inference 数据库；控制面运行 r4 镜像。测试 canary 已清理，原有 Deployment 模式的 SmolLM2/Qwen 服务仍保持运行。
+- `pass`：provider 已下沉到每个 Inference generation 的 `runtime.provider`，省略时兼容为 `deployment`，更新省略时继承当前 provider；运行控制面不再依赖进程级 provider 开关，现有模型仍未迁移。
+- `pass`：通过真实 Model gRPC → PostgreSQL → Inference operation runner 创建 `runtime.provider=kserve` 的 SmolLM2-135M 服务，物化 272455680 字节制品，KServe predictor Ready，Higress `/v1/completions` 返回 HTTP 200 非空结果，并通过业务 Delete 完成 KServe/HTTPRoute/运行时清理；本次物化 PVC/Job/Secret 仅按 service-id 做了显式测试资源清理。
+- `limit`：新集群无 GPU；更大模型需串行验证容量。当前删除流程不会自动删除模型物化 PVC/Job/Secret，后续如需长期运行应单独增加受 ownership fencing 保护的清理步骤。
+- 详情见 [KServe adapter verification](records/2026-09-23-kserve-adapter.md) 和 [KServe gRPC lifecycle](records/2026-09-23-kserve-grpc-lifecycle.md)。
+
 ## 2026-09-23 新集群真实推理验证
 
 - `pass`：通过 Model 正式上传确认接口将固定 revision 的 SmolLM2-135M 归档上传到新集群 MinIO，ModelVersion ready、SHA256/大小校验和 CephFS 物化 Job 均完成。
@@ -13,7 +70,7 @@ Notebook、Kubeflow 用户工作流不属于本状态文件。
 ## 2026-09-22 新集群验证
 
 - `pass`：新集群 PostgreSQL、MinIO、Model、Inference 控制面和 Higress 已部署；Model 明文 gRPC 可直接按 request tenant 调用。IAM、可信身份、TLS 和配额校验暂不接入，Inference 不使用固定 quota provider。
-- `partial`（历史快照）：Inference 物化下载脚本现支持 HTTP/HTTPS，大小限制改为使用 Model 版本的 `size_bytes`；当时真实 Model 导入和推理仍待执行，后续验证见上方 2026-09-23 条目。
+- `pass`：Inference 物化下载脚本支持 HTTP/HTTPS，大小限制使用 Model 制品实际 `size_bytes`；Model 快照映射对历史 `model_versions.size_bytes=0` 的数据回退到正的 `model_artifacts.size_bytes`，本次 272455680 字节制品已真实通过物化和推理。
 
 ## 2026-09-18 continuation
 
@@ -29,11 +86,11 @@ Notebook、Kubeflow 用户工作流不属于本状态文件。
 ## 当前状态
 
 - `pass`：固定 `ani-kratos-layout` 骨架生成、Kratos gRPC/admin/health 生命周期、API 配置 Proto 迁移到 `api/model/v1`。
-- `pass`：兼容 Model gRPC Proto、生成 client/server 和运行时默认 engine 字段。
+- `pass`：兼容 Model gRPC Proto、生成 client/server，并保留版本中的兼容 engine 元数据；Inference 创建推理服务时必须由请求提供运行时引擎和完整启动命令。
 - `pass`：Model `public` schema migration、sqlc 查询生成，并已在本机 PostgreSQL 的 `recycling` 数据库真实应用和只读核验。
 - `decision`：新集群 Model 与 Inference 使用同一 PostgreSQL 实例、分别使用 `ani_model` 与 `ani_inference` 数据库，目前共用访问账号；账号隔离列为后续部署加固项。
 - `decision`：导入任务采用 PostgreSQL 持久任务表 + worker，暂不采用 CRD/controller-runtime；CRD 未来只能作为独立入口适配器，不能替代 Model 的核心业务存储。
-- `pass`：模型名称、版本 ready 制品完整性和 engine allowlist 领域校验及测试。
+- `pass`：模型名称、版本 ready 制品完整性和请求引擎元数据完整性校验及测试；引擎类型不使用代码 allowlist。
 - `pass`：`public.model_artifacts` sqlc 创建/查询与 tenant 限定的 PostgreSQL adapter 已实现，并用本机 Docker PostgreSQL 验证跨租户读取拒绝；制品内容和 Storage 生命周期仍由外部 Storage 负责。
 - `pass`：ModelVersion ready/error CAS 状态更新已实现；ready 仅接受同租户、非空引用且 SHA256 与版本摘要匹配的制品，并已用本机 Docker PostgreSQL 验证。
 - `partial`：上传确认路径已接入 `CreateModelVersion`：Storage 对象存在性和 SHA256 校验通过后写入 `model_artifacts`，再执行 ready CAS；成功重放直接返回 ready 版本。2026-09-23 已通过正式 GetUploadURL → MinIO 签名 PUT → CreateModelVersion 跑通真实上传确认；版本 ready、SHA256 和大小均已核验。
@@ -59,7 +116,7 @@ Notebook、Kubeflow 用户工作流不属于本状态文件。
 - `pass`：`ImportModelRequest` 现支持可选 Model/ModelVersion 绑定；绑定任务执行成功后会持久化 artifact 并通过 lease/CAS 置版本 ready，artifact 重试具备不可变事实校验；未绑定任务会由 provider 元数据解析并绑定到既有模型版本。真实 provider、PostgreSQL、Storage 和完整 manifest 绑定联调已通过。见 [provider metadata binding](records/2026-09-15-provider-metadata-binding.md) 和 [完整仓库导入](records/2026-09-18-model-manifest-import.md)。
 - `pass`：worker 已阻止未绑定任务被错误完成；此类任务保持 pending 并通过 CAS retry 延后，只有绑定 `model_version_id` 的任务才会执行 provider、写 artifact 和置 ready。见 [unbound worker deferral](records/2026-09-15-unbound-worker-deferral.md)。
 - `pass`：worker 续租 CAS 失败会立即取消 provider/Storage 执行并进入 retry，旧 lease 不能继续完成任务。见 [lease renewal fencing](records/2026-09-15-lease-renew-fencing.md)。
-- `pass`：正式 Model client 的 ready 版本映射已修正；空启动命令不再生成伪造的 `command_argv[0]`，并保留 artifact 引用、SHA256 和 engine 默认值映射。见 [Inference runtime mapping](records/2026-09-15-inference-runtime-mapping.md)。
+- `pass`：正式 Model client 的 ready 版本映射已修正；它只返回 artifact 引用、SHA256 和大小，不再把 ModelVersion 的启动字段映射为 Inference 默认命令。Inference 的引擎和完整启动命令由请求提供。
 - `partial`：已只读发现集群 MinIO `ani-s05-objectstore/ani-s05-minio`，S3 NodePort `10.10.1.68:30900` 的 readiness 检查成功；凭据来自 `ani-s05-minio-root` Secret 引用但未读取值。未发现独立 Storage gRPC Service，正式跨服务 Storage 契约联调仍为 `not_verified`。见 [MinIO discovery](records/2026-09-15-minio-discovery.md)。
 - `pass`：新增 MinIO S3 Storage adapter，支持共享 bucket 检查和租户 UUID bucket 的按需检查/创建、流式上传、对象存在性、真实内容 SHA256 和短期下载地址；已完成真实租户 bucket 导入、对象读写/checksum 和 1 秒预签名地址过期验证。见 [MinIO S3 adapter](records/2026-09-15-minio-adapter.md) 和 [Import E2E](records/2026-09-15-import-e2e.md)。
 - `pass`：共享 bucket 兼容配置默认值为 `ani-models`；启用 `ANI_MINIO_TENANT_BUCKETS=true` 后按租户 UUID 检查并幂等创建 bucket，账号和密钥仍通过 Kubernetes Secret 环境注入。见 [MinIO configuration defaults](records/2026-09-15-minio-config-defaults.md)。

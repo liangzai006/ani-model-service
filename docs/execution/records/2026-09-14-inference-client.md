@@ -7,7 +7,7 @@
 - 拒绝非 ready、缺少 artifact ref 或 checksum 的版本
 - 映射 `storage_path → ArtifactRef`
 - 映射 `checksum_sha256 → ArtifactSHA256`
-- 映射 engine 默认配置到 `EngineRuntime/CommandArgv`
+- 不读取 Model 的 engine 默认配置；`EngineRuntime/CommandArgv` 必须来自 Inference 请求
 
 尚未执行双进程真实 gRPC 联调，错误重试策略由 Inference 上层决定。
 

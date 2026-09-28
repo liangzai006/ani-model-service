@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,7 +20,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var ErrImportJobResultMissing = errors.New("import job result is missing")
+var (
+	ErrImportJobResultMissing = errors.New("import job result is missing")
+	ErrInvalidTaskInput       = errors.New("invalid task input: contains unsafe characters")
+)
+
+// validSourcePattern matches allowed provider source names
+var validSourcePattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// validRevisionPattern matches safe git refs (branches, tags, commit SHAs)
+var validRevisionPattern = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
 
 // KubernetesImportExecutor turns a claimed durable task into one deterministic
 // Kubernetes Job. The Job owns provider download and upload; this process only
@@ -32,7 +42,6 @@ type KubernetesImportExecutor struct {
 	Providers          importer.Registry
 	Namespace          string
 	Image              string
-	ServiceAccount     string
 	MinIOSecretName    string
 	ProviderSecretName string
 	MinIOEndpoint      string
@@ -40,7 +49,6 @@ type KubernetesImportExecutor struct {
 	MinIOTenantBuckets bool
 	MinIOSecure        bool
 	StorageClass       string
-	StorageSize        string
 	PollInterval       time.Duration
 }
 
@@ -81,6 +89,9 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
 	for {
 		status, statusErr := e.Jobs.Status(ctx, spec.Namespace, spec.Name)
 		if statusErr != nil {
@@ -88,14 +99,21 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 		}
 		switch status.Phase {
 		case kube.JobSucceeded:
+			// Cleanup PVC after successful job
+			if err := e.cleanupPVC(ctx, pvc.Namespace, pvc.Name); err != nil {
+				// Log but don't fail the import if PVC cleanup fails
+				_ = err
+			}
 			return e.finalizeJob(ctx, task, spec.Namespace, spec.Name)
 		case kube.JobFailed:
+			// Cleanup PVC after failed job
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 			return fmt.Errorf("import job failed: %s: %s", status.Reason, status.Message)
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(interval):
+		case <-ticker.C:
 		}
 	}
 }
@@ -106,6 +124,11 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 	}
 	if e.Namespace == "" || e.Image == "" {
 		return kube.ImportJobSpec{}, nil, errors.New("import Job namespace and image are required")
+	}
+
+	// SECURITY: Validate all user-controlled inputs before passing to Kubernetes
+	if err := validateTaskInputs(task); err != nil {
+		return kube.ImportJobSpec{}, nil, err
 	}
 	name := importJobName(task.ID, task.AttemptCount)
 	pvcName := name + "-stage"
@@ -126,7 +149,6 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		{Name: "ANI_IMPORT_TASK_ID", Value: task.ID},
 		{Name: "ANI_IMPORT_OBJECT_KEY", Value: objectKey},
 		{Name: "ANI_IMPORT_STAGING_DIR", Value: "/staging/model"},
-		{Name: "ANI_IMPORT_STORAGE_SIZE", Value: storageSize},
 		{Name: "ANI_MINIO_ENDPOINT", Value: e.MinIOEndpoint},
 		{Name: "ANI_MINIO_BUCKET", Value: e.MinIOBucket},
 		{Name: "ANI_MINIO_TENANT_BUCKETS", Value: fmt.Sprint(e.MinIOTenantBuckets)},
@@ -136,9 +158,8 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		Namespace:             e.Namespace,
 		Name:                  name,
 		Image:                 e.Image,
-		Command:               []string{"/ani-model-import"},
 		Env:                   env,
-		ServiceAccountName:    e.ServiceAccount,
+		ServiceAccountName:    "ani-model-service",
 		Labels:                map[string]string{"ani.liangzai006.io/task-id": task.ID, "ani.liangzai006.io/tenant-id": task.TenantID},
 		Annotations:           map[string]string{"ani.liangzai006.io/import-object": objectKey},
 		BackoffLimit:          int32ptr(0),
@@ -173,27 +194,20 @@ const (
 )
 
 func (e KubernetesImportExecutor) storageSize(ctx context.Context, task workbiz.Task) (string, error) {
-	if configured := strings.TrimSpace(e.StorageSize); configured != "" {
-		quantity, err := resource.ParseQuantity(configured)
-		if err != nil {
-			return "", fmt.Errorf("import storage size: %w", err)
-		}
-		return quantity.String(), nil
-	}
 	if e.Providers == nil {
-		return "", errors.New("ANI_IMPORT_STORAGE_SIZE is required when provider manifest is unavailable")
+		return "", errors.New("provider manifest is required to estimate import storage")
 	}
 	provider, err := e.Providers.Resolve(task.Source)
 	if err != nil {
-		return "", fmt.Errorf("estimate import storage: %w; set ANI_IMPORT_STORAGE_SIZE explicitly", err)
+		return "", fmt.Errorf("estimate import storage: %w", err)
 	}
 	manifest, ok := provider.(importer.ManifestSource)
 	if !ok {
-		return "", errors.New("ANI_IMPORT_STORAGE_SIZE is required when provider manifest is unavailable")
+		return "", errors.New("provider manifest is required to estimate import storage")
 	}
 	size, ok := estimateManifestSize(ctx, manifest, task)
 	if !ok {
-		return "", errors.New("cannot determine model size from provider manifest; set ANI_IMPORT_STORAGE_SIZE explicitly")
+		return "", errors.New("cannot determine model size from provider manifest")
 	}
 	return storageQuantity(size), nil
 }
@@ -254,6 +268,15 @@ func (e KubernetesImportExecutor) ensurePVC(ctx context.Context, desired *corev1
 		return e.Jobs.GetPVC(ctx, desired.Namespace, desired.Name)
 	}
 	return created, nil
+}
+
+// cleanupPVC deletes the PVC after job completion to prevent resource leaks.
+// This is best-effort; errors are logged but don't fail the import.
+func (e KubernetesImportExecutor) cleanupPVC(ctx context.Context, namespace, name string) error {
+	if e.Jobs == nil {
+		return nil
+	}
+	return e.Jobs.DeletePVC(ctx, namespace, name)
 }
 
 func (e KubernetesImportExecutor) finalizeJob(ctx context.Context, task workbiz.Task, namespace, name string) error {
@@ -327,6 +350,36 @@ func importJobName(taskID string, attempt int) string {
 
 func int32ptr(v int32) *int32 { return &v }
 func int64ptr(v int64) *int64 { return &v }
+
+// validateTaskInputs checks all user-controlled fields for injection attacks.
+// This prevents malicious input from being passed to Kubernetes Jobs.
+func validateTaskInputs(task workbiz.Task) error {
+	// Validate source (provider name)
+	if !validSourcePattern.MatchString(task.Source) {
+		return fmt.Errorf("%w: source %q", ErrInvalidTaskInput, task.Source)
+	}
+
+	// Validate repo_id - allow alphanumerics, dots, slashes, hyphens, underscores
+	// but prevent shell metacharacters and newlines
+	if strings.ContainsAny(task.RepoID, "\n\r$`;&|<>(){}[]!") {
+		return fmt.Errorf("%w: repo_id contains unsafe characters", ErrInvalidTaskInput)
+	}
+	if len(task.RepoID) > 512 {
+		return fmt.Errorf("%w: repo_id too long", ErrInvalidTaskInput)
+	}
+
+	// Validate revision if present
+	if task.Revision != "" {
+		if !validRevisionPattern.MatchString(task.Revision) {
+			return fmt.Errorf("%w: revision %q", ErrInvalidTaskInput, task.Revision)
+		}
+		if len(task.Revision) > 256 {
+			return fmt.Errorf("%w: revision too long", ErrInvalidTaskInput)
+		}
+	}
+
+	return nil
+}
 
 // These wrappers keep the executor testable with client-go fake errors without
 // importing Kubernetes API error types into the worker's domain package.

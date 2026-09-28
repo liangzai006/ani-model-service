@@ -10,7 +10,7 @@ runtime, or Kubeflow component.
 - Model Deployment: `ani-model/ani-model-service`, one replica
 - gRPC Service: `ani-model/ani-model-grpc:19090`, internal ClusterIP
 - Admin Service: `ani-model/ani-model-admin:19091`, internal ClusterIP
-- ServiceAccounts: `ani-model-service` and `ani-model-import-job`
+- ServiceAccount: `ani-model-service`; dynamically created import Jobs reuse it
 - Import controller Role/RoleBinding: namespace-scoped Job, PVC, Pod and
   Pod-log access only
 - Runtime Secrets: `ani-model/ani-model-database` and

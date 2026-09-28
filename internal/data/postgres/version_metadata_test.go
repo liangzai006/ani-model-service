@@ -14,3 +14,12 @@ func TestVersionFromRowPreservesMetadata(t *testing.T) {
 		t.Fatalf("version metadata lost: %+v", v)
 	}
 }
+
+func TestResolvedVersionSizePrefersPositiveArtifactSize(t *testing.T) {
+	if got := resolvedVersionSize(0, 279<<20); got != 279<<20 {
+		t.Fatalf("resolved size = %d, want artifact size %d", got, 279<<20)
+	}
+	if got := resolvedVersionSize(123, 0); got != 123 {
+		t.Fatalf("resolved size = %d, want version size %d when artifact size is invalid", got, 123)
+	}
+}

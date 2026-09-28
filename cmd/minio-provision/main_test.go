@@ -56,7 +56,7 @@ func TestDownloadCommandModelScope(t *testing.T) {
 	if name != "/usr/local/bin/modelscope" {
 		t.Fatalf("name = %q", name)
 	}
-	want := []string{"download", "--model", "Qwen/Qwen3", "--revision", "v1", "--local_dir", "/staging/model", "config.json"}
+	want := []string{"download", "--revision", "v1", "--local-dir", "/staging/model", "Qwen/Qwen3", "config.json"}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %#v, want %#v", args, want)
 	}

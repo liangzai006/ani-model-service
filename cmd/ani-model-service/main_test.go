@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,7 +56,7 @@ func TestRuntimeLoggerIncludesProcessIdentityAndSource(t *testing.T) {
 	}
 }
 
-func TestMainProcessHandlesSignalAndClosesListeners(t *testing.T) {
+func TestMainProcessRejectsIncompleteConfig(t *testing.T) {
 	if testing.Short() {
 		t.Skip("external process gate is disabled by -short")
 	}
@@ -74,52 +73,33 @@ func TestMainProcessHandlesSignalAndClosesListeners(t *testing.T) {
 		t.Fatalf("build process binary: %v\n%s", err, output)
 	}
 
-	grpcAddress := reserveAddress(t)
-	adminAddress := reserveAddress(t)
-	for adminAddress == grpcAddress {
-		adminAddress = reserveAddress(t)
-	}
 	var stdout, stderr bytes.Buffer
 	process := exec.Command(binaryPath, "-conf", filepath.Join(repositoryRoot, "configs"))
 	process.Dir = repositoryRoot
 	process.Stdout = &stdout
 	process.Stderr = &stderr
 	process.Env = runtimeEnvironment(
-		"ANI_SERVER_GRPC_ADDR="+grpcAddress,
-		"ANI_SERVER_ADMIN_ADDR="+adminAddress,
-		"ANI_SERVER_SHUTDOWN_TIMEOUT=2s",
 		"ANI_DATABASE_DSN=",
+		"ANI_MINIO_ENDPOINT=",
+		"ANI_STORAGE_GRPC_ADDR=",
 	)
 	if err := process.Start(); err != nil {
 		t.Fatalf("start process binary: %v", err)
 	}
 	processDone := make(chan error, 1)
 	go func() { processDone <- process.Wait() }()
-	t.Cleanup(func() {
-		if process.ProcessState == nil || !process.ProcessState.Exited() {
-			_ = process.Process.Kill()
-			<-processDone
-		}
-	})
-
-	waitForHTTPStatus(t, "http://"+adminAddress+"/readyz", http.StatusServiceUnavailable)
-	assertProductionGRPCHealth(t, grpcAddress)
-	if err := process.Process.Signal(os.Interrupt); err != nil {
-		t.Fatalf("send interrupt: %v", err)
-	}
 	select {
 	case err := <-processDone:
-		if err != nil {
-			t.Fatalf("process exit after interrupt: %v; stdout=%s stderr=%s", err, stdout.String(), stderr.String())
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok || exitErr.ExitCode() != 1 {
+			t.Fatalf("process exit = %v, want exit code 1; stdout=%s stderr=%s", err, stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "configuration validation failed") {
+			t.Fatalf("configuration failure was not logged: stdout=%s stderr=%s", stdout.String(), stderr.String())
 		}
 	case <-time.After(4 * time.Second):
-		t.Fatalf("process exceeded graceful shutdown bound; stdout=%s stderr=%s", stdout.String(), stderr.String())
-	}
-
-	client := &http.Client{Timeout: 250 * time.Millisecond}
-	if response, err := client.Get("http://" + adminAddress + "/healthz"); err == nil {
-		response.Body.Close()
-		t.Fatalf("admin listener remained reachable after process exit: %s", response.Status)
+		_ = process.Process.Kill()
+		t.Fatal("process did not reject incomplete configuration")
 	}
 }
 

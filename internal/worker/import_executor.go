@@ -22,8 +22,9 @@ import (
 var ErrObjectMissing = errors.New("import object missing")
 var ErrArtifactStoreUnavailable = errors.New("import artifact store unavailable")
 
-// ImportExecutor coordinates provider metadata with the external Storage
-// service. It does not own buckets, filesystems, or provider credentials.
+// ImportExecutor is retained for legacy opt-in integration fixtures. The
+// production composition root always uses KubernetesImportExecutor, so normal
+// imports are never executed in this process.
 type ImportExecutor struct {
 	Providers importer.Registry
 	Storage   storage.Port
@@ -104,8 +105,6 @@ func (e ImportExecutor) Execute(ctx context.Context, t workbiz.Task) error {
 	return nil
 }
 
-const maxImportBundleBytes = int64(512 << 20)
-
 func (e ImportExecutor) executeManifest(ctx context.Context, t workbiz.Task, provider importer.SourceAdapter, manifestSource importer.ManifestSource) error {
 	files, err := manifestSource.ListFiles(ctx, importer.Request{RepoID: t.RepoID, Revision: t.Revision})
 	if err != nil {
@@ -115,10 +114,7 @@ func (e ImportExecutor) executeManifest(ctx context.Context, t workbiz.Task, pro
 	if !ok {
 		return fmt.Errorf("%w: provider does not expose repository files", importer.ErrProvider)
 	}
-	revision := t.Revision
-	if revision == "" {
-		revision = "main"
-	}
+	revision := manifestRevision(t.Source, t.Revision)
 	repo := strings.Trim(t.RepoID, "/")
 	if err := validateArchivePath(repo); err != nil || strings.Contains(repo, "#") {
 		return fmt.Errorf("%w: invalid repository reference", importer.ErrProvider)
@@ -140,10 +136,6 @@ func (e ImportExecutor) executeManifest(ctx context.Context, t workbiz.Task, pro
 				closeWithError(err)
 				return
 			}
-			if file.Size > 0 && total+file.Size > maxImportBundleBytes {
-				closeWithError(fmt.Errorf("%w: repository exceeds %d bytes", importer.ErrProvider, maxImportBundleBytes))
-				return
-			}
 			content, err := contentSource.FetchContent(ctx, importer.Request{RepoID: repo + "#" + file.Path, Revision: revision})
 			if err != nil || content.Body == nil {
 				if err == nil {
@@ -156,11 +148,8 @@ func (e ImportExecutor) executeManifest(ctx context.Context, t workbiz.Task, pro
 				defer content.Body.Close()
 				var data []byte
 				if file.Size < 0 {
-					data, err = io.ReadAll(io.LimitReader(content.Body, maxImportBundleBytes-total+1))
+					data, err = io.ReadAll(content.Body)
 					file.Size = int64(len(data))
-					if err == nil && file.Size+total > maxImportBundleBytes {
-						err = fmt.Errorf("%w: repository exceeds %d bytes", importer.ErrProvider, maxImportBundleBytes)
-					}
 				}
 				if err != nil {
 					return
@@ -193,6 +182,16 @@ func (e ImportExecutor) executeManifest(ctx context.Context, t workbiz.Task, pro
 		_ = pipeWriter.Close()
 	}()
 	return e.uploadStream(ctx, t, objectRef, bundleFormat(files), -1, "application/x-tar", "", pipeReader)
+}
+
+func manifestRevision(source, revision string) string {
+	if revision = strings.TrimSpace(revision); revision != "" {
+		return revision
+	}
+	if strings.EqualFold(strings.TrimSpace(source), "modelscope") {
+		return "master"
+	}
+	return "main"
 }
 
 func (e ImportExecutor) uploadStream(ctx context.Context, t workbiz.Task, objectRef, format string, size int64, contentType, expected string, body io.Reader) error {

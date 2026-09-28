@@ -4,6 +4,7 @@
 .tools
 bin
 *.log
+.clusterenv
 Dockerfile*
 README.md
 AGENTS.md

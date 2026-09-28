@@ -11,16 +11,13 @@ env:
   # and creates that bucket lazily before a remote import download.
   - name: ANI_MINIO_TENANT_BUCKETS
     value: "true"
-  # Production imports run in a separate Job. The Job entrypoint is the
-  # minio-provision binary built into ANI_IMPORT_JOB_IMAGE.
-  - name: ANI_IMPORT_EXECUTION_MODE
-    value: kubernetes
+  # Imports always run in a separate Kubernetes Job. The Job entrypoint is the
+  # minio-provision binary built into ANI_IMPORT_JOB_IMAGE and uses the Model
+  # Deployment's ani-model-service ServiceAccount.
   - name: ANI_IMPORT_KUBERNETES_NAMESPACE
-    value: ani-model-inference
+    value: ani-model
   - name: ANI_IMPORT_JOB_IMAGE
     value: registry.example/ani-model-import:v1
-  - name: ANI_IMPORT_JOB_SERVICE_ACCOUNT
-    value: ani-model-import-job
   - name: ANI_IMPORT_MINIO_SECRET
     value: ani-model-import-minio
   - name: ANI_IMPORT_PROVIDER_SECRET
@@ -28,10 +25,6 @@ env:
   - name: ANI_IMPORT_STORAGE_CLASS
     # Optional. Omit this variable to let Kubernetes select its default
     # StorageClass.
-    value: ""
-  - name: ANI_IMPORT_STORAGE_SIZE
-    # Optional. The worker estimates it from the provider manifest and adds
-    # headroom; set this explicitly for private/unknown manifests.
     value: ""
   - name: ANI_MINIO_ACCESS_KEY
     valueFrom:

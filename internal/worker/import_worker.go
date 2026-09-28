@@ -59,12 +59,14 @@ type Worker struct {
 	Batch               int32
 	MaxAttempts         int
 	Logger              *slog.Logger
-	wakeOnce            sync.Once
 	wake                chan struct{}
+	wakeInit            sync.Once
 }
 
 func (w *Worker) initWake() {
-	w.wakeOnce.Do(func() { w.wake = make(chan struct{}, 1) })
+	w.wakeInit.Do(func() {
+		w.wake = make(chan struct{}, 1)
+	})
 }
 
 // Notify requests an immediate due scan without blocking the caller or
@@ -160,7 +162,8 @@ func (w *Worker) runOnce(ctx context.Context) error {
 			for {
 				select {
 				case <-ticker.C:
-					if err := w.Store.Renew(ctx, claimed.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch, w.Lease); err != nil {
+					// FIXED: Use execCtx instead of ctx so renewal stops when execution is cancelled
+					if err := w.Store.Renew(execCtx, claimed.TenantID, claimed.ID, w.Owner, claimed.LeaseEpoch, w.Lease); err != nil {
 						select {
 						case renewErr <- err:
 						default:
@@ -170,7 +173,7 @@ func (w *Worker) runOnce(ctx context.Context) error {
 					}
 				case <-done:
 					return
-				case <-ctx.Done():
+				case <-execCtx.Done():
 					return
 				}
 			}

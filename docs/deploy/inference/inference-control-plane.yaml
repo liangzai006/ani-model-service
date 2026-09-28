@@ -27,6 +27,12 @@ rules:
   - apiGroups: ["ani.kubercloud.com"]
     resources: ["inferenceservices/status", "inferenceservices/finalizers"]
     verbs: ["get", "update", "patch"]
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices", "llminferenceservices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices/status", "inferenceservices/finalizers", "llminferenceservices/status", "llminferenceservices/finalizers"]
+    verbs: ["get", "update", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -121,7 +127,7 @@ spec:
         kubernetes.io/hostname: ani-k8s-cp
       containers:
         - name: inference
-          image: docker.changqingyun.cn/ani/inference-service:ani-inference-new-20260923-engine-argv-r1@sha256:46cf4e51049b974e4252b0c335be68ad6c3c2f046284bfd9bb4574473631eb53
+          image: docker.changqingyun.cn/ani/inference-service:ani-inference-new-20260928-r2@sha256:b4decddfd48a96edac5857b1162c3eeb5ed2d3b4cd1e4591d4084ac5865fadcc
           imagePullPolicy: IfNotPresent
           env:
             - name: ANI_SERVER_GRPC_ADDR
@@ -152,7 +158,7 @@ spec:
             - name: ANI_MODEL_GRPC_ADDR
               value: ani-model-grpc.ani-model.svc.cluster.local:19090
             - name: ANI_MODEL_MATERIALIZER_IMAGE
-              value: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260921-r1@sha256:c8283c4e5b45a246c4684d6cb3ef6e298846c3c0c7798468f557e6cd22ba8e16
+              value: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260928-r2@sha256:e8cbf686d3fa4f3661cb396f2d8d67e5767ae4d790b8331b0df5831bd0f5e8f0
             - name: ANI_MODEL_STORAGE_CLASS
               value: cephfs
           ports:

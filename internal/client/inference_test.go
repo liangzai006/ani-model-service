@@ -11,23 +11,17 @@ func TestRuntimeModelMappingLeavesEmptyCommandArgvEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v.CommandArgv) != 0 {
-		t.Fatalf("command argv = %#v", v.CommandArgv)
+	if v.ArtifactRef != "tenant/m/v/model.gguf" {
+		t.Fatalf("runtime model = %#v", v)
 	}
 }
 
-func TestRuntimeModelMappingUsesCommandThenArgs(t *testing.T) {
+func TestRuntimeModelMappingIgnoresStoredStartupFields(t *testing.T) {
 	v, err := runtimeModelFromVersion(&modelv1.ModelVersion{Id: "v", ModelId: "m", Status: "ready", StoragePath: "object://model", ChecksumSha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", StartupCommand: "python", StartupArgs: []string{"serve", "--port", "8080"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"python", "serve", "--port", "8080"}
-	if len(v.CommandArgv) != len(want) {
-		t.Fatalf("command argv = %#v", v.CommandArgv)
-	}
-	for i := range want {
-		if v.CommandArgv[i] != want[i] {
-			t.Fatalf("command argv = %#v", v.CommandArgv)
-		}
+	if v.ArtifactRef != "object://model" || v.ModelID != "m" {
+		t.Fatalf("runtime model = %#v", v)
 	}
 }

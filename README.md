@@ -67,17 +67,16 @@ injected from a Kubernetes Secret. `ANI_MINIO_BUCKET` defaults to
 otherwise the shared bucket stores objects under the tenant prefix. The Job
 checks and creates the selected bucket immediately before downloading.
 
-Set `ANI_IMPORT_EXECUTION_MODE=kubernetes` on the Model Deployment and provide
-`ANI_IMPORT_JOB_IMAGE` and `ANI_IMPORT_KUBERNETES_NAMESPACE`. You may omit
+Imports always run in a separate Kubernetes Job. Provide
+`ANI_IMPORT_JOB_IMAGE` and `ANI_IMPORT_KUBERNETES_NAMESPACE`; the Job uses the
+Model Deployment's `ani-model-service` ServiceAccount. You may omit
 `ANI_IMPORT_STORAGE_CLASS`; Kubernetes then uses its configured default
-StorageClass. You may also omit `ANI_IMPORT_STORAGE_SIZE`: the worker sums the
-provider manifest and adds headroom before creating the PVC. If the provider
-does not expose sizes (for example a private manifest that the Model Pod
-cannot read), the task asks for an explicit size instead. The Model Pod's
-service account needs permission to create/get Jobs and PVCs and read Job Pods'
-logs. `ANI_IMPORT_MINIO_SECRET` supplies MinIO credentials to the Job and
-`ANI_IMPORT_PROVIDER_SECRET` may supply `MODELSCOPE_API_TOKEN` or Hugging Face
-credentials. See [the Job deployment example](docs/deploy/import-job.yaml).
+StorageClass. The worker always sums the provider manifest and adds headroom
+before creating the PVC; if the provider does not expose sizes, the task fails
+instead of accepting a manual size override. `ANI_IMPORT_MINIO_SECRET` supplies
+MinIO credentials to the Job and `ANI_IMPORT_PROVIDER_SECRET` may supply
+`MODELSCOPE_API_TOKEN` or Hugging Face credentials. See [the Job deployment
+example](docs/deploy/import-job.yaml).
 
 The PostgreSQL-backed worker scans due tasks across tenants and passes each
 task's real tenant ID to the Job. The Deployment does not contain a tenant UUID.
