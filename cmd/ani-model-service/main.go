@@ -175,8 +175,9 @@ func run(logger *slog.Logger) error {
 				"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), httpClient),
 			}
 			artifactStore := postgres.NewArtifactStore(pool)
-			if minioEndpoint == "" {
-				return fmt.Errorf("Kubernetes import requires direct MinIO configuration via ANI_MINIO_ENDPOINT")
+			executor, configErr := configuredKubernetesImportExecutor(storagePort)
+			if configErr != nil {
+				return configErr
 			}
 			kubeConfig, configErr := rest.InClusterConfig()
 			if configErr != nil {
@@ -186,29 +187,10 @@ func run(logger *slog.Logger) error {
 			if clientErr != nil {
 				return fmt.Errorf("create Kubernetes import client: %w", clientErr)
 			}
-			executor := worker.KubernetesImportExecutor{
-				Jobs:               kubedata.NewImportJobClient(kubeClient),
-				Storage:            storagePort,
-				Artifacts:          artifactStore,
-				Checksums:          versionStore,
-				Providers:          providers,
-				Namespace:          firstEnv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model"),
-				Image:              strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")),
-				MinIOSecretName:    strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")),
-				ProviderSecretName: strings.TrimSpace(os.Getenv("ANI_IMPORT_PROVIDER_SECRET")),
-				MinIOEndpoint:      minioEndpoint,
-				MinIOBucket:        minioBucket,
-				MinIOTenantBuckets: minioTenantBuckets,
-				MinIOSecure:        minioSecure,
-				StorageClass:       strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CLASS")),
-				PollInterval:       time.Second,
-			}
-			if strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")) == "" {
-				return fmt.Errorf("ANI_IMPORT_JOB_IMAGE is required")
-			}
-			if strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")) == "" {
-				return fmt.Errorf("ANI_IMPORT_MINIO_SECRET is required")
-			}
+			executor.Jobs = kubedata.NewImportJobClient(kubeClient)
+			executor.Artifacts = artifactStore
+			executor.Checksums = versionStore
+			executor.Providers = providers
 			importWorker = &worker.Worker{
 				Store: workStore, Binder: postgres.NewImportBinder(pool, providers), Executor: executor,
 				Finalizer: versionStore, TenantID: "", Owner: owner, Logger: logger,
@@ -241,6 +223,21 @@ func firstEnv(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func configuredKubernetesImportExecutor(storagePort bizstorage.Port) (worker.KubernetesImportExecutor, error) {
+	image := strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE"))
+	if image == "" {
+		return worker.KubernetesImportExecutor{}, fmt.Errorf("ANI_IMPORT_JOB_IMAGE is required")
+	}
+	return worker.KubernetesImportExecutor{
+		Storage:            storagePort,
+		Namespace:          firstEnv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model"),
+		Image:              image,
+		ProviderSecretName: strings.TrimSpace(os.Getenv("ANI_IMPORT_PROVIDER_SECRET")),
+		StorageClass:       strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CLASS")),
+		PollInterval:       time.Second,
+	}, nil
 }
 
 func newRuntimeLogger(writer io.Writer) *slog.Logger {
@@ -379,24 +376,13 @@ func validateRequiredConfig() error {
 		missing = append(missing, "ANI_MINIO_ENDPOINT or ANI_STORAGE_GRPC_ADDR")
 	}
 
-	// MinIO specific configuration
+	// MinIO-specific direct adapter configuration
 	if hasMinIO {
 		if strings.TrimSpace(os.Getenv("ANI_MINIO_ACCESS_KEY")) == "" {
 			missing = append(missing, "ANI_MINIO_ACCESS_KEY")
 		}
 		if strings.TrimSpace(os.Getenv("ANI_MINIO_SECRET_KEY")) == "" {
 			missing = append(missing, "ANI_MINIO_SECRET_KEY")
-		}
-
-		// Import worker requires additional MinIO configuration
-		if strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")) == "" {
-			missing = append(missing, "ANI_IMPORT_JOB_IMAGE")
-		}
-		if strings.TrimSpace(os.Getenv("ANI_IMPORT_MINIO_SECRET")) == "" {
-			missing = append(missing, "ANI_IMPORT_MINIO_SECRET")
-		}
-		if strings.TrimSpace(os.Getenv("ANI_IMPORT_KUBERNETES_NAMESPACE")) == "" {
-			missing = append(missing, "ANI_IMPORT_KUBERNETES_NAMESPACE")
 		}
 	}
 
@@ -405,6 +391,13 @@ func validateRequiredConfig() error {
 		if strings.TrimSpace(os.Getenv("ANI_STORAGE_GRPC_SERVER_NAME")) == "" {
 			missing = append(missing, "ANI_STORAGE_GRPC_SERVER_NAME")
 		}
+	}
+
+	if strings.TrimSpace(os.Getenv("ANI_IMPORT_JOB_IMAGE")) == "" {
+		missing = append(missing, "ANI_IMPORT_JOB_IMAGE")
+	}
+	if strings.TrimSpace(os.Getenv("ANI_IMPORT_KUBERNETES_NAMESPACE")) == "" {
+		missing = append(missing, "ANI_IMPORT_KUBERNETES_NAMESPACE")
 	}
 
 	if len(missing) > 0 {

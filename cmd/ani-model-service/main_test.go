@@ -10,7 +10,33 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	storagedata "github.com/liangzai006/ani-model-service/internal/data/storage"
 )
+
+func TestConfigureKubernetesImportUsesStorageGRPCWithoutMinIO(t *testing.T) {
+	t.Setenv("ANI_MINIO_ENDPOINT", "")
+	t.Setenv("ANI_IMPORT_MINIO_SECRET", "")
+	t.Setenv("ANI_IMPORT_JOB_IMAGE", "registry.example/ani-model-import:v1")
+	t.Setenv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model")
+	t.Setenv("ANI_IMPORT_PROVIDER_SECRET", "ani-model-import-provider")
+	t.Setenv("ANI_IMPORT_STORAGE_CLASS", "cephfs")
+
+	selectedStorage := &storagedata.GRPCAdapter{}
+	executor, err := configuredKubernetesImportExecutor(selectedStorage)
+	if err != nil {
+		t.Fatalf("configure Kubernetes import with Storage gRPC: %v", err)
+	}
+	if executor.Storage != selectedStorage {
+		t.Fatal("Kubernetes import executor did not use the selected Storage gRPC adapter")
+	}
+	if executor.ProviderSecretName != "ani-model-import-provider" {
+		t.Fatalf("ProviderSecretName = %q", executor.ProviderSecretName)
+	}
+	if executor.StorageClass != "cephfs" {
+		t.Fatalf("StorageClass = %q", executor.StorageClass)
+	}
+}
 
 func TestRuntimeLoggerUsesKratosRedaction(t *testing.T) {
 	var output bytes.Buffer

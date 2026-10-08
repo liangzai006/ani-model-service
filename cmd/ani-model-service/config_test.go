@@ -23,14 +23,13 @@ func TestValidateRequiredConfig(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "all required vars set - MinIO mode",
+			name: "direct storage import does not require a MinIO job secret",
 			envVars: map[string]string{
 				"ANI_DATABASE_DSN":                "postgres://user:pass@localhost/db",
 				"ANI_MINIO_ENDPOINT":              "minio:9000",
 				"ANI_MINIO_ACCESS_KEY":            "minioadmin",
 				"ANI_MINIO_SECRET_KEY":            "minioadmin",
 				"ANI_IMPORT_JOB_IMAGE":            "ani-import:v1",
-				"ANI_IMPORT_MINIO_SECRET":         "minio-secret",
 				"ANI_IMPORT_KUBERNETES_NAMESPACE": "ani-model",
 			},
 			wantErr: false,
@@ -38,9 +37,11 @@ func TestValidateRequiredConfig(t *testing.T) {
 		{
 			name: "all required vars set - Storage gRPC mode",
 			envVars: map[string]string{
-				"ANI_DATABASE_DSN":             "postgres://user:pass@localhost/db",
-				"ANI_STORAGE_GRPC_ADDR":        "storage:8443",
-				"ANI_STORAGE_GRPC_SERVER_NAME": "storage.ani.svc",
+				"ANI_DATABASE_DSN":                "postgres://user:pass@localhost/db",
+				"ANI_STORAGE_GRPC_ADDR":           "storage:8443",
+				"ANI_STORAGE_GRPC_SERVER_NAME":    "storage.ani.svc",
+				"ANI_IMPORT_JOB_IMAGE":            "ani-import:v1",
+				"ANI_IMPORT_KUBERNETES_NAMESPACE": "ani-model",
 			},
 			wantErr: false,
 		},
@@ -69,7 +70,6 @@ func TestValidateRequiredConfig(t *testing.T) {
 				"ANI_MINIO_ENDPOINT":              "minio:9000",
 				"ANI_MINIO_SECRET_KEY":            "minioadmin",
 				"ANI_IMPORT_JOB_IMAGE":            "ani-import:v1",
-				"ANI_IMPORT_MINIO_SECRET":         "minio-secret",
 				"ANI_IMPORT_KUBERNETES_NAMESPACE": "ani-model",
 			},
 			wantErr: true,
@@ -82,7 +82,6 @@ func TestValidateRequiredConfig(t *testing.T) {
 				"ANI_MINIO_ENDPOINT":              "minio:9000",
 				"ANI_MINIO_ACCESS_KEY":            "minioadmin",
 				"ANI_IMPORT_JOB_IMAGE":            "ani-import:v1",
-				"ANI_IMPORT_MINIO_SECRET":         "minio-secret",
 				"ANI_IMPORT_KUBERNETES_NAMESPACE": "ani-model",
 			},
 			wantErr: true,
@@ -95,7 +94,6 @@ func TestValidateRequiredConfig(t *testing.T) {
 				"ANI_MINIO_ENDPOINT":              "minio:9000",
 				"ANI_MINIO_ACCESS_KEY":            "minioadmin",
 				"ANI_MINIO_SECRET_KEY":            "minioadmin",
-				"ANI_IMPORT_MINIO_SECRET":         "minio-secret",
 				"ANI_IMPORT_KUBERNETES_NAMESPACE": "ani-model",
 			},
 			wantErr: true,
@@ -104,8 +102,10 @@ func TestValidateRequiredConfig(t *testing.T) {
 		{
 			name: "missing storage gRPC server name",
 			envVars: map[string]string{
-				"ANI_DATABASE_DSN":      "postgres://user:pass@localhost/db",
-				"ANI_STORAGE_GRPC_ADDR": "storage:8443",
+				"ANI_DATABASE_DSN":                "postgres://user:pass@localhost/db",
+				"ANI_STORAGE_GRPC_ADDR":           "storage:8443",
+				"ANI_IMPORT_JOB_IMAGE":            "ani-import:v1",
+				"ANI_IMPORT_KUBERNETES_NAMESPACE": "ani-model",
 			},
 			wantErr: true,
 			errMsg:  "ANI_STORAGE_GRPC_SERVER_NAME",
@@ -113,12 +113,11 @@ func TestValidateRequiredConfig(t *testing.T) {
 		{
 			name: "partial configuration - MinIO endpoint but missing namespace",
 			envVars: map[string]string{
-				"ANI_DATABASE_DSN":        "postgres://user:pass@localhost/db",
-				"ANI_MINIO_ENDPOINT":      "minio:9000",
-				"ANI_MINIO_ACCESS_KEY":    "minioadmin",
-				"ANI_MINIO_SECRET_KEY":    "minioadmin",
-				"ANI_IMPORT_JOB_IMAGE":    "ani-import:v1",
-				"ANI_IMPORT_MINIO_SECRET": "minio-secret",
+				"ANI_DATABASE_DSN":     "postgres://user:pass@localhost/db",
+				"ANI_MINIO_ENDPOINT":   "minio:9000",
+				"ANI_MINIO_ACCESS_KEY": "minioadmin",
+				"ANI_MINIO_SECRET_KEY": "minioadmin",
+				"ANI_IMPORT_JOB_IMAGE": "ani-import:v1",
 			},
 			wantErr: true,
 			errMsg:  "ANI_IMPORT_KUBERNETES_NAMESPACE",

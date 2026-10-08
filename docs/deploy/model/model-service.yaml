@@ -32,6 +32,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -114,8 +117,6 @@ spec:
                   fieldPath: metadata.namespace
             - name: ANI_IMPORT_JOB_IMAGE
               value: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260928-r2@sha256:e8cbf686d3fa4f3661cb396f2d8d67e5767ae4d790b8331b0df5831bd0f5e8f0
-            - name: ANI_IMPORT_MINIO_SECRET
-              value: ani-model-minio
             - name: ANI_IMPORT_STORAGE_CLASS
               value: cephfs
             - name: ANI_IMPORT_WORKER_OWNER
