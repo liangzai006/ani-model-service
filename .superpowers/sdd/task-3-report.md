@@ -16,6 +16,7 @@ Review follow-up:
 
 - Content length is measured by a first archive pass, then the archive is streamed from the staging PVC through a bounded pipe; no temporary archive is written to container `/tmp`.
 - Redirects are disabled for the signed URL client, so every 3xx response is rejected. Added redirect rejection coverage.
+- Response bodies and request pipes are closed before waiting for the archive producer, preventing early-response goroutine leaks; added early-response coverage.
 
 Final validation:
 

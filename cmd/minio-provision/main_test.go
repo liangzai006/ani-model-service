@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunRequiresUploadURL(t *testing.T) {
@@ -122,6 +123,51 @@ func TestRunRejectsUploadRedirect(t *testing.T) {
 	if err := run(context.Background(), get, command); err == nil || !strings.Contains(err.Error(), "upload model archive") {
 		t.Fatalf("run() error = %v, want redirect rejection", err)
 	}
+}
+
+func TestUploadArchiveDoesNotBlockOnEarlyResponse(t *testing.T) {
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "weights.safetensors"), []byte("weights"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	responseBody := &trackedBody{closed: make(chan struct{})}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusRequestEntityTooLarge, Status: "413 Payload Too Large", Body: responseBody}, nil
+	})}
+	done := make(chan error, 1)
+	go func() {
+		_, err := uploadArchiveWithClient(context.Background(), client, "http://storage.example/upload", "imports/task/model.tar", staging)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "upload model archive") {
+			t.Fatalf("uploadArchive() error = %v, want early response rejection", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("uploadArchive() blocked after the server returned an early response")
+	}
+	select {
+	case <-responseBody.closed:
+	default:
+		t.Fatal("uploadArchive() did not close the early response body")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+type trackedBody struct{ closed chan struct{} }
+
+func (*trackedBody) Read([]byte) (int, error) { return 0, io.EOF }
+func (b *trackedBody) Close() error {
+	select {
+	case <-b.closed:
+	default:
+		close(b.closed)
+	}
+	return nil
 }
 
 func TestDownloadCommandModelScope(t *testing.T) {

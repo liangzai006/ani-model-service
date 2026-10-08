@@ -145,6 +145,11 @@ func objectKey(configured, taskID string) (string, error) {
 }
 
 func uploadArchive(ctx context.Context, uploadURL, objectRef, root string) (importResult, error) {
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return uploadArchiveWithClient(ctx, client, uploadURL, objectRef, root)
+}
+
+func uploadArchiveWithClient(ctx context.Context, client *http.Client, uploadURL, objectRef, root string) (importResult, error) {
 	var size int64
 	if err := archiveDirectory(root, countWriter{n: &size}); err != nil {
 		return importResult{}, fmt.Errorf("archive model: %w", err)
@@ -169,24 +174,26 @@ func uploadArchive(ctx context.Context, uploadURL, objectRef, root string) (impo
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", "application/x-tar")
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
 		_ = pipeReader.CloseWithError(err)
 		<-archiveErr
 		return importResult{}, fmt.Errorf("upload model archive: %w", err)
 	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+	statusOK := resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices
+	_ = resp.Body.Close()
+	if statusOK {
+		_ = pipeReader.Close()
+	} else {
 		_ = pipeReader.CloseWithError(fmt.Errorf("upload rejected with status %s", resp.Status))
-		<-archiveErr
-		resp.Body.Close()
+	}
+	streamErr := <-archiveErr
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return importResult{}, fmt.Errorf("upload model archive: server returned %s", resp.Status)
 	}
-	if err := <-archiveErr; err != nil {
-		resp.Body.Close()
-		return importResult{}, fmt.Errorf("archive model: %w", err)
+	if streamErr != nil {
+		return importResult{}, fmt.Errorf("archive model: %w", streamErr)
 	}
-	defer resp.Body.Close()
 	return importResult{ObjectRef: objectRef, Format: archiveFormat(root), SizeBytes: size, SHA256: hex.EncodeToString(hasher.Sum(nil))}, nil
 }
 
