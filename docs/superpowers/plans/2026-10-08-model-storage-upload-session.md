@@ -66,7 +66,7 @@ Expected: FAIL because executor still requires MinIO fields and does not create 
 
 - [ ] **Step 3: Implement the minimal executor flow**
 
-Replace MinIO fields with an upload-secret name or derive it from the deterministic Job name. In `Execute`, compute the object reference, call `Storage.CreateUploadURL`, validate it with `storage.ValidateSignedURL`, create a Secret containing `ANI_IMPORT_UPLOAD_URL`, then create/reuse the Job. Add cleanup for the upload Secret on success/failure. Keep provider Secret handling unchanged. Job env must contain the object reference and a SecretKeyRef for the upload URL, never a literal URL or MinIO configuration.
+Replace MinIO fields with an upload-secret name or derive it from the deterministic Job name. In `Execute`, first look up the deterministic Job; only when it is not found and is about to be created, compute the object reference, call `Storage.CreateUploadURL`, validate it with `storage.ValidateSignedURL`, create a Secret containing `ANI_IMPORT_UPLOAD_URL`, then create the Job. Add cleanup for the upload Secret on success/failure. Keep provider Secret handling unchanged. Job env must contain the object reference and a SecretKeyRef for the upload URL, never a literal URL or MinIO configuration.
 
 - [ ] **Step 4: Run focused tests and verify they pass**
 
@@ -139,7 +139,7 @@ Remove the `minioEndpoint` guard around Kubernetes import. Construct the executo
 
 - [ ] **Step 4: Update the new deployment contract**
 
-Remove MinIO-specific Model Service and importer environment variables from the new Storage gRPC deployment. Keep only `ANI_STORAGE_GRPC_*`, importer Job image/namespace, provider Secret, and storage class settings. Do not modify old-environment deployment manifests.
+Remove `ANI_IMPORT_MINIO_SECRET` and all MinIO-specific variables from the importer Job contract. The Model Service may continue using its existing direct S3-compatible adapter or Storage gRPC adapter; both selected `storage.Port` implementations must be able to create upload URLs. Do not force the Resource Storage gRPC path before its API is defined, and do not modify old-environment deployment manifests.
 
 Grant the Model Service service account only the `secrets` create/get/delete permissions needed for task-scoped upload Secrets in the import namespace. Remove the old MinIO Secret setup and `ANI_IMPORT_MINIO_SECRET` references from `docs/deploy/import-job.yaml`; retain provider Secret handling.
 
