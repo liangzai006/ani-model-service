@@ -42,12 +42,7 @@ type KubernetesImportExecutor struct {
 	Providers          importer.Registry
 	Namespace          string
 	Image              string
-	MinIOSecretName    string
 	ProviderSecretName string
-	MinIOEndpoint      string
-	MinIOBucket        string
-	MinIOTenantBuckets bool
-	MinIOSecure        bool
 	StorageClass       string
 	PollInterval       time.Duration
 }
@@ -73,8 +68,40 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 		if !isNotFound(err) {
 			return err
 		}
+		objectRef := importObjectRef(task)
+		upload, err := e.Storage.CreateUploadURL(ctx, storage.UploadRequest{
+			TenantID:    task.TenantID,
+			ObjectRef:   objectRef,
+			ContentType: "application/x-tar",
+		})
+		if err != nil {
+			return err
+		}
+		if err := storage.ValidateSignedURL(upload, time.Now()); err != nil {
+			return err
+		}
+		secretName := importUploadSecretName(spec.Name)
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: spec.Namespace,
+				Name:      secretName,
+				Labels:    spec.Labels,
+				Annotations: map[string]string{
+					"ani.liangzai006.io/import-object": objectRef,
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{"ANI_IMPORT_UPLOAD_URL": []byte(upload.URL)},
+		}
+		if _, err := e.Jobs.CreateSecret(ctx, secret); err != nil {
+			if isAlreadyExists(err) {
+				return fmt.Errorf("import upload secret %s/%s already exists; refusing to overwrite", secret.Namespace, secret.Name)
+			}
+			return err
+		}
 		job, err = e.Jobs.Create(ctx, spec)
 		if err != nil && !isAlreadyExists(err) {
+			_ = e.cleanupUploadSecret(ctx, secret.Namespace, secret.Name)
 			return err
 		}
 		if err != nil {
@@ -104,10 +131,12 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 				// Log but don't fail the import if PVC cleanup fails
 				_ = err
 			}
+			_ = e.cleanupUploadSecret(ctx, spec.Namespace, importUploadSecretName(spec.Name))
 			return e.finalizeJob(ctx, task, spec.Namespace, spec.Name)
 		case kube.JobFailed:
 			// Cleanup PVC after failed job
 			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
+			_ = e.cleanupUploadSecret(ctx, spec.Namespace, importUploadSecretName(spec.Name))
 			return fmt.Errorf("import job failed: %s: %s", status.Reason, status.Message)
 		}
 		select {
@@ -140,7 +169,7 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 	if err != nil {
 		return kube.ImportJobSpec{}, nil, fmt.Errorf("import storage size: %w", err)
 	}
-	objectKey := "imports/" + task.ID + "/model.tar"
+	objectKey := importObjectRef(task)
 	env := []corev1.EnvVar{
 		{Name: "ANI_IMPORT_SOURCE", Value: task.Source},
 		{Name: "ANI_IMPORT_REPO_ID", Value: task.RepoID},
@@ -149,10 +178,10 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		{Name: "ANI_IMPORT_TASK_ID", Value: task.ID},
 		{Name: "ANI_IMPORT_OBJECT_KEY", Value: objectKey},
 		{Name: "ANI_IMPORT_STAGING_DIR", Value: "/staging/model"},
-		{Name: "ANI_MINIO_ENDPOINT", Value: e.MinIOEndpoint},
-		{Name: "ANI_MINIO_BUCKET", Value: e.MinIOBucket},
-		{Name: "ANI_MINIO_TENANT_BUCKETS", Value: fmt.Sprint(e.MinIOTenantBuckets)},
-		{Name: "ANI_MINIO_SECURE", Value: fmt.Sprint(e.MinIOSecure)},
+		{Name: "ANI_IMPORT_UPLOAD_URL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: importUploadSecretName(name)},
+			Key:                  "ANI_IMPORT_UPLOAD_URL",
+		}}},
 	}
 	spec := kube.ImportJobSpec{
 		Namespace:             e.Namespace,
@@ -167,7 +196,7 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		Volumes:               []corev1.Volume{{Name: "staging", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvcName}}}},
 		VolumeMounts:          []corev1.VolumeMount{{Name: "staging", MountPath: "/staging"}},
 	}
-	for _, secretName := range []string{e.MinIOSecretName, e.ProviderSecretName} {
+	for _, secretName := range []string{e.ProviderSecretName} {
 		if secretName == "" {
 			continue
 		}
@@ -186,6 +215,19 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		},
 	}
 	return spec, pvc, nil
+}
+
+func importObjectRef(task workbiz.Task) string {
+	return "imports/" + task.ID + "/model.tar"
+}
+
+func importUploadSecretName(jobName string) string {
+	name := jobName + "-upload"
+	if len(name) <= 63 {
+		return name
+	}
+	name = strings.TrimRight(name[:63-len("-upload")], "-")
+	return name + "-upload"
 }
 
 const (
@@ -277,6 +319,17 @@ func (e KubernetesImportExecutor) cleanupPVC(ctx context.Context, namespace, nam
 		return nil
 	}
 	return e.Jobs.DeletePVC(ctx, namespace, name)
+}
+
+func (e KubernetesImportExecutor) cleanupUploadSecret(ctx context.Context, namespace, name string) error {
+	if e.Jobs == nil {
+		return nil
+	}
+	err := e.Jobs.DeleteSecret(ctx, namespace, name)
+	if isNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 func (e KubernetesImportExecutor) finalizeJob(ctx context.Context, task workbiz.Task, namespace, name string) error {
