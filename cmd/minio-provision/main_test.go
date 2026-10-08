@@ -1,44 +1,96 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
-
-	"github.com/minio/minio-go/v7"
 )
 
-type bucketFake struct {
-	exists  bool
-	created int
+func TestRunRequiresUploadURL(t *testing.T) {
+	get := func(key string) string {
+		if key == "ANI_IMPORT_SOURCE" {
+			return "modelscope"
+		}
+		if key == "ANI_IMPORT_REPO_ID" {
+			return "org/model"
+		}
+		return ""
+	}
+	if err := run(context.Background(), get, func(context.Context, string, ...string) *exec.Cmd { return nil }); err == nil || !strings.Contains(err.Error(), "ANI_IMPORT_UPLOAD_URL") {
+		t.Fatalf("run() error = %v, want missing upload URL", err)
+	}
 }
 
-func (f *bucketFake) BucketExists(context.Context, string) (bool, error) { return f.exists, nil }
-func (f *bucketFake) MakeBucket(context.Context, string, minio.MakeBucketOptions) error {
-	f.created++
-	f.exists = true
-	return nil
-}
-func (f *bucketFake) PutObject(context.Context, string, string, io.Reader, int64, minio.PutObjectOptions) (minio.UploadInfo, error) {
-	return minio.UploadInfo{}, nil
+func TestRunUploadsArchiveThroughSignedURL(t *testing.T) {
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "weights.safetensors"), []byte("weights"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var gotMethod string
+	var gotLength int64
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotLength = r.ContentLength
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	get := func(key string) string {
+		values := map[string]string{
+			"ANI_IMPORT_UPLOAD_URL":  server.URL,
+			"ANI_IMPORT_SOURCE":      "modelscope",
+			"ANI_IMPORT_REPO_ID":     "org/model",
+			"ANI_IMPORT_STAGING_DIR": staging,
+			"ANI_IMPORT_OBJECT_KEY":  "imports/task/model.tar",
+		}
+		return values[key]
+	}
+	command := func(ctx context.Context, _ string, _ ...string) *exec.Cmd { return exec.CommandContext(ctx, "true") }
+	if err := run(context.Background(), get, command); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPut {
+		t.Fatalf("method = %q, want PUT", gotMethod)
+	}
+	if gotLength <= 0 || gotLength != int64(len(gotBody)) {
+		t.Fatalf("content length = %d, body bytes = %d", gotLength, len(gotBody))
+	}
+	if !bytes.Contains(gotBody, []byte("weights.safetensors")) {
+		t.Fatalf("archive body does not contain staged file name")
+	}
 }
 
-func TestEnsureBucketCreatesOnlyWhenMissing(t *testing.T) {
-	fake := &bucketFake{}
-	if err := ensureBucket(context.Background(), fake, "tenant"); err != nil {
+func TestRunRejectsUploadFailure(t *testing.T) {
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "config.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if fake.created != 1 {
-		t.Fatalf("created = %d, want 1", fake.created)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+	get := func(key string) string {
+		values := map[string]string{
+			"ANI_IMPORT_UPLOAD_URL":  server.URL,
+			"ANI_IMPORT_SOURCE":      "modelscope",
+			"ANI_IMPORT_REPO_ID":     "org/model",
+			"ANI_IMPORT_STAGING_DIR": staging,
+			"ANI_IMPORT_OBJECT_KEY":  "imports/task/model.tar",
+		}
+		return values[key]
 	}
-	if err := ensureBucket(context.Background(), fake, "tenant"); err != nil {
-		t.Fatal(err)
-	}
-	if fake.created != 1 {
-		t.Fatalf("created = %d after existing bucket, want 1", fake.created)
+	command := func(ctx context.Context, _ string, _ ...string) *exec.Cmd { return exec.CommandContext(ctx, "true") }
+	if err := run(context.Background(), get, command); err == nil || !strings.Contains(err.Error(), "upload model archive") {
+		t.Fatalf("run() error = %v, want upload failure", err)
 	}
 }
 
@@ -91,25 +143,5 @@ func TestObjectKeyRequiresTaskOrExplicitKey(t *testing.T) {
 	key, err := objectKey("tenant/model.tar", "")
 	if err != nil || key != "tenant/model.tar" {
 		t.Fatalf("objectKey() = %q, %v", key, err)
-	}
-}
-
-func TestBucketNameHonorsSharedBucketMode(t *testing.T) {
-	tenant := "99999999-9999-4999-8999-999999999999"
-	if got, err := bucketName(tenant, "ani-models", false); err != nil || got != "ani-models" {
-		t.Fatalf("shared bucketName() = %q, %v", got, err)
-	}
-	if got, err := bucketName(tenant, "ani-models", true); err != nil || got != tenant {
-		t.Fatalf("tenant bucketName() = %q, %v", got, err)
-	}
-}
-
-func TestStorageObjectKeyPrefixesSharedBucketTenant(t *testing.T) {
-	tenant := "99999999-9999-4999-8999-999999999999"
-	if got := storageObjectKey(tenant, "imports/task/model.tar", false); got != tenant+"/imports/task/model.tar" {
-		t.Fatalf("shared storageObjectKey() = %q", got)
-	}
-	if got := storageObjectKey(tenant, "imports/task/model.tar", true); got != "imports/task/model.tar" {
-		t.Fatalf("tenant storageObjectKey() = %q", got)
 	}
 }

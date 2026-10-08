@@ -1,7 +1,6 @@
-// Command minio-provision is the one-shot model import entrypoint used by a
-// Kubernetes Job. It first ensures the tenant bucket exists, then downloads
-// the requested repository with the provider CLI and uploads one immutable
-// archive to MinIO.
+// Command model-import is the one-shot model import entrypoint used by a
+// Kubernetes Job. It downloads the requested repository with the provider CLI
+// and uploads one immutable archive through a signed URL.
 package main
 
 import (
@@ -14,21 +13,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
-
-type bucketClient interface {
-	BucketExists(context.Context, string) (bool, error)
-	MakeBucket(context.Context, string, minio.MakeBucketOptions) error
-	PutObject(context.Context, string, string, io.Reader, int64, minio.PutObjectOptions) (minio.UploadInfo, error)
-}
 
 type importResult struct {
 	ObjectRef string `json:"object_ref"`
@@ -47,24 +39,9 @@ type getenv func(string) string
 type commandFactory func(context.Context, string, ...string) *exec.Cmd
 
 func run(ctx context.Context, get getenv, command commandFactory) error {
-	endpoint := strings.TrimSpace(get("ANI_MINIO_ENDPOINT"))
-	accessKey := get("ANI_MINIO_ACCESS_KEY")
-	secretKey := get("ANI_MINIO_SECRET_KEY")
-	if endpoint == "" || accessKey == "" || secretKey == "" {
-		return errors.New("ANI_MINIO_ENDPOINT, ANI_MINIO_ACCESS_KEY and ANI_MINIO_SECRET_KEY are required")
-	}
-	tenantID := strings.TrimSpace(firstNonEmpty(get("ANI_IMPORT_TENANT_ID"), get("ANI_MINIO_TENANT_ID")))
-	tenantBuckets := strings.EqualFold(strings.TrimSpace(get("ANI_MINIO_TENANT_BUCKETS")), "true")
-	bucket, err := bucketName(tenantID, get("ANI_MINIO_BUCKET"), tenantBuckets)
-	if err != nil {
-		return err
-	}
-	client, err := minio.New(endpoint, &minio.Options{Creds: credentials.NewStaticV4(accessKey, secretKey, ""), Secure: strings.EqualFold(get("ANI_MINIO_SECURE"), "true")})
-	if err != nil {
-		return fmt.Errorf("create MinIO client: %w", err)
-	}
-	if err := ensureBucket(ctx, client, bucket); err != nil {
-		return err
+	uploadURL := strings.TrimSpace(get("ANI_IMPORT_UPLOAD_URL"))
+	if uploadURL == "" {
+		return errors.New("ANI_IMPORT_UPLOAD_URL is required")
 	}
 
 	source := strings.ToLower(strings.TrimSpace(get("ANI_IMPORT_SOURCE")))
@@ -91,8 +68,7 @@ func run(ctx context.Context, get getenv, command commandFactory) error {
 	if err != nil {
 		return err
 	}
-	uploadKey := storageObjectKey(tenantID, key, tenantBuckets)
-	result, err := uploadArchive(ctx, client, bucket, key, uploadKey, staging)
+	result, err := uploadArchive(ctx, uploadURL, key, staging)
 	if err != nil {
 		return err
 	}
@@ -100,47 +76,6 @@ func run(ctx context.Context, get getenv, command commandFactory) error {
 	// The Job controller consumes this stable, single-line result. It contains
 	// no credentials and is safe to retain in the Job log for reconciliation.
 	fmt.Printf("ANI_IMPORT_RESULT %s\n", encoded)
-	return nil
-}
-
-func bucketName(tenantID, configured string, tenantBuckets bool) (string, error) {
-	if !tenantBuckets || tenantID == "" {
-		if configured == "" {
-			return "ani-models", nil
-		}
-		return configured, nil
-	}
-	parsed, err := uuid.Parse(tenantID)
-	if err != nil {
-		return "", fmt.Errorf("tenant id must be a UUID: %w", err)
-	}
-	return strings.ToLower(parsed.String()), nil
-}
-
-func storageObjectKey(tenantID, objectRef string, tenantBuckets bool) string {
-	if tenantBuckets || tenantID == "" {
-		return objectRef
-	}
-	return strings.Trim(tenantID, "/") + "/" + strings.TrimLeft(objectRef, "/")
-}
-
-func ensureBucket(ctx context.Context, client bucketClient, bucket string) error {
-	exists, err := client.BucketExists(ctx, bucket)
-	if err != nil {
-		return fmt.Errorf("check bucket %q: %w", bucket, err)
-	}
-	if exists {
-		return nil
-	}
-	if err := client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
-		// A concurrent Job may have created the bucket between the check and
-		// create. Verify the final state instead of failing the import.
-		exists, checkErr := client.BucketExists(ctx, bucket)
-		if checkErr == nil && exists {
-			return nil
-		}
-		return fmt.Errorf("create bucket %q: %w", bucket, err)
-	}
 	return nil
 }
 
@@ -209,23 +144,36 @@ func objectKey(configured, taskID string) (string, error) {
 	return "imports/" + taskID + "/model.tar", nil
 }
 
-func uploadArchive(ctx context.Context, client bucketClient, bucket, objectRef, uploadKey, root string) (importResult, error) {
-	pr, pw := io.Pipe()
+func uploadArchive(ctx context.Context, uploadURL, objectRef, root string) (importResult, error) {
+	temp, err := os.CreateTemp("", "ani-model-import-*.tar")
+	if err != nil {
+		return importResult{}, fmt.Errorf("create archive temporary file: %w", err)
+	}
+	tempName := temp.Name()
+	defer os.Remove(tempName)
+	defer temp.Close()
+
 	hasher := sha256.New()
 	var size int64
-	write := io.MultiWriter(pw, hasher, countWriter{n: &size})
-	errCh := make(chan error, 1)
-	go func() {
-		err := archiveDirectory(root, write)
-		_ = pw.CloseWithError(err)
-		errCh <- err
-	}()
-	if _, err := client.PutObject(ctx, bucket, uploadKey, pr, -1, minio.PutObjectOptions{ContentType: "application/x-tar"}); err != nil {
-		_ = pr.CloseWithError(err)
+	if err := archiveDirectory(root, io.MultiWriter(temp, hasher, countWriter{n: &size})); err != nil {
+		return importResult{}, fmt.Errorf("archive model: %w", err)
+	}
+	if _, err := temp.Seek(0, io.SeekStart); err != nil {
+		return importResult{}, fmt.Errorf("rewind model archive: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, temp)
+	if err != nil {
+		return importResult{}, fmt.Errorf("create upload request: %w", err)
+	}
+	req.ContentLength = size
+	req.Header.Set("Content-Type", "application/x-tar")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
 		return importResult{}, fmt.Errorf("upload model archive: %w", err)
 	}
-	if err := <-errCh; err != nil {
-		return importResult{}, fmt.Errorf("archive model: %w", err)
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return importResult{}, fmt.Errorf("upload model archive: server returned %s", resp.Status)
 	}
 	return importResult{ObjectRef: objectRef, Format: archiveFormat(root), SizeBytes: size, SHA256: hex.EncodeToString(hasher.Sum(nil))}, nil
 }
