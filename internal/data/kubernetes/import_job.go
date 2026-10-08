@@ -177,6 +177,31 @@ func (c *ImportJobClient) DeletePVC(ctx context.Context, namespace, name string)
 	return nil
 }
 
+func (c *ImportJobClient) CreateSecret(ctx context.Context, secret *corev1.Secret) (*corev1.Secret, error) {
+	if c == nil || c.client == nil {
+		return nil, ErrKubernetesClientUnavailable
+	}
+	if secret == nil || secret.Namespace == "" || secret.Name == "" {
+		return nil, errors.New("import secret identity is required")
+	}
+	created, err := c.client.CoreV1().Secrets(secret.Namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("create import secret %s/%s: %w", secret.Namespace, secret.Name, err)
+	}
+	return created, nil
+}
+
+func (c *ImportJobClient) DeleteSecret(ctx context.Context, namespace, name string) error {
+	if c == nil || c.client == nil {
+		return ErrKubernetesClientUnavailable
+	}
+	err := c.client.CoreV1().Secrets(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("delete import secret %s/%s: %w", namespace, name, err)
+	}
+	return nil
+}
+
 func (c *ImportJobClient) Logs(ctx context.Context, namespace, name string) (string, error) {
 	if c == nil || c.client == nil {
 		return "", ErrKubernetesClientUnavailable

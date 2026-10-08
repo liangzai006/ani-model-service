@@ -6,6 +6,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
@@ -50,6 +51,35 @@ func TestBuildImportJob(t *testing.T) {
 	}
 	if job.Spec.BackoffLimit == nil || *job.Spec.BackoffLimit != 1 {
 		t.Fatalf("backoff limit = %#v", job.Spec.BackoffLimit)
+	}
+}
+
+func TestImportJobClientSecretLifecycle(t *testing.T) {
+	client := NewImportJobClient(k8sfake.NewSimpleClientset())
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ani-model",
+			Name:      "import-task-1-upload",
+			Labels:    map[string]string{"ani.example/task-id": "task-1"},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{"model.bin": []byte("model payload")},
+	}
+
+	created, err := client.CreateSecret(context.Background(), secret)
+	if err != nil {
+		t.Fatalf("CreateSecret() error = %v", err)
+	}
+	if got := string(created.Data["model.bin"]); got != "model payload" {
+		t.Fatalf("created secret data = %q, want %q", got, "model payload")
+	}
+
+	if err := client.DeleteSecret(context.Background(), secret.Namespace, secret.Name); err != nil {
+		t.Fatalf("DeleteSecret() error = %v", err)
+	}
+	_, err = client.client.CoreV1().Secrets(secret.Namespace).Get(context.Background(), secret.Name, metav1.GetOptions{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("secret after DeleteSecret() error = %v, want not found", err)
 	}
 }
 
