@@ -11,3 +11,12 @@
 
 - `go test ./cmd/minio-provision -run 'TestRun(RequiresUploadURL|UploadsArchiveThroughSignedURL|RejectsUploadFailure)' -count=1` (red before implementation; green after implementation)
 - `go test ./cmd/minio-provision -count=1` (passed)
+
+Review follow-up:
+
+- Content length is measured by a first archive pass, then the archive is streamed from the staging PVC through a bounded pipe; no temporary archive is written to container `/tmp`.
+- Redirects are disabled for the signed URL client, so every 3xx response is rejected. Added redirect rejection coverage.
+
+Final validation:
+
+- `go test ./cmd/minio-provision -count=1` (passed)

@@ -94,6 +94,36 @@ func TestRunRejectsUploadFailure(t *testing.T) {
 	}
 }
 
+func TestRunRejectsUploadRedirect(t *testing.T) {
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "config.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	success := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer success.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", success.URL)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer redirect.Close()
+	get := func(key string) string {
+		values := map[string]string{
+			"ANI_IMPORT_UPLOAD_URL":  redirect.URL,
+			"ANI_IMPORT_SOURCE":      "modelscope",
+			"ANI_IMPORT_REPO_ID":     "org/model",
+			"ANI_IMPORT_STAGING_DIR": staging,
+			"ANI_IMPORT_OBJECT_KEY":  "imports/task/model.tar",
+		}
+		return values[key]
+	}
+	command := func(ctx context.Context, _ string, _ ...string) *exec.Cmd { return exec.CommandContext(ctx, "true") }
+	if err := run(context.Background(), get, command); err == nil || !strings.Contains(err.Error(), "upload model archive") {
+		t.Fatalf("run() error = %v, want redirect rejection", err)
+	}
+}
+
 func TestDownloadCommandModelScope(t *testing.T) {
 	get := func(key string) string {
 		if key == "ANI_MODELSCOPE_CLI" {

@@ -145,36 +145,48 @@ func objectKey(configured, taskID string) (string, error) {
 }
 
 func uploadArchive(ctx context.Context, uploadURL, objectRef, root string) (importResult, error) {
-	temp, err := os.CreateTemp("", "ani-model-import-*.tar")
-	if err != nil {
-		return importResult{}, fmt.Errorf("create archive temporary file: %w", err)
-	}
-	tempName := temp.Name()
-	defer os.Remove(tempName)
-	defer temp.Close()
-
-	hasher := sha256.New()
 	var size int64
-	if err := archiveDirectory(root, io.MultiWriter(temp, hasher, countWriter{n: &size})); err != nil {
+	if err := archiveDirectory(root, countWriter{n: &size}); err != nil {
 		return importResult{}, fmt.Errorf("archive model: %w", err)
 	}
-	if _, err := temp.Seek(0, io.SeekStart); err != nil {
-		return importResult{}, fmt.Errorf("rewind model archive: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, temp)
+	pipeReader, pipeWriter := io.Pipe()
+	hasher := sha256.New()
+	var uploadedSize int64
+	archiveErr := make(chan error, 1)
+	go func() {
+		err := archiveDirectory(root, io.MultiWriter(pipeWriter, hasher, countWriter{n: &uploadedSize}))
+		if err == nil && uploadedSize != size {
+			err = fmt.Errorf("archive size changed during upload: got %d, want %d", uploadedSize, size)
+		}
+		_ = pipeWriter.CloseWithError(err)
+		archiveErr <- err
+	}()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, pipeReader)
 	if err != nil {
+		_ = pipeReader.CloseWithError(err)
+		<-archiveErr
 		return importResult{}, fmt.Errorf("create upload request: %w", err)
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", "application/x-tar")
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
 	if err != nil {
+		_ = pipeReader.CloseWithError(err)
+		<-archiveErr
 		return importResult{}, fmt.Errorf("upload model archive: %w", err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_ = pipeReader.CloseWithError(fmt.Errorf("upload rejected with status %s", resp.Status))
+		<-archiveErr
+		resp.Body.Close()
 		return importResult{}, fmt.Errorf("upload model archive: server returned %s", resp.Status)
 	}
+	if err := <-archiveErr; err != nil {
+		resp.Body.Close()
+		return importResult{}, fmt.Errorf("archive model: %w", err)
+	}
+	defer resp.Body.Close()
 	return importResult{ObjectRef: objectRef, Format: archiveFormat(root), SizeBytes: size, SHA256: hex.EncodeToString(hasher.Sum(nil))}, nil
 }
 
