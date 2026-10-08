@@ -191,6 +191,17 @@ func (c *ImportJobClient) CreateSecret(ctx context.Context, secret *corev1.Secre
 	return created, nil
 }
 
+func (c *ImportJobClient) GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
+	if c == nil || c.client == nil {
+		return nil, ErrKubernetesClientUnavailable
+	}
+	secret, err := c.client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get import secret %s/%s: %w", namespace, name, err)
+	}
+	return secret, nil
+}
+
 func (c *ImportJobClient) DeleteSecret(ctx context.Context, namespace, name string) error {
 	if c == nil || c.client == nil {
 		return ErrKubernetesClientUnavailable

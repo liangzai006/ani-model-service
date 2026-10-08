@@ -13,8 +13,11 @@ import (
 	kube "github.com/liangzai006/ani-model-service/internal/data/kubernetes"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestParseImportResultUsesLastStableResultLine(t *testing.T) {
@@ -133,6 +136,9 @@ func TestKubernetesImportExecutorCreatesUploadSecretForNewJob(t *testing.T) {
 	}
 	if got, want := store.request.ObjectRef, importObjectRef(task); got != want {
 		t.Fatalf("upload object ref = %q, want %q", got, want)
+	}
+	if got, want := store.request.TenantID, task.TenantID; got != want {
+		t.Fatalf("upload tenant ID = %q, want %q", got, want)
 	}
 	if got, want := store.request.ContentType, "application/x-tar"; got != want {
 		t.Fatalf("upload content type = %q, want %q", got, want)
@@ -355,8 +361,18 @@ func TestKubernetesImportExecutorRefusesExistingUploadSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = e.Execute(context.Background(), task)
-	if err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("Execute() error = %v, want existing Secret refusal", err)
+	}
+	if store.called {
+		t.Fatal("existing upload Secret unexpectedly requested a new upload URL")
+	}
+	jobs, err := clientset.BatchV1().Jobs(e.Namespace).List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs.Items) != 0 {
+		t.Fatalf("Job count = %d, want no Job when upload Secret already exists", len(jobs.Items))
 	}
 	got, err := clientset.CoreV1().Secrets(e.Namespace).Get(context.Background(), existing.Name, metav1.GetOptions{})
 	if err != nil {
@@ -364,6 +380,116 @@ func TestKubernetesImportExecutorRefusesExistingUploadSecret(t *testing.T) {
 	}
 	if string(got.Data["ANI_IMPORT_UPLOAD_URL"]) != "https://storage.example/old" {
 		t.Fatal("existing upload Secret was overwritten")
+	}
+}
+
+func TestKubernetesImportExecutorCleansUploadSecretAfterFailedJob(t *testing.T) {
+	clientset := k8sfake.NewSimpleClientset()
+	store := &kubernetesStorageFake{upload: storage.SignedURL{URL: "https://storage.example/upload", ExpiresAt: time.Now().Add(time.Hour)}}
+	e := KubernetesImportExecutor{Jobs: kube.NewImportJobClient(clientset), Storage: store, Namespace: "ani-models", Image: "registry.example/ani-model-importer:v1", Providers: importer.Registry{"modelscope": manifestSizeSource{}}, PollInterval: time.Millisecond}
+	task := workbiz.Task{TenantID: "99999999-9999-4999-8999-999999999999", ID: "11111111-1111-4111-8111-111111111111", Source: "modelscope", RepoID: "Qwen/Qwen3-32B"}
+	spec, pvc, err := e.jobSpec(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientset.CoreV1().PersistentVolumeClaims(e.Namespace).Create(context.Background(), pvc, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientset.BatchV1().Jobs(e.Namespace).Create(context.Background(), func() *batchv1.Job {
+		job, buildErr := kube.BuildImportJob(spec)
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "failed"}}
+		return job
+	}(), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientset.CoreV1().Secrets(e.Namespace).Create(context.Background(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: e.Namespace, Name: importUploadSecretName(spec.Name)}, Data: map[string][]byte{"ANI_IMPORT_UPLOAD_URL": []byte(store.upload.URL)}}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	err = e.Execute(context.Background(), task)
+	if err == nil || !strings.Contains(err.Error(), "import job failed") {
+		t.Fatalf("Execute() error = %v, want failed Job", err)
+	}
+	if _, err := clientset.CoreV1().Secrets(e.Namespace).Get(context.Background(), importUploadSecretName(spec.Name), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("upload Secret after failed Job error = %v, want not found", err)
+	}
+}
+
+func TestKubernetesImportExecutorCleansUploadSecretAfterSucceededJob(t *testing.T) {
+	clientset := k8sfake.NewSimpleClientset()
+	store := &kubernetesStorageFake{}
+	e := KubernetesImportExecutor{Jobs: kube.NewImportJobClient(clientset), Storage: store, Namespace: "ani-models", Image: "registry.example/ani-model-importer:v1", Providers: importer.Registry{"modelscope": manifestSizeSource{}}, PollInterval: time.Millisecond}
+	task := workbiz.Task{TenantID: "99999999-9999-4999-8999-999999999999", ID: "11111111-1111-4111-8111-111111111111", Source: "modelscope", RepoID: "Qwen/Qwen3-32B"}
+	spec, pvc, err := e.jobSpec(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientset.CoreV1().PersistentVolumeClaims(e.Namespace).Create(context.Background(), pvc, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := kube.BuildImportJob(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientset.BatchV1().Jobs(e.Namespace).Create(context.Background(), job, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	job.Status.Succeeded = 1
+	if _, err := clientset.BatchV1().Jobs(e.Namespace).UpdateStatus(context.Background(), job, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientset.CoreV1().Secrets(e.Namespace).Create(context.Background(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: e.Namespace, Name: importUploadSecretName(spec.Name)}, Data: map[string][]byte{"ANI_IMPORT_UPLOAD_URL": []byte("https://storage.example/upload")}}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Execute(context.Background(), task); err == nil {
+		t.Fatal("Execute() unexpectedly succeeded without import result logs")
+	}
+	if _, err := clientset.CoreV1().Secrets(e.Namespace).Get(context.Background(), importUploadSecretName(spec.Name), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("upload Secret after succeeded Job error = %v, want not found", err)
+	}
+}
+
+func TestKubernetesImportExecutorCleansUploadSecretAfterJobCreateFailure(t *testing.T) {
+	clientset := k8sfake.NewSimpleClientset()
+	clientset.PrependReactor("create", "jobs", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("job create failed")
+	})
+	store := &kubernetesStorageFake{upload: storage.SignedURL{URL: "https://storage.example/upload", ExpiresAt: time.Now().Add(time.Hour)}}
+	e := KubernetesImportExecutor{Jobs: kube.NewImportJobClient(clientset), Storage: store, Namespace: "ani-models", Image: "registry.example/ani-modeler:v1", Providers: importer.Registry{"modelscope": manifestSizeSource{}}}
+	task := workbiz.Task{TenantID: "99999999-9999-4999-8999-999999999999", ID: "11111111-1111-4111-8111-111111111111", Source: "modelscope", RepoID: "Qwen/Qwen3-32B"}
+	spec, _, err := e.jobSpec(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = e.Execute(context.Background(), task)
+	if err == nil || !strings.Contains(err.Error(), "job create failed") {
+		t.Fatalf("Execute() error = %v, want create failure", err)
+	}
+	if _, err := clientset.CoreV1().Secrets(e.Namespace).Get(context.Background(), importUploadSecretName(spec.Name), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("upload Secret after Job create failure error = %v, want not found", err)
+	}
+}
+
+func TestKubernetesImportExecutorCleansSecretWhenRacingJobCreationLoses(t *testing.T) {
+	clientset := k8sfake.NewSimpleClientset()
+	clientset.PrependReactor("create", "jobs", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewAlreadyExists(batchv1.Resource("jobs"), action.(k8stesting.CreateAction).GetObject().(*batchv1.Job).Name)
+	})
+	store := &kubernetesStorageFake{upload: storage.SignedURL{URL: "https://storage.example/upload", ExpiresAt: time.Now().Add(time.Hour)}}
+	e := KubernetesImportExecutor{Jobs: kube.NewImportJobClient(clientset), Storage: store, Namespace: "ani-models", Image: "registry.example/ani-model-importer:v1", Providers: importer.Registry{"modelscope": manifestSizeSource{}}}
+	task := workbiz.Task{TenantID: "99999999-9999-4999-8999-999999999999", ID: "11111111-1111-4111-8111-111111111111", Source: "modelscope", RepoID: "Qwen/Qwen3-32B"}
+	spec, _, err := e.jobSpec(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = e.Execute(context.Background(), task)
+	if err == nil || !strings.Contains(err.Error(), "get import job") {
+		t.Fatalf("Execute() error = %v, want follow-up Job get failure", err)
+	}
+	if _, err := clientset.CoreV1().Secrets(e.Namespace).Get(context.Background(), importUploadSecretName(spec.Name), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("upload Secret after Job race error = %v, want not found", err)
 	}
 }
 

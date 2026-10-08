@@ -68,6 +68,14 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 		if !isNotFound(err) {
 			return err
 		}
+		secretName := importUploadSecretName(spec.Name)
+		if _, secretErr := e.Jobs.GetSecret(ctx, spec.Namespace, secretName); secretErr == nil {
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
+			return fmt.Errorf("import upload secret %s/%s already exists; refusing to reuse without Job", spec.Namespace, secretName)
+		} else if !isNotFound(secretErr) {
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
+			return secretErr
+		}
 		objectRef := importObjectRef(task)
 		upload, err := e.Storage.CreateUploadURL(ctx, storage.UploadRequest{
 			TenantID:    task.TenantID,
@@ -75,12 +83,13 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 			ContentType: "application/x-tar",
 		})
 		if err != nil {
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 			return err
 		}
 		if err := storage.ValidateSignedURL(upload, time.Now()); err != nil {
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 			return err
 		}
-		secretName := importUploadSecretName(spec.Name)
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: spec.Namespace,
@@ -95,18 +104,23 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 		}
 		if _, err := e.Jobs.CreateSecret(ctx, secret); err != nil {
 			if isAlreadyExists(err) {
+				_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 				return fmt.Errorf("import upload secret %s/%s already exists; refusing to overwrite", secret.Namespace, secret.Name)
 			}
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 			return err
 		}
 		job, err = e.Jobs.Create(ctx, spec)
 		if err != nil && !isAlreadyExists(err) {
 			_ = e.cleanupUploadSecret(ctx, secret.Namespace, secret.Name)
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 			return err
 		}
 		if err != nil {
 			job, err = e.Jobs.Get(ctx, spec.Namespace, spec.Name)
 			if err != nil {
+				_ = e.cleanupUploadSecret(ctx, secret.Namespace, secret.Name)
+				_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 				return err
 			}
 		}
@@ -148,7 +162,7 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 }
 
 func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task) (kube.ImportJobSpec, *corev1.PersistentVolumeClaim, error) {
-	if task.TenantID == "" || task.ID == "" || task.Source == "" || task.RepoID == "" {
+	if strings.TrimSpace(task.TenantID) == "" || task.ID == "" || task.Source == "" || task.RepoID == "" {
 		return kube.ImportJobSpec{}, nil, errors.New("import task identity and source are required")
 	}
 	if e.Namespace == "" || e.Image == "" {
