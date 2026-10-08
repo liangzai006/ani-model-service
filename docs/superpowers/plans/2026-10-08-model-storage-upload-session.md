@@ -122,6 +122,7 @@ git commit -m "feat: upload imported models through signed URLs"
 - Modify: `cmd/ani-model-service/main_test.go`
 - Modify: `docs/deploy/model/model-service.yaml`
 - Modify: `docs/deploy/examples/production-storage-grpc.yaml`
+- Modify: `docs/deploy/import-job.yaml`
 
 - [ ] **Step 1: Write failing configuration tests**
 
@@ -139,6 +140,8 @@ Remove the `minioEndpoint` guard around Kubernetes import. Construct the executo
 - [ ] **Step 4: Update the new deployment contract**
 
 Remove MinIO-specific Model Service and importer environment variables from the new Storage gRPC deployment. Keep only `ANI_STORAGE_GRPC_*`, importer Job image/namespace, provider Secret, and storage class settings. Do not modify old-environment deployment manifests.
+
+Grant the Model Service service account only the `secrets` create/get/delete permissions needed for task-scoped upload Secrets in the import namespace. Remove the old MinIO Secret setup and `ANI_IMPORT_MINIO_SECRET` references from `docs/deploy/import-job.yaml`; retain provider Secret handling.
 
 - [ ] **Step 5: Run focused tests and commit**
 
