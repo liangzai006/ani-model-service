@@ -9,6 +9,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestBuildImportJob(t *testing.T) {
@@ -121,6 +122,33 @@ func TestImportJobClientCreateAndStatus(t *testing.T) {
 	}
 	if status.Phase != JobSucceeded || status.Reason != "Completed" {
 		t.Fatalf("completed status = %#v", status)
+	}
+}
+
+func TestImportJobClientDeleteJobUsesForegroundPropagation(t *testing.T) {
+	client := NewImportJobClient(k8sfake.NewSimpleClientset())
+	job, err := client.Create(context.Background(), ImportJobSpec{
+		Namespace: "ani-model",
+		Name:      "import-task-1",
+		Image:     "registry.example/model-importer:latest",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if err := client.DeleteJob(context.Background(), job.Namespace, job.Name); err != nil {
+		t.Fatalf("DeleteJob() error = %v", err)
+	}
+	actions := client.client.(*k8sfake.Clientset).Actions()
+	deleteAction, ok := actions[len(actions)-1].(k8stesting.DeleteAction)
+	if !ok {
+		t.Fatalf("last action = %T, want DeleteAction", actions[len(actions)-1])
+	}
+	if got := deleteAction.GetDeleteOptions().PropagationPolicy; got == nil || *got != metav1.DeletePropagationForeground {
+		t.Fatalf("propagation policy = %v, want foreground", got)
+	}
+	if _, err := client.client.BatchV1().Jobs(job.Namespace).Get(context.Background(), job.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("job after DeleteJob() error = %v, want not found", err)
 	}
 }
 

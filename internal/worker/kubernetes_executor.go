@@ -140,15 +140,16 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 		}
 		switch status.Phase {
 		case kube.JobSucceeded:
-			// Cleanup PVC after successful job
-			if err := e.cleanupPVC(ctx, pvc.Namespace, pvc.Name); err != nil {
-				// Log but don't fail the import if PVC cleanup fails
-				_ = err
-			}
+			// Read the result logs while the Job and its Pod still exist. The
+			// Job must be deleted before its mounted PVC can be reclaimed.
+			finalizeErr := e.finalizeJob(ctx, task, spec.Namespace, spec.Name)
+			_ = e.cleanupJob(ctx, spec.Namespace, spec.Name)
+			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 			_ = e.cleanupUploadSecret(ctx, spec.Namespace, importUploadSecretName(spec.Name))
-			return e.finalizeJob(ctx, task, spec.Namespace, spec.Name)
+			return finalizeErr
 		case kube.JobFailed:
-			// Cleanup PVC after failed job
+			// Delete the Job first so its terminal Pod releases the PVC mount.
+			_ = e.cleanupJob(ctx, spec.Namespace, spec.Name)
 			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
 			_ = e.cleanupUploadSecret(ctx, spec.Namespace, importUploadSecretName(spec.Name))
 			return fmt.Errorf("import job failed: %s: %s", status.Reason, status.Message)
@@ -332,7 +333,22 @@ func (e KubernetesImportExecutor) cleanupPVC(ctx context.Context, namespace, nam
 	if e.Jobs == nil {
 		return nil
 	}
-	return e.Jobs.DeletePVC(ctx, namespace, name)
+	err := e.Jobs.DeletePVC(ctx, namespace, name)
+	if isNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+func (e KubernetesImportExecutor) cleanupJob(ctx context.Context, namespace, name string) error {
+	if e.Jobs == nil {
+		return nil
+	}
+	err := e.Jobs.DeleteJob(ctx, namespace, name)
+	if isNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 func (e KubernetesImportExecutor) cleanupUploadSecret(ctx context.Context, namespace, name string) error {

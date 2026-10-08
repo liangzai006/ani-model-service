@@ -333,8 +333,8 @@ func TestKubernetesImportExecutorReusesFailedJobForSameAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 1 {
-		t.Fatalf("Job count = %d, want existing Job reused", len(list.Items))
+	if len(list.Items) != 0 {
+		t.Fatalf("Job count = %d, want terminal Job cleaned up", len(list.Items))
 	}
 	if store.called {
 		t.Fatal("existing Job unexpectedly requested a new upload URL")
@@ -415,6 +415,21 @@ func TestKubernetesImportExecutorCleansUploadSecretAfterFailedJob(t *testing.T) 
 	if _, err := clientset.CoreV1().Secrets(e.Namespace).Get(context.Background(), importUploadSecretName(spec.Name), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("upload Secret after failed Job error = %v, want not found", err)
 	}
+	if _, err := clientset.BatchV1().Jobs(e.Namespace).Get(context.Background(), spec.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("Job after failed terminal cleanup error = %v, want not found", err)
+	}
+	if _, err := clientset.CoreV1().PersistentVolumeClaims(e.Namespace).Get(context.Background(), pvc.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("PVC after failed terminal cleanup error = %v, want not found", err)
+	}
+	var deleted []string
+	for _, action := range clientset.Actions() {
+		if deleteAction, ok := action.(k8stesting.DeleteAction); ok {
+			deleted = append(deleted, deleteAction.GetResource().Resource)
+		}
+	}
+	if got, want := strings.Join(deleted, ","), "jobs,persistentvolumeclaims,secrets"; got != want {
+		t.Fatalf("terminal cleanup delete order = %q, want %q", got, want)
+	}
 }
 
 func TestKubernetesImportExecutorCleansUploadSecretAfterSucceededJob(t *testing.T) {
@@ -448,6 +463,12 @@ func TestKubernetesImportExecutorCleansUploadSecretAfterSucceededJob(t *testing.
 	}
 	if _, err := clientset.CoreV1().Secrets(e.Namespace).Get(context.Background(), importUploadSecretName(spec.Name), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("upload Secret after succeeded Job error = %v, want not found", err)
+	}
+	if _, err := clientset.BatchV1().Jobs(e.Namespace).Get(context.Background(), spec.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("Job after succeeded terminal cleanup error = %v, want not found", err)
+	}
+	if _, err := clientset.CoreV1().PersistentVolumeClaims(e.Namespace).Get(context.Background(), pvc.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("PVC after succeeded terminal cleanup error = %v, want not found", err)
 	}
 }
 

@@ -140,6 +140,21 @@ func (c *ImportJobClient) Status(ctx context.Context, namespace, name string) (I
 	return JobStatus(job), nil
 }
 
+// DeleteJob deletes an import Job and its dependent Pods through foreground
+// garbage collection. The foreground policy keeps the Job's dependents tied
+// to the lifecycle cleanup, which allows callers to clean up mounted storage
+// after requesting Job deletion.
+func (c *ImportJobClient) DeleteJob(ctx context.Context, namespace, name string) error {
+	if c == nil || c.client == nil {
+		return ErrKubernetesClientUnavailable
+	}
+	propagation := metav1.DeletePropagationForeground
+	if err := c.client.BatchV1().Jobs(namespace).Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: &propagation}); err != nil {
+		return fmt.Errorf("delete import job %s/%s: %w", namespace, name, err)
+	}
+	return nil
+}
+
 func (c *ImportJobClient) CreatePVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error) {
 	if c == nil || c.client == nil {
 		return nil, ErrKubernetesClientUnavailable
