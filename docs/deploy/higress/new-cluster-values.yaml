@@ -1,6 +1,4 @@
-# Higress values for the isolated cluster described by .clusterenv.
-# This file is the new-cluster gateway definition. It does not modify the
-# legacy environment or any legacy APISIX values.
+# 新环境 Higress 网关配置；StorageClass、镜像仓库及端口按目标环境调整。
 
 global:
   enableGatewayAPI: true

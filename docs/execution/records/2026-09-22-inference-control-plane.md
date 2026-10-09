@@ -112,7 +112,8 @@ old kubeconfig/context and old namespaces were not used or modified.
   `docker.changqingyun.cn/mirror/vllm-openai-cpu@sha256:4c697ae650ebeb3a41f3c9c7020913d4c84d2729dc428ce39d60ca353975a4ce`.
 - HTTPRoute `ani-pub-ff4311b9647ad6f1f224` is `Accepted=True` and
   `ResolvedRefs=True`, routing `/v1` to
-  `smollm2-135m-cpu-real-endpoint` through the new APISIX NodePort.
+  `smollm2-135m-cpu-real-endpoint` through the NodePort of the then-current
+  HTTP gateway (now retired).
 
 ### Real request
 
@@ -188,7 +189,8 @@ The tar is `3,098,992,640` bytes with SHA256
   create operation `a916fe58-17ed-4bf8-ae14-270a5f532f0e` reached
   `succeeded/complete`; vLLM CPU loaded the model with `--dtype float32` and
   `--max-model-len 512`.
-- The runtime was published through the new APISIX NodePort. A real
+- The runtime was published through the NodePort of the then-current HTTP
+  gateway (now retired). A real
   `POST http://192.168.102.68:30090/v1/completions` returned HTTP 200 and
   non-empty output: `Paris. The capital of Italy is Rome`.
 

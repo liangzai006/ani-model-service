@@ -3,6 +3,19 @@
 当前范围仅包括 Model 目录、模型导入、制品存储和 Inference 运行时协作；
 Notebook、Kubeflow 用户工作流不属于本状态文件。
 
+## 2026-09-30 Governance HTTP 生命周期验收
+
+- `pass`：通过新集群 Governance HTTP API 完成 Model/版本/ModelScope 导入、
+  KServe 创建、停止、启动、重启、CPU 资源更新、删除；六个 operation 均达到
+  succeeded/complete。创建、启动和更新后经同级 Higress 真实生成返回 200，停止后返回 404。
+- `pass`：未登录返回 401；两个临时租户的 Model、Version、ImportTask、Inference、
+  Operation 读取隔离与模型/导入/推理创建幂等重放已验证。
+- `correction`：业务网关主链路已有真实 HTTP 证据；不能沿用历史“仅 gRPC”描述。
+  本轮 KServe 更新成功，旧 Deployment 的 stale-generation 记录不代表当前 KServe 必然失败。
+- `remaining`：正常删除仍不自动回收物化 Job/PVC/Secret；签名 URL 当前使用集群内 MinIO
+  域名，外部直达未实现；失败导入重试成功路径、进程中断恢复、取消和模型版本切换未完整验收。
+- 详情见 [Governance HTTP lifecycle](records/2026-09-30-governance-http-lifecycle.md)。
+
 ## 2026-09-24 Inference API → KServe LWS 真实链路
 
 - `pass`：仅在新集群数据库应用 `000015`，部署静态 Inference r3 镜像；真实 gRPC
@@ -104,7 +117,7 @@ Notebook、Kubeflow 用户工作流不属于本状态文件。
 - `pass`：租户 bucket 首次真实创建、已有 bucket 的再次真实导入及 ready 版本重放均已通过。新增可重复集成测试验证同幂等键返回同一任务、下载 SHA256 一致、短期地址过期返回 HTTP 403；正式 Kubernetes crash/restart 仍为 `not_verified`。见 [Existing bucket replay](records/2026-09-16-existing-bucket-replay.md)。
 - `partial`：Model gRPC `GetModelVersion` handler 已实现 request tenant 过滤、ready 制品完整性检查并注册到 Kratos server；sqlc CRUD 查询、ModelStore 基础 CRUD 与 gRPC Model CRUD handler 已补齐；导入任务、CreateModel 和 CreateModelVersion 均已持久化 request fingerprint，支持同 payload 重放、不同 payload 冲突；跨资源审计事务仍待接入；ModelVersion gRPC 创建/列表 handler 与 VersionCatalog PostgreSQL adapter 已补齐。
 - `partial`：已新增版本化 `api/storage/v1` gRPC 契约和 `GRPCAdapter`，并由组合根通过 `ANI_STORAGE_GRPC_ADDR` 注入 Model；当前新环境使用直接 MinIO 存储路径。bufconn 成功/失败语义、runtime 和 `make verify` 已通过；正式 Storage 服务端接入、真实对象 checksum 和地址过期验证仍为 `not_verified`。自行假定的 HTTP adapter 已撤出编译源码并归档。
-- `pass`（边界核对）：明确客户端 HTTP → 独立 Higress Gateway → vLLM HTTP；Model 仅保留运维 HTTP，不实现 Gateway。新集群已移除 APISIX，Higress 通过 Gateway API 和 model-router 按请求体 `model` 设置 Header，再以固定 `/v1/completions` 路径和模型 Header 精确分流；Model 业务 HTTP → gRPC 转换入口仍未接入，当前直接使用 Model gRPC。见 [入口边界纠正](records/2026-09-14-gateway-boundary.md)。
+- `pass`（边界核对）：明确客户端 HTTP → 独立 Higress Gateway → vLLM HTTP；Model 仅保留运维 HTTP，不实现 Gateway。新集群统一使用 Higress，通过 Gateway API 和 model-router 按请求体 `model` 设置 Header，再以固定 `/v1/completions` 路径和模型 Header 精确分流；Model 业务 HTTP → gRPC 转换入口仍未接入，当前直接使用 Model gRPC。见 [入口边界纠正](records/2026-09-14-gateway-boundary.md)。
 - `partial`：导入任务 lease/CAS fencing 领域状态机及 PostgreSQL sqlc adapter 已实现并测试；worker due scan、lease renew、执行循环已实现；ImportModel 现在把 source/repo_id/revision/idempotency_key 持久化到任务，worker 可据此选择外部 provider；已实现 provider→Storage 对象存在性/checksum 执行器；远程任务支持先不绑定 model/version，避免从 repo_id 伪造模型身份；provider 元数据解析、按租户查找既有模型/版本和 lease CAS 绑定已通过真实 HuggingFace→PostgreSQL/MinIO E2E；新增真实 PostgreSQL 过期 lease 重领测试覆盖“进程中断后重启 worker”核心 fencing 语义，正式 Kubernetes crash/restart 仍未完成。
 - `partial`：worker 对已绑定版本的成功任务会先执行 ready CAS，再确认任务 completed；ready 失败进入 retry。未绑定远程任务现在先执行 provider 元数据绑定，失败时保持 pending 并重试。
 - `pass`：导入 worker 增加有界重试和 `failed` 终态；默认五次尝试，provider、Storage、checksum、绑定和 ready finalization 错误在达到上限后通过 owner/lease_epoch CAS 写入失败状态，旧 worker 结果仍被 fencing。

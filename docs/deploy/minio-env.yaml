@@ -1,38 +1,33 @@
-# Embed this env block in the Model Deployment/Job. The Secret values stay in
-# Kubernetes and are never committed to the repository.
+# S3 兼容 Storage 环境变量片段。Secret 的值只在集群中创建，不能提交到仓库。
+# 当前导入 Job 使用 Model Storage Port 生成的任务级签名上传地址，Job 不接收
+# MinIO/S3 endpoint、bucket 或访问凭据。
 env:
   - name: ANI_MINIO_ENDPOINT
-    value: ani-s05-minio.ani-s05-objectstore.svc:9000
+    value: minio.ani-foundation.svc.cluster.local:9000
   - name: ANI_MINIO_SECURE
     value: "false"
   - name: ANI_MINIO_BUCKET
     value: ani-models
-  # Set to "true" to use one MinIO bucket per tenant UUID. The service checks
-  # and creates that bucket lazily before a remote import download.
+  # true 时按租户 UUID 使用独立 bucket；false 时使用共享 bucket 的租户前缀。
   - name: ANI_MINIO_TENANT_BUCKETS
     value: "true"
-  # Imports always run in a separate Kubernetes Job. The Job entrypoint is the
-  # minio-provision binary built into ANI_IMPORT_JOB_IMAGE and uses the Model
-  # Deployment's ani-model-service ServiceAccount.
   - name: ANI_IMPORT_KUBERNETES_NAMESPACE
     value: ani-model
   - name: ANI_IMPORT_JOB_IMAGE
-    value: registry.example/ani-model-import:v1
-  - name: ANI_IMPORT_MINIO_SECRET
-    value: ani-model-import-minio
+    value: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260928-r2@sha256:e8cbf686d3fa4f3661cb396f2d8d67e5767ae4d790b8331b0df5831bd0f5e8f8
+  # 可选：ModelScope/Hugging Face provider 凭据。
   - name: ANI_IMPORT_PROVIDER_SECRET
     value: ani-model-import-provider
+  # 可选：留空时使用集群默认 StorageClass；PVC 大小由模型清单计算。
   - name: ANI_IMPORT_STORAGE_CLASS
-    # Optional. Omit this variable to let Kubernetes select its default
-    # StorageClass.
     value: ""
   - name: ANI_MINIO_ACCESS_KEY
     valueFrom:
       secretKeyRef:
-        name: ani-s05-minio-root
-        key: access_key_id
+        name: ani-model-minio
+        key: ANI_MINIO_ACCESS_KEY
   - name: ANI_MINIO_SECRET_KEY
     valueFrom:
       secretKeyRef:
-        name: ani-s05-minio-root
-        key: secret_access_key
+        name: ani-model-minio
+        key: ANI_MINIO_SECRET_KEY

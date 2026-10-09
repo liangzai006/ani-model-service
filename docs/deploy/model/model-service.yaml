@@ -76,7 +76,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: model
-          image: docker.changqingyun.cn/ani/model-service:ani-model-new-20260928-r2@sha256:4745cafa1c3579f22ebb1d52d075923fd01e2485fec2a3fba271297d2ae608d4
+          image: docker.changqingyun.cn/ani/model-service:ani-model-new-20260928-r4@sha256:eeee0e60a5a0ac75312be93a27fd8251af925fb379773579548332345c75a914
           imagePullPolicy: IfNotPresent
           env:
             - name: ANI_SERVER_GRPC_ADDR
@@ -125,11 +125,17 @@ spec:
                   fieldPath: metadata.name
             - name: ANI_ALLOW_DIRECT_ACCESS
               value: "true"
+            - name: ANI_INFERENCE_GRPC_ADDR
+              value: ani-inference-grpc.ani-inference.svc.cluster.local:19090
           ports:
             - name: grpc
               containerPort: 19090
             - name: admin
               containerPort: 19091
+          volumeMounts:
+            - name: public-ca-certificates
+              mountPath: /etc/ssl/certs
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /readyz
@@ -152,6 +158,13 @@ spec:
             limits:
               cpu: "1"
               memory: 1Gi
+      volumes:
+        - name: public-ca-certificates
+          configMap:
+            name: ani-model-public-ca
+            items:
+              - key: ca-certificates.crt
+                path: ca-certificates.crt
 ---
 apiVersion: v1
 kind: Service

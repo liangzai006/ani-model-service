@@ -1,0 +1,14 @@
+# Compatibility filename. For a clean new environment use
+# values-new-environment.yaml. External credentials are created
+# separately by the deployment document.
+database:
+  existingSecret: ani-model-database
+storage:
+  mode: direct
+  direct:
+    endpoint: minio.ani-foundation.svc.cluster.local:9000
+    existingSecret: ani-model-minio
+caBundle:
+  existingConfigMap: ani-model-public-ca
+inference:
+  grpcAddress: ani-inference-grpc.ani-inference.svc.cluster.local:19090

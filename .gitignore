@@ -16,6 +16,12 @@ bin/
 .tools/
 .work/
 .tmp/
+.build/
+
+# Local agent metadata and cluster credentials.
+.agents/
+.codex/
+.clusterenv
 
 # Local credentials and logs.
 *.cert
@@ -28,3 +34,6 @@ bin/
 *.swp
 Thumbs.db
 .DS_Store
+
+# Local agent review scratch (tracked reports remain tracked).
+.superpowers/sdd/*

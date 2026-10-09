@@ -5,10 +5,10 @@
 This change applies only to the new cluster in `.clusterenv`. The old
 cluster and its gateway resources were not accessed or changed.
 
-Higress 2.2.4 is now the only gateway for the new cluster. The new cluster
-APISIX Helm release, namespace, GatewayClass and APISIX CRDs were removed after
-traffic was validated through Higress. No APISIX resource remained in the new
-cluster when cleanup completed.
+Higress 2.2.4 is now the only gateway for the new cluster. The retired HTTP
+gateway's Helm release, namespace, GatewayClass and CRDs were removed after
+traffic was validated through Higress. No retired gateway resource remained
+in the new cluster when cleanup completed.
 
 ## Gateway path
 

@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the new cluster's Rook-Ceph as the storage layer. Run PostgreSQL and an S3-compatible service together in one dedicated foundation namespace, expose Model/Inference only through explicitly owned Services and Gateway resources, and reserve Kubeflow namespaces for a later phase. GPU and vLLM are a separate phase because the current new nodes expose no NVIDIA resources.
 
-**Tech Stack:** Kubernetes v1.37.0, Calico, Rook-Ceph (`cephfs`, `rook-ceph-block`), PostgreSQL, MinIO or Ceph RGW, cert-manager, an explicitly selected gateway (APISIX or Istio/Kubeflow ingress), ANI Model/Inference services, and later Kubeflow components.
+**Tech Stack:** Kubernetes v1.37.0, Calico, Rook-Ceph (`cephfs`, `rook-ceph-block`), PostgreSQL, MinIO or Ceph RGW, cert-manager, Higress with Kubernetes Gateway API for inference publication, ANI Model/Inference services, and later Kubeflow components.
 
 ## Global Constraints
 
@@ -97,8 +97,8 @@ Expected result: Model import and metadata APIs are ready in the isolated new-cl
 
 ### Task 7: Install the gateway/runtime prerequisites for Inference
 
-- [ ] Install one Gateway API implementation and one externally owned gateway. Do not create competing APISIX and Istio routes for the same service.
-- [ ] If the ANI publication design remains APISIX, install APISIX and its Gateway API controller in the new cluster; if Kubeflow ingress will own the path, use the approved Istio/Kubeflow ingress instead.
+- [ ] Install Higress with Gateway API support as the inference data-plane gateway. Keep Kubeflow's Istio ingress separate from inference publication.
+- [ ] Configure the Higress `GatewayClass`/`Gateway` and the inference publisher's `ANI_HIGRESS_*` environment variables using `docs/deploy/higress/`.
 - [ ] Apply the Inference CRD `inferenceservices.ani.kubercloud.com` and namespace-scoped controller RBAC.
 - [ ] Provide the materializer image and `ANI_MODEL_STORAGE_CLASS=cephfs`.
 - [ ] Deploy Inference with its new-cluster PostgreSQL DSN, Model gRPC TLS address, namespace, and publication base URL.

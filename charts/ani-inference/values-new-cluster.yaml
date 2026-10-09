@@ -1,0 +1,9 @@
+# Compatibility filename. For a clean new environment use
+# values-new-environment.yaml. Public address is supplied by the deployment command.
+higress:
+  publicBaseURL: ""
+model:
+  grpcAddress: ani-model-grpc.ani-model.svc.cluster.local:19090
+  storageClass: cephfs
+accelerator:
+  enabled: false

@@ -71,8 +71,8 @@ and Hugging Face tooling.
 
 The user explicitly deferred trusted IAM and quota integration and asked about
 the gateway as the next infrastructure step. Read-only checks found no Gateway
-API CRDs, GatewayClass, Gateway, or APISIX namespace in the new cluster. No
-gateway was installed during this check. APISIX infrastructure and a basic
+API CRDs, GatewayClass, Gateway, or gateway namespace in the new cluster. No
+gateway was installed during this check. Gateway infrastructure and a basic
 routing check can precede IAM/quota integration; Model HTTP-to-gRPC business
 mapping and authenticated RPC acceptance remain separate work.
 

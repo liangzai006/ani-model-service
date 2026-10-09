@@ -77,9 +77,7 @@ does not itself change the Model service's identity enforcement.
 - [x] Install the pinned materializer image reference and CephFS storage class
   configuration; keep actual model materialization pending the deferred Model
   trusted identity/TLS and Quota provider boundaries.
-- [x] Install Gateway API v1.6.1 standard CRDs and APISIX 2.17.0 with the
-  isolated `ingress-apisix` namespace, new Harbor image tags, and the new
-  cluster's `rook-ceph-block` storage class.
+- [x] Install Gateway API v1.6.1 standard CRDs in the new cluster.
 - [x] Apply the new-cluster `GatewayClass` and `Gateway`; leave HTTPRoute
   creation pending while identity, Model TLS, and the serving runtime remain
   deferred. Do not apply the legacy E2E route.
@@ -127,7 +125,81 @@ is the active acceptance target and must use only `.clusterenv` at
 ## Larger model validation (2026-09-23)
 
 - [x] Upload and finalize a pinned Qwen2.5-1.5B archive through the existing Model API; persist its real 3,098,992,640-byte size and checksum.
-- [x] Materialize the archive to CephFS, start vLLM CPU with bounded context, and return a real completion through APISIX.
+- [x] Materialize the archive to CephFS, start vLLM CPU with bounded context, and return a real completion through the then-current gateway (now retired).
 - [x] Verify the 1.5B path without modifying old-cluster resources; recheck the existing 135M route after the temporary route-isolation check.
 - [x] Record current-node capacity and the 3B/7B deferral.
 - [ ] Fix endpoint naming for dotted service names and define deterministic multi-model `/v1` publication selection.
+
+## KServe LLMI/LWS CPU validation (2026-09-24)
+
+- [x] Install only the KServe 0.16 LLMI CRDs and controller in the new
+  cluster's existing `kubeflow` namespace; keep the existing KServe 0.15
+  controller and `inferenceservice-config` unchanged.
+- [x] Keep caller-owned engine commands intact; install an empty pipeline
+  config so the LLMI controller does not add engine flags.
+- [x] Add the LLMI webhook NetworkPolicy required for API Server access and
+  verify its webhook configuration can create an LLMI object.
+- [x] Create a two-pod pipeline-parallel LWS canary from an RWX model PVC;
+  verify the generated LWS, cross-node scheduling and workload Service.
+- [ ] Run real multi-node model parallel inference after GPU capacity and
+  model-specific distributed startup arguments are available. The current
+  CPU canary only validates KServe/LWS orchestration.
+
+## Real API lifecycle validation (2026-09-24)
+
+- [x] Apply the LLMI binding migration in the new cluster database only.
+- [x] Deploy the static Inference image with the LWS observer fix.
+- [x] Create and delete a two-pod LWS through the real Inference gRPC API.
+- [x] Verify KServe readiness, cross-node Pods, generated Service endpoints,
+  HTTPRoute status and a real Higress NodePort request.
+- [x] Remove the API-created test PVCs, Jobs, Secrets and Pods by exact owner
+  label; retain the existing 135M baseline service.
+- [ ] Run distributed model inference after GPU capacity and model-specific
+  parallel startup configuration are available.
+
+## Governance / Accelerator integration review (2026-09-25)
+
+- [ ] Inspect current upstream Governance API and domain-client wiring.
+- [ ] Inspect current upstream Accelerator GPU request and scheduling-plan contracts.
+- [ ] Map contracts onto Inference KServe/LWS lifecycle and propose the concrete request shape and implementation order.
+- Scope: source review and recommendation; no cluster mutations, code implementation or commits.
+
+## 2026-09-30 Governance HTTP lifecycle acceptance
+
+Scope: only new cluster 192.168.102.68; no old project changes, no commits or pushes.
+- [x] Create isolated temporary tenants via public API; verify unauthenticated and cross-tenant rejection.
+- [x] Exercise Model/versions/import and Inference create/get/list/operation via Governance HTTP.
+- [x] Exercise stop/start/restart/update through HTTP and real Higress completion; diagnose observed failures.
+- [x] Delete test-owned services/models/tenants and exact residual resources; record evidence and remaining limits.
+
+## 2026-10-03 fresh Governance regression
+
+Scope: explicit new cluster only; existing deployed images; HTTP business APIs for all lifecycle changes. No database edits, kubectl runtime patching, commits or source pushes. GPU out of scope.
+- [x] Preflight current capacity and pinned request fixture; create isolated tenants/model/version via HTTP.
+- [x] Import Qwen2-0.5B from ModelScope and verify ready artifact.
+- [x] Create KServe service via Governance; verify real Higress completion and dynamic limiter key.
+- [x] Stop/start/restart/resource update via Governance, checking resulting behavior.
+- [x] Delete via API and observe automatic materialization cleanup across generations.
+- [x] Remove temporary catalog/tenant fixtures, distinguish any operator cleanup, document evidence.
+
+## 2026-10-08 Higress inference API key protection
+
+- [x] Confirm the unauthenticated `/v1/completions` exposure and inspect the
+  available Higress Key Auth mechanism.
+- [x] Mirror the pinned Higress `key-auth:2.0.0` Wasm image into the new-cluster
+  Harbor mirror without changing the old environment.
+- [x] Enable a separate `ani-inference-key-auth` plugin with a protected
+  `x-api-key` consumer credential; keep the real value outside Git.
+- [x] Verify no key, invalid key and query-string key return 401, while the
+  valid header key returns a real completion and existing gateway plugins stay
+  active.
+- [x] Add the non-secret deployment template and key rotation instructions.
+
+## 2026-10-08 Resource Storage preliminary investigation
+
+Scope: user confirms Storage belongs inside ani-resource-service. Prototype and requirements will follow; this turn only investigates existing capabilities and integration boundaries.
+- [x] Inspect Resource main architecture, package inventory and remote branch names.
+- [ ] Check non-main image/Ceph branches for implemented Storage behavior.
+- [ ] Trace current Model/Inference storage consumers.
+- [ ] Summarize verified baseline and provisional design inputs.
+- Deferred by user: requirements clarification, alternative evaluation, formal design, review, implementation plan and code. No visual question at this stage.

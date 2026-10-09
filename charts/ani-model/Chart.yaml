@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ani-model
+description: ANI model catalog, storage URL and Kubernetes import controller
+type: application
+version: 0.1.0
+appVersion: "2026-10-08"

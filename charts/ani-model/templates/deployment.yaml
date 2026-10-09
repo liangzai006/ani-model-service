@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ani-model.fullname" . }}
+  labels:
+    {{- include "ani-model.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "ani-model.fullname" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "ani-model.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: ani-model-service
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: model
+          image: {{ include "ani-model.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: ANI_SERVER_GRPC_ADDR
+              value: 0.0.0.0:19090
+            - name: ANI_SERVER_GRPC_TIMEOUT
+              value: 30s
+            - name: ANI_SERVER_ADMIN_ADDR
+              value: 0.0.0.0:19091
+            - name: ANI_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.secretKey }}
+            {{- if eq .Values.storage.mode "direct" }}
+            - name: ANI_MINIO_ENDPOINT
+              value: {{ required "storage.direct.endpoint is required for direct storage" .Values.storage.direct.endpoint | quote }}
+            - name: ANI_MINIO_SECURE
+              value: {{ .Values.storage.direct.secure | quote }}
+            - name: ANI_MINIO_BUCKET
+              value: {{ .Values.storage.direct.bucket | quote }}
+            - name: ANI_MINIO_TENANT_BUCKETS
+              value: {{ .Values.storage.direct.tenantBuckets | quote }}
+            - name: ANI_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.direct.existingSecret }}
+                  key: {{ .Values.storage.direct.accessKeyKey }}
+            - name: ANI_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.direct.existingSecret }}
+                  key: {{ .Values.storage.direct.secretKeyKey }}
+            {{- else if eq .Values.storage.mode "grpc" }}
+            - name: ANI_STORAGE_GRPC_ADDR
+              value: {{ required "storage.grpc.address is required for grpc storage" .Values.storage.grpc.address | quote }}
+            - name: ANI_STORAGE_GRPC_SERVER_NAME
+              value: {{ required "storage.grpc.serverName is required for grpc storage" .Values.storage.grpc.serverName | quote }}
+            {{- if .Values.storage.grpc.caCertSecret }}
+            - name: ANI_STORAGE_GRPC_CA_CERT
+              value: /var/run/ani-storage-ca/{{ .Values.storage.grpc.caCertKey }}
+            {{- end }}
+            {{- else }}
+            {{- fail "storage.mode must be direct or grpc" }}
+            {{- end }}
+            - name: ANI_IMPORT_KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ANI_IMPORT_JOB_IMAGE
+              value: {{ include "ani-model.importImage" . | quote }}
+            - name: ANI_IMPORT_STORAGE_CLASS
+              value: {{ .Values.import.storageClass | quote }}
+            - name: ANI_IMPORT_WORKER_OWNER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- with .Values.import.providerSecret }}
+            - name: ANI_IMPORT_PROVIDER_SECRET
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.import.modelscopeBaseURL }}
+            - name: ANI_MODELSCOPE_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.import.huggingfaceBaseURL }}
+            - name: ANI_HUGGINGFACE_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: ANI_ALLOW_DIRECT_ACCESS
+              value: {{ .Values.inference.allowDirectAccess | quote }}
+            - name: ANI_INFERENCE_GRPC_ADDR
+              value: {{ .Values.inference.grpcAddress | quote }}
+            {{- with .Values.inference.serverName }}
+            - name: ANI_INFERENCE_GRPC_SERVER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: grpc
+              containerPort: 19090
+            - name: admin
+              containerPort: 19091
+          {{- if or .Values.caBundle.enabled .Values.storage.grpc.caCertSecret }}
+          volumeMounts:
+          {{- if .Values.caBundle.enabled }}
+            - name: public-ca-certificates
+              mountPath: /etc/ssl/certs
+              readOnly: true
+          {{- end }}
+          {{- if .Values.storage.grpc.caCertSecret }}
+            - name: storage-ca
+              mountPath: /var/run/ani-storage-ca
+              readOnly: true
+          {{- end }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+      {{- if .Values.caBundle.enabled }}
+        - name: public-ca-certificates
+          configMap:
+            name: {{ .Values.caBundle.existingConfigMap }}
+            items:
+              - key: {{ .Values.caBundle.key }}
+                path: ca-certificates.crt
+      {{- end }}
+      {{- with .Values.storage.grpc.caCertSecret }}
+        - name: storage-ca
+          secret:
+            secretName: {{ . }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}

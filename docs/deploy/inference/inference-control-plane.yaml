@@ -47,7 +47,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "delete"]
   - apiGroups: [""]
     resources: ["services", "persistentvolumeclaims", "secrets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -65,6 +65,37 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: ani-inference-runtime
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ani-inference-higress-rate-limit
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-gateway-sync
+rules:
+  - apiGroups: ["extensions.higress.io"]
+    resources: ["wasmplugins"]
+    resourceNames: ["ani-request-rate-limit"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ani-inference-higress-rate-limit
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-gateway-sync
+subjects:
+  - kind: ServiceAccount
+    name: ani-inference
+    namespace: ani-inference
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ani-inference-higress-rate-limit
 ---
 apiVersion: v1
 kind: Service
@@ -127,7 +158,7 @@ spec:
         kubernetes.io/hostname: ani-k8s-cp
       containers:
         - name: inference
-          image: docker.changqingyun.cn/ani/inference-service:ani-inference-new-20260928-r2@sha256:b4decddfd48a96edac5857b1162c3eeb5ed2d3b4cd1e4591d4084ac5865fadcc
+          image: docker.changqingyun.cn/ani/inference-service:ani-inference-new-20260930-cleanup-limit-r2@sha256:4639122b2269c86e50402f898090714555818dc587a015e69c76ba9f87700022
           imagePullPolicy: IfNotPresent
           env:
             - name: ANI_SERVER_GRPC_ADDR
@@ -155,6 +186,10 @@ spec:
               value: http://192.168.102.68:30090
             - name: ANI_HIGRESS_PATH_PREFIX
               value: /v1/completions
+            - name: ANI_HIGRESS_RATE_LIMIT_NAMESPACE
+              value: higress-system
+            - name: ANI_HIGRESS_RATE_LIMIT_PLUGIN
+              value: ani-request-rate-limit
             - name: ANI_MODEL_GRPC_ADDR
               value: ani-model-grpc.ani-model.svc.cluster.local:19090
             - name: ANI_MODEL_MATERIALIZER_IMAGE

@@ -2,7 +2,7 @@
 
 日期：2026-09-21  
 状态：提案  
-适用范围：`ani-model-service`、`ani-inference-service`、Kubernetes、APISIX
+适用范围：`ani-model-service`、`ani-inference-service`、Kubernetes、Higress
 
 ## 结论
 
@@ -14,7 +14,7 @@
 - Model 目录、ModelVersion、制品 checksum 和导入任务；
 - Inference 的 create、stop、restart、update、delete、operation、generation 和恢复；
 - Quota 的 reserve、confirm、release；
-- Publication 和 APISIX `HTTPRoute`。
+- Publication 和 Higress `HTTPRoute`。
 
 Kubeflow 只作为 Kubernetes 上的执行层，按需要接入具体子项目：
 
@@ -36,7 +36,7 @@ IAM -> ANI Model / ANI Inference -> PostgreSQL desired state
              |             +--> 当前 Inference Controller
              |                       +--> Runtime Deployment/LWS/Service
              |                       +--> Materializer Job/PVC
-             |                       +--> APISIX HTTPRoute
+             |                       +--> Higress HTTPRoute
              |
              +--> Import Job -> MinIO -> ModelVersion ready
 ```
@@ -50,7 +50,7 @@ IAM -> ANI Model / ANI Inference -> PostgreSQL desired state
 | 模型导入 | Model 导入任务和独立 Kubernetes Job | 现阶段否 |
 | 推理服务生命周期 | `ani-inference-service` | 否 |
 | 推理 Deployment/Service | 当前 Inference Runtime Executor，未来可选 KServe | 可选 |
-| 对外路由 | APISIX + `HTTPRoute` | 否 |
+| 对外路由 | Higress + `HTTPRoute` | 否 |
 | 训练/微调 | 当前尚未建设 | Trainer/KFP |
 | 超参数优化 | 当前尚未建设 | Katib |
 
@@ -79,14 +79,14 @@ ANI Inference Controller
              |
              +--> KServe Predictor Service
                      |
-                     +--> APISIX HTTPRoute
+                     +--> Higress HTTPRoute
                              |
-                             +--> 外部 HTTP /v1/*
+                             +--> 外部 POST /v1/completions
 ```
 
 KServe 负责推理运行时的 Kubernetes 资源、健康状态和运行时生命周期；ANI 仍负责业务状态、租户、配额、操作 fencing 和对外发布。KServe 的 `InferenceService` 是其主要模型服务抽象，支持模型服务的资源、版本和流量管理。[KServe 资源模型](https://kserve.github.io/website/docs/concepts/resources)
 
-第一阶段使用 KServe Standard 部署模式。KServe 的外部入口不作为公开入口，APISIX 继续是唯一的外部入口；KServe 只提供集群内 Predictor Service。这样可以避免 KServe 自己的入口和 APISIX 产生双入口。
+第一阶段使用 KServe Standard 部署模式。KServe 的外部入口不作为公开入口，Higress 负责推理数据面的外部入口，ani-governance 负责并列的业务控制面入口；KServe 只提供集群内 Predictor Service。这样可以避免 KServe 自己的入口和 Higress 产生双入口。
 
 ### 第二阶段：Trainer 用于训练和微调
 
@@ -162,14 +162,9 @@ Model 服务继续是模型制品唯一权威。优先复用 Inference 现有 Ma
 
 ### API 路径和入口
 
-当前外部 API 使用 `/v1`。KServe/vLLM runtime 的默认路径和服务端口需要在适配器中固定，并用单模型 smoke test 验证：
+当前公开推理 API 使用固定的 `POST /v1/completions`，请求体中的 `model` 字段由 Higress model-router 插件映射到 `x-higress-llm-model` 请求头。KServe/vLLM runtime 的路径和服务端口需要在适配器中固定，并用单模型 smoke test 验证。
 
-```text
-GET  /v1/models
-POST /v1/chat/completions
-```
-
-APISIX `HTTPRoute` 只指向 KServe Predictor Service。Publication Withdraw 时先撤销路由、确认不再接受新请求，再执行 KServe runtime 的停止或删除。
+Higress Gateway API `HTTPRoute` 按该请求头和路径匹配，只指向 KServe Predictor Service；发布配置使用 `ANI_HIGRESS_*` 环境变量。Publication Withdraw 时先撤销路由、确认不再接受新请求，再执行 KServe runtime 的停止或删除。
 
 ## 租户、IAM 和 Quota
 
@@ -201,7 +196,7 @@ KFP 的多用户隔离依赖 Kubernetes Namespace 和 Kubeflow Profile；官方�
 
 1. 在独立测试 Namespace 安装固定版本的 KServe CRD/controller。
 2. 配置一个只读 Model artifact ServiceAccount 和 MinIO 访问策略。
-3. 手工部署一个已 ready 的小模型，验证 KServe Predictor、vLLM API 和 APISIX 路由。
+3. 手工部署一个已 ready 的小模型，验证 KServe Predictor、vLLM API 和 Higress 路由。
 4. 在 Inference 服务实现 `KServeRuntimeProvider`，先只接 create/observe/delete。
 5. 补 stop/restart/update 和旧 generation fencing。
 6. 完成 create → ready → publish → request → withdraw → stop/restart/update/delete 验收。
@@ -213,9 +208,9 @@ KFP 的多用户隔离依赖 Kubernetes Namespace 和 Kubeflow Profile；官方�
 
 - [ ] KServe CRD/controller 与现有 ANI CRD 不冲突。
 - [ ] 创建一个 Inference 业务资源只产生一个受控的 KServe 资源。
-- [ ] KServe 产生 Predictor Service，APISIX `HTTPRoute` 状态为 `Accepted=True`、`ResolvedRefs=True`。
-- [ ] `GET /v1/models` 和一次真实推理请求成功。
-- [ ] stop 后 APISIX 不再接收新请求，运行时资源按策略停止。
+- [ ] KServe 产生 Predictor Service，Higress `HTTPRoute` 状态为 `Accepted=True`、`ResolvedRefs=True`。
+- [ ] 经 Higress 的 `POST /v1/completions` 真实推理请求成功。
+- [ ] stop 后 Higress 不再接收新请求，运行时资源按策略停止。
 - [ ] restart 恢复原 generation，不产生重复路由。
 - [ ] update 只切换目标版本，旧 generation 不会覆盖新 generation。
 - [ ] delete 先撤销 Publication，再删除 KServe 资源和物化资源。
@@ -236,7 +231,7 @@ KServe 接入必须通过运行时配置或 provider 选择启用。回滚时：
 1. 停止创建新的 KServe 资源；
 2. 保留 PostgreSQL desired state 和 operation 记录；
 3. 将新的 Inference 资源切回现有 Runtime Executor；
-4. 撤销遗留 APISIX 路由；
+4. 撤销遗留 Higress 路由；
 5. 按 generation 和 UID 删除孤立的 KServe 资源；
 6. 不删除 Model 制品和 ModelVersion。
 
@@ -246,7 +241,7 @@ KServe 接入必须通过运行时配置或 provider 选择启用。回滚时：
 2. 生成或引入 KServe CRD 客户端，使用 typed API；只有确实没有 typed API 的资源才使用动态客户端。
 3. 增加 KServe Standard `InferenceService` 的 vLLM 资源模板。
 4. 明确 Materializer PVC 到 KServe `storageUri` 的目录契约。
-5. 固定 `/v1` 路径、health probe、Service port 和 APISIX backend port。
+5. 固定 `/v1/completions` 发布路径、health probe、Service port 和 Higress backend port。
 6. 增加 create/observe/delete 单元测试和 Kubernetes envtest。
 7. 在真实集群完成单模型 smoke，再实现 stop/restart/update/delete。
 

@@ -1,0 +1,69 @@
+# PostgreSQL/S3 credential Secrets and the CA ConfigMap are pre-existing.
+replicaCount: 1
+image:
+  repository: docker.changqingyun.cn/ani/model-service
+  tag: ani-model-new-20261008-storage-r3
+  digest: sha256:71e9b7ecde91d33a248ce99c8f35bedac4c3592e3b8fd68266bc24df92c5a274
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+database:
+  existingSecret: ani-model-database
+  secretKey: dsn
+# The binary currently exposes the direct S3-compatible adapter through
+# ANI_MINIO_* environment names; chart values use storage terminology.
+storage:
+  mode: direct # direct or grpc
+  direct:
+    endpoint: minio.ani-foundation.svc.cluster.local:9000
+    secure: false
+    bucket: ani-models
+    tenantBuckets: false
+    existingSecret: ani-model-minio
+    accessKeyKey: ANI_MINIO_ACCESS_KEY
+    secretKeyKey: ANI_MINIO_SECRET_KEY
+  grpc:
+    address: ""
+    serverName: ""
+    caCertSecret: ""
+    caCertKey: ca.crt
+import:
+  jobImage:
+    repository: docker.changqingyun.cn/ani/model-import-worker
+    tag: ani-model-new-20261008-storage-r1
+    digest: sha256:f93eda5753b010eab241ede0e9bb1b2d6cee9b045b3db79aacf3ed8371d0b64f
+  storageClass: cephfs
+  providerSecret: ""
+  modelscopeBaseURL: ""
+  huggingfaceBaseURL: ""
+inference:
+  grpcAddress: ani-inference-grpc.ani-inference.svc.cluster.local:19090
+  allowDirectAccess: true
+  serverName: ""
+caBundle:
+  enabled: true
+  existingConfigMap: ani-model-public-ca
+  key: ca-certificates.crt
+podSecurityContext:
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+nodeSelector: {}
+tolerations: []
+affinity: {}
+probes:
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 12
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 3

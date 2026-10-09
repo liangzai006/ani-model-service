@@ -188,18 +188,17 @@ main() {
         check_optional_var "ANI_MINIO_BUCKET"
         check_optional_var "ANI_MINIO_TENANT_BUCKETS"
 
-        # MinIO import worker requirements
-        print_info "Checking MinIO import worker configuration..."
-        check_required_var "ANI_IMPORT_JOB_IMAGE"
-        check_required_var "ANI_IMPORT_MINIO_SECRET"
-        check_required_var "ANI_IMPORT_KUBERNETES_NAMESPACE"
-
-        # Optional import worker settings
-        check_optional_var "ANI_IMPORT_WORKER_OWNER"
-        check_optional_var "ANI_IMPORT_PROVIDER_SECRET"
-        check_optional_var "ANI_IMPORT_STORAGE_CLASS"
         echo ""
     fi
+
+    # 3. Import Job Configuration (independent of the selected storage adapter)
+    print_header "Import Job Configuration"
+    check_required_var "ANI_IMPORT_JOB_IMAGE"
+    check_required_var "ANI_IMPORT_KUBERNETES_NAMESPACE"
+    check_optional_var "ANI_IMPORT_WORKER_OWNER"
+    check_optional_var "ANI_IMPORT_PROVIDER_SECRET"
+    check_optional_var "ANI_IMPORT_STORAGE_CLASS"
+    echo ""
 
     # 4. Storage gRPC Configuration
     if [[ "$HAS_STORAGE_GRPC" == true ]]; then

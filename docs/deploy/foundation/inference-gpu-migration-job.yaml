@@ -2,8 +2,8 @@
 # isolated ani_inference database. This job is for the new cluster only.
 # Create the ConfigMap with:
 # kubectl --context=kubernetes-admin@kubekey -n ani-foundation create configmap inference-gpu-migrations-20260928 \
-#   --from-file=000016_inference_gpu_plan.sql=/root/kubercon/ani-inference-service/migrations/000016_inference_gpu_plan.sql \
-#   --from-file=000017_gpu_resolution_step.sql=/root/kubercon/ani-inference-service/migrations/000017_gpu_resolution_step.sql
+#   --from-file=000016_inference_gpu_plan.sql=$ANI_INFERENCE_REPO/migrations/000016_inference_gpu_plan.sql \
+#   --from-file=000017_gpu_resolution_step.sql=$ANI_INFERENCE_REPO/migrations/000017_gpu_resolution_step.sql
 apiVersion: batch/v1
 kind: Job
 metadata:

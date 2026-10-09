@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ani-model-grpc
+  labels:
+    {{- include "ani-model.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "ani-model.fullname" . }}
+  ports:
+    - name: grpc
+      port: 19090
+      targetPort: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ani-model-admin
+  labels:
+    {{- include "ani-model.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "ani-model.fullname" . }}
+  ports:
+    - name: admin
+      port: 19091
+      targetPort: admin

@@ -8,7 +8,7 @@
   the Model `63c3234b...` and Import `c8283c4e...` digests. Applied tag+digest
   references only to the new `ani-model` Deployment; rollout returned 1/1 Ready
   with zero restarts on the new Pod.
-- Read-only new-cluster checks found Gateway API CRDs and APISIX absent. No
+- Read-only new-cluster checks found Gateway API CRDs and an HTTP gateway absent. No
   gateway installed yet. Its basic routing infrastructure can be installed
   independently of the deferred IAM/quota integration.
 
@@ -166,24 +166,6 @@
   `github.com/kubercloud/ani/services/model-service` binary; its failed new
   Deployment was removed before the correct image was built and applied.
 
-## 2026-09-21 new-cluster gateway
-
-- Installed Gateway API standard CRDs v1.6.1 and APISIX Helm chart 2.17.0 in
-  the new cluster's isolated `ingress-apisix` namespace. The legacy APISIX
-  values and old E2E route were not applied.
-- Mirrored APISIX, Ingress Controller, ADC, etcd and busybox into new Harbor
-  tags `new-cluster-20260921-r1`; the new values file uses only those tags and
-  the new cluster's `rook-ceph-block` storage class.
-- APISIX, etcd and Ingress Controller are ready. The proxy NodePort is 30090;
-  the internal admin Service remains ClusterIP and is protected by a
-  namespace-local randomly generated Secret.
-- `GatewayClass/ani-apisix` and `Gateway/ingress-apisix/ani-apisix` are
-  Accepted and Programmed. No HTTPRoute was created because the new-cluster
-  Inference backend is not deployed yet; an unconfigured proxy returns the
-  expected HTTP 404.
-- IAM/trusted principal, quota, TLS, GPU, Kubeflow and the Inference backend
-  remain deferred. Model/Foundation readiness was rechecked after installation.
-
 ## 2026-09-22 new-cluster Inference control plane
 
 - Created the isolated `ani_inference` database in the new cluster's existing
@@ -213,23 +195,104 @@
   normal Model API.
 - Created `smollm2-135m-cpu-real` through Inference gRPC with direct tenant
   metadata. Materializer Job/PVC completed on CephFS, vLLM CPU became ready,
-  HTTPRoute was Accepted/ResolvedRefs, and APISIX returned HTTP 200 with a
-  non-empty completion.
+  HTTPRoute was Accepted/ResolvedRefs, and the then-current gateway (now retired)
+  returned HTTP 200 with a non-empty completion.
 - Updated deployed Inference to r11 and recorded tar normalization plus
   previous-generation binding fixes. A separate update-lifecycle stale
   generation issue remains for follow-up.
 
 ## 2026-09-23 verification recheck
 
-- Fresh new-cluster call returned HTTP 200 from APISIX `/v1/completions` with non-empty CPU vLLM output; ModelVersion is ready and create operation is succeeded/complete.
+- Fresh new-cluster call returned HTTP 200 from the then-current gateway (now retired) at `/v1/completions` with non-empty CPU vLLM output; ModelVersion is ready and create operation is succeeded/complete.
 - Fresh full tests passed in both repositories: `go test ./... -count=1` in `ani-model-service` and `ani-inference-service`.
 - Materializer boundary passed with a temporary HTTP-served 513.0 MiB tar; it was removed after SHA256/download/extraction verification.
 - Remaining status is unchanged: direct HF import is blocked by new-node egress, and a separate update test is stuck in stale-generation retry.
 
 ## 2026-09-23 larger model real validation
 
-- [x] Validate a model materially larger than the 272MB SmolLM2 archive through Model upload, checksum/size persistence, CephFS materialization, vLLM startup, APISIX publication and a real completion.
+- [x] Validate a model materially larger than the 272MB SmolLM2 archive through Model upload, checksum/size persistence, CephFS materialization, vLLM startup, publication through the then-current gateway (now retired), and a real completion.
 - [x] Verify Qwen2.5-1.5B (3,098,992,640 bytes; SHA256 `d0f3c1294ac34d9ca84858cf93bfe4dbae8ebdfa2a317d1f90970b1dd85f11dd`) with a 6Gi PVC and 3 CPU/6Gi request runtime.
 - [x] Fix and regression-test missing ModelVersion `SizeBytes` persistence discovered by the larger archive.
 - [ ] Add DNS-1035 validation/normalization for Inference endpoint names and define multi-model `/v1` route selection.
 - [ ] Validate 3B/7B only after a worker with enough memory or GPU is available; current new cluster has no GPU and is capacity-constrained.
+
+## 2026-09-24 KServe LLMI/LWS canary
+
+- Installed the new-cluster-only LLMI addon and repaired its webhook access
+  without touching the old KServe controller or old cluster.
+- Verified a KServe LLMI resource creates a native LeaderWorkerSet of size 2,
+  schedules one pod on 192.168.102.73 and one on 192.168.102.68, reports all
+  workload conditions ready, and publishes a Service with both endpoints.
+- The canary uses a lightweight caller-provided HTTP command after the CPU
+  vLLM process exceeded the available 2Gi memory. Real multi-node model
+  inference is pending GPU capacity and model-specific distributed arguments.
+- Fixed the KServe LLMI readiness observer for 0.16's optional
+  `status.observedGeneration` and current LWS rollout accounting; Inference
+  `go test ./...`, `go vet ./...`, and `go build ./...` pass.
+
+## Real API lifecycle validation (2026-09-24)
+
+- [x] Apply the LLMI binding migration in the new cluster database only.
+- [x] Deploy the static Inference image with the LWS observer fix.
+- [x] Create a two-pod LWS through the real Inference gRPC API, verify KServe
+  `Ready`, cross-node Pods, generated Service endpoints and HTTPRoute status.
+- [x] Send a real `/v1/completions` request through Higress NodePort 30090.
+- [x] Delete both API-created test services and remove their exact ownership
+  resources; retain the existing 135M baseline service.
+- [ ] Run distributed model inference after GPU capacity and model-specific
+  parallel startup configuration are available.
+
+## Governance / Accelerator integration review (2026-09-25)
+
+- Started parallel read-only upstream source audits and local Inference integration-boundary review. No code, deployments or existing workloads changed.
+
+## 2026-09-25 upstream GPU/gateway review
+
+- Cloned and inspected Governance at `d27847b99479553b1a56fc84bc4ee8f1a0992e1e` and Accelerator at `1d32dd9a9173b8869fa0ef2ae64e20b88f2ca0a3`; no project files or cluster resources changed.
+- Confirmed Governance is an admin/quota BFF, not the Higress inference gateway; Model routes were removed. Confirmed Accelerator `GpuRequest` uses `pool_id`, Resolve returns a frozen plan without reservation, and the production Inference owner adapter is not wired.
+- Next decision is integration scope: read-only Accelerator plan resolution first versus full Governance quota/owner/release integration. TLS/mTLS is required by the Accelerator consumer contract and conflicts with the currently deferred direct-access IAM/TLS posture.
+
+## 2026-09-30 lifecycle acceptance started
+
+Verified explicit kubeconfig points at https://192.168.102.68:6443. Three nodes Ready; control plane and baseline SmolLM pod Running. Existing worktree changes preserved. API helper and deployment contracts inspected; no mutations yet.
+
+2026-09-30 acceptance completed: service 8d5587fc-8c4f-4183-a59a-1bfa9f77f9d9 generations 1–6 create/stop/start/restart/update/delete succeeded. Two temp tenants, model, import and uploaded objects cleaned. Model validation format tar and missing modelVersionId update mask each returned 400; corrected requests passed. Temporary polling helper import error was corrected before further polling. All successful/negative HTTP responses remain in protected /tmp evidence, summarized in docs/execution/records/2026-09-30-governance-http-lifecycle.md. No production code changes/commits/pushes.
+
+## 2026-10-03 full regression started
+
+Explicit kubeconfig targets 192.168.102.68; all three nodes Ready, Inference cleanup-limit-r2 deployed. Reusing previous passing Qwen CPU request (pinned CPU image, /models path, explicit caller-provided KV-cache bound and command). Baseline SmolLM untouched. Previous latest temporary test required operator corrections, so it does not qualify as an intervention-free lifecycle test.
+
+## 2026-10-03 full Governance HTTP regression completed
+
+- Used only `https://192.168.102.68:6443`, Governance NodePort `30095`, and Higress NodePort `30090`; the old environment was not contacted or changed.
+- Created two temporary tenants, model `http-qwen-05b-1003-111430`, version `314b3f39-c74d-4413-a7c7-ef95149138ac`, and a ModelScope Qwen2-0.5B import through the public HTTP APIs. The import completed at 999,602,688 bytes with SHA256 `e1fc761d399f82372857717c6b38c87ad238f9dc85cf033111b7b2d07bb89e1c`.
+- Created KServe service `http-qwen-1003-111430` through Governance HTTP. The pinned vLLM CPU image and the complete caller-provided command, including `--served-model-name`, were rendered unchanged. Create operation `c25a4735-0ca9-4dc9-85d9-a8ed3437f060` reached `succeeded/complete`; cross-tenant reads and replayed create/import requests were rejected or deduplicated as expected.
+- Real Higress `/v1/completions` returned HTTP 200 before and after update, after start, and after restart. The response model was `http-qwen-1003-111430` with non-empty generated text. Stop completed with publication withdrawn and the same endpoint returned 404 while stopped.
+- Resource update to 3 CPU completed at generation 2 after the API-required full update mask was supplied. The first two update attempts were intentionally rejected by Governance validation because the temporary helper omitted required `replicas`, `runtime`, and then `modelVersionId` mask fields; no cluster or database was manually changed.
+- Stop, start, restart and delete operations all reached `succeeded/complete`. Start/restart exercised four successive temporary materialization generations; after API delete, the service Deployment/Service/HTTPRoute and all four test Jobs/PVCs disappeared automatically. No manual Kubernetes cleanup was used.
+- Deleted the test model/version and both temporary tenants through Governance HTTP. Higress limiter returned only the pre-existing `smollm2-135m` key at QPS 10, remained enabled, and the baseline `smollm2-135m` route still returned HTTP 200.
+- This is a real CPU 0.5B single-replica lifecycle result. GPU, multi-node distributed model inference, large-model capacity, and failure-injection tests remain unverified because the new cluster reports no GPU and has limited CPU/memory. Evidence is retained under `/tmp/ani-http-accept-20261003` with secrets redacted; no source commit or push was made.
+
+## 2026-10-08 Higress inference API key protection
+
+- Confirmed the current gap: Higress `/v1/completions` accepted requests without
+  a caller credential; the built-in `key-auth.internal` plugin was disabled and
+  Governance AK/SK was not connected to Higress.
+- Mirrored Higress `key-auth:2.0.0` into the new-cluster Harbor mirror and
+  enabled a separate `ani-inference-key-auth` WasmPlugin on the new-cluster
+  Higress listeners. The credential is generated outside Git at
+  `/root/.config/ani/higress/inference-api-key`; the repository contains only the
+  protected-value template `docs/deploy/higress/key-auth.yaml.tmpl`.
+- Fresh gateway checks: no key, an invalid key, and a query-string key each
+  returned HTTP 401; the valid `x-api-key` returned HTTP 200 with a real
+  `smollm2-135m` completion. Envoy's active listener config contains the new
+  Key Auth filter on HTTP and HTTPS. Model routing, statistics, and per-model
+  rate limiting remain enabled.
+- This is Higress consumer-key protection, separate from ANI IAM. The current
+  listener uses global authentication because it currently exposes only the
+  inference route; a future public non-inference route must receive an explicit
+  route-level auth decision before exposure.
+
+## 2026-10-08 Resource Storage preparation
+
+Read-only source investigation started. Main and remote branch identities checked; independent Model/Inference consumer audit delegated. No cluster calls, builds, product code edits or commits. Initial Git inspection hit checkout ownership protection; retried with a command-scoped safe.directory for the previously created temporary review clone (no global setting change). Research notes use the existing planning files; formal design awaits the user's prototype and requirements.

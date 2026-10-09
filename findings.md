@@ -48,7 +48,7 @@ and its config.json; https://docs.vllm.ai/en/latest/models/supported_models/.
 - New nodes have no `nvidia.com/gpu` allocatable resource and no `nvidia-smi`.
   GPU operator/device plugin and a real vLLM completion are therefore not
   available in the new environment.
-- New cluster has no PostgreSQL, MinIO, APISIX/Gateway API, KServe, LWS or
+- New cluster has no PostgreSQL, MinIO, an HTTP gateway/Gateway API, KServe, LWS or
   Kubeflow installation. The Kubeflow proposal explicitly says the full
   distribution is not needed for Model import; those components are optional
   execution layers.
@@ -58,7 +58,7 @@ and its config.json; https://docs.vllm.ai/en/latest/models/supported_models/.
   fallback; a trusted IAM/Gateway resolver is required for tenant-scoped RPCs.
 - Full Inference lifecycle additionally needs the Inference PostgreSQL schema,
   Model gRPC TLS endpoint, Inference CRD/controller permissions, materializer
-  image, APISIX HTTPRoute publication target, and GPU/vLLM capacity for a real
+  image, a Gateway API HTTPRoute publication target, and GPU/vLLM capacity for a real
   completion.
 - Isolation rule: all future mutations must use a dedicated new-cluster
   kubeconfig/SSH wrapper and new namespaces/secrets; never edit `~/.kube/config`
@@ -101,23 +101,6 @@ and its config.json; https://docs.vllm.ai/en/latest/models/supported_models/.
   bare `imports/<task>/model.tar` key in tenant-bucket mode while the storage
   adapter looks up a tenant-prefixed key. Do not enable tenant buckets until
   the mismatch has a regression test and a corrected contract.
-
-## 2026-09-21 new-cluster gateway
-
-- The new cluster initially had no Gateway API CRDs, GatewayClass, Gateway or
-  APISIX namespace. Gateway API standard v1.6.1 was applied first, followed by
-  APISIX chart 2.17.0 with Ingress Controller 2.2.0.
-- The APISIX chart's legacy `ani-block` storage class was not reused. The
-  new-cluster values use `rook-ceph-block` and Harbor-mirrored image tags so
-  the nodes do not need direct Docker Hub or GHCR access.
-- `GatewayClass/ani-apisix` and the `ingress-apisix` Gateway are both
-  Accepted/Programmed. The proxy NodePort responds, but no HTTPRoute exists;
-  the old route must remain unapplied because it names the legacy E2E
-  namespace and vLLM Service.
-- APISIX provides the HTTP gateway/inference routing boundary only. It does
-  not provide this repository's Model HTTP-to-gRPC business adapter or the
-  trusted principal resolver, so Model RPCs remain intentionally gated while
-  IAM/TLS are deferred.
 
 ## 2026-09-22 new-cluster Inference control plane
 
@@ -195,7 +178,7 @@ and its config.json; https://docs.vllm.ai/en/latest/models/supported_models/.
   entries and carries previous generation bindings while a replacement is
   being fenced. Focused Postgres/model/Kubernetes/service tests passed.
 - New-cluster service `ae68574f-3127-48f3-9a30-6788684797c8` completed its
-  operation and returned a real HTTP completion through APISIX at
+  operation and returned a real HTTP completion through the then-current gateway (now retired) at
   `192.168.102.68:30090` using the mirrored vLLM CPU image.
 - A separate update test with the initial 4 CPU/8Gi service remains stuck in a
   `resource_work` stale-generation retry loop after repeated status notifications;
@@ -207,7 +190,96 @@ and its config.json; https://docs.vllm.ai/en/latest/models/supported_models/.
 ## 2026-09-23 larger model validation
 
 - Qwen2.5-1.5B-Instruct pinned revision `989aa7980e4cf806f80c7fef2b1adb7bc71aa306` produced a 3,098,992,640-byte tar with SHA256 `d0f3c1294ac34d9ca84858cf93bfe4dbae8ebdfa2a317d1f90970b1dd85f11dd`. The ModelVersion size persistence path was missing `SizeBytes` in both the service projection and PostgreSQL adapter; the regression test and both assignments are now fixed.
-- The 1.5B archive materialized into a 6Gi CephFS PVC, vLLM CPU became ready with 3 CPU/6Gi request and 8Gi limit, and APISIX returned HTTP 200 with non-empty completion output.
+- The 1.5B archive materialized into a 6Gi CephFS PVC, vLLM CPU became ready with 3 CPU/6Gi request and 8Gi limit, and the then-current gateway (now retired) returned HTTP 200 with non-empty completion output.
 - New cluster capacity has no GPU and about 15Gi allocatable memory per worker. A single 1.5B CPU runtime is viable but concurrent 1.5B runtimes pressure PostgreSQL and scheduling; 3B/7B is deferred until larger nodes/GPU are available.
 - Kubernetes endpoint names cannot contain dots. The API currently accepts dotted Inference service names and then retries forever after the endpoint Service render fails; safe names use hyphens. Multiple `/v1` HTTPRoutes also need an explicit publication selection policy.
 - The invalid dotted-name test Deployment was scaled to zero after validation to release worker capacity. Its active create operation remains pending because the current API has no cancellation RPC and rejects Stop/Delete while an operation is active; the stale operation needs a later lifecycle/admin fix.
+
+## 2026-09-24 KServe LLMI/LWS validation
+
+- The new cluster already had LWS v0.10. KServe 0.16 LLMI CRDs and the
+  `llmisvc-controller-manager` were installed independently in `kubeflow`,
+  using the Harbor-pinned controller image; the KServe 0.15 controller and its
+  ConfigMap were left unchanged.
+- The LLMI webhook initially timed out because the controller pod was covered
+  by Istio injection and its namespace NetworkPolicy did not allow the API
+  Server to reach port 9443. Disabling injection for this controller and
+  adding a port-only webhook NetworkPolicy fixed creation of the empty pipeline
+  config.
+- `LLMInferenceService/lws-smollm2-cpu` with `parallelism.pipeline: 2` created
+  `lws-smollm2-cpu-kserve-mn` with two ready pods on
+  `ani-k8s-worker-2` (192.168.102.73) and `ani-k8s-cp` (192.168.102.68).
+  KServe reported `MainWorkloadReady=True`, and the generated workload Service
+  exposed both pod endpoints.
+- The first real vLLM attempt OOM-killed at a 2Gi limit and was not treated as
+  a KServe failure. The canary was switched to a caller-provided lightweight
+  HTTP command to prove LWS lifecycle and cross-node Service routing. This is
+  not a model-inference result; GPU/distributed vLLM validation remains open.
+- The LLMI readiness observer now accepts KServe 0.16 status without an
+  `observedGeneration` field, rejects an explicitly stale LLMI status, and
+  reports LWS worker/group counts only from the current rollout. Full Inference
+  tests, vet and build pass after this fix.
+
+## 2026-09-24 real Inference API to KServe LWS validation
+
+- Applied migration `000015_inference_kserve_llm_binding.sql` only to the new
+  cluster's `ani_inference` database; it extends the runtime binding kind
+  check for `KServeLLMInferenceService`.
+- Deployed the static Inference image
+  `docker.changqingyun.cn/ani/inference-service:ani-inference-new-20260924-lws-r3@sha256:1e46f1114e9c3cc403b110ec969563844daa959e7310f2d4a19fd629297e7924`.
+- A real gRPC `CreateInferenceService` request with
+  `runtime.provider=kserve`, `mode=RUNTIME_MODE_LEADER_WORKER_SET`,
+  `workerReplicas=1`, and a caller-supplied command created service
+  `de14fc07-3702-4b75-a3a1-ec7cfb1de153`; its operation reached `succeeded`.
+- KServe created an LLMI, native `LeaderWorkerSet/lws-api-smoke-kserve-mn`,
+  and two ready Pods on `ani-k8s-worker-2` (192.168.102.73) and `ani-k8s-cp`
+  (192.168.102.68). Its generated Service had both endpoints and its
+  HTTPRoute was `Accepted` and `ResolvedRefs`.
+- The observer initially rejected KServe's automatic `/mnt/models` mount, LWS
+  environment variables and Kubernetes defaults. `kserveContainerMatches` now
+  compares caller-owned command/image/resource/port fields exactly and treats
+  expected env/mount entries as required subsets. A regression test covers it.
+- A second real API create (`lws-api-gateway`, service
+  `6978cea5-a5f7-4799-b329-a81e7c56f2fe`) reached `succeeded`; a POST to
+  `http://192.168.102.68:30090/v1/completions` with the route model header
+  returned HTTP 200 through Higress and the LWS probe response. Its Delete API
+  operation also reached `succeeded`.
+- Both test services, their KServe/LWS objects, routes, PVCs, Jobs, Secrets
+  and completed download Pods were removed by exact service-id ownership
+  labels. The existing `smollm2-135m-cpu-real` service remains ready and was
+  not modified. The cluster still has no GPU, so this proves LWS/KServe
+  orchestration and gateway routing, not distributed GPU model inference.
+
+## Governance / Accelerator integration review (2026-09-25)
+
+- Source snapshots are being read under `/tmp/ani-integration-review-ATMCYT/`.
+- The current Inference composition uses one Kubernetes manager/client from ANI_KUBECONFIG or in-cluster credentials; a future GPU cluster_id cannot be interpreted as a node selector or silently dispatch to another cluster.
+- The existing HTTPRoutePublisher is the Higress inference data-plane publication adapter; distinguish it from management API routing.
+
+## Upstream Governance / Accelerator review (2026-09-25)
+
+- `ani-governance` HEAD `d27847b99479553b1a56fc84bc4ee8f1a0992e1e` is an admin/tenant BFF and governance/quota control plane, not the inference data-plane gateway. Its active registrations are Config, Network and Accelerator/Quota BFFs; the Model client/proto/route was removed on 2026-09-21. It has no KServe, Higress, HTTPRoute or `/v1/completions` ownership.
+- `ani-governance` has a documented GPU owner seam but the formal production build currently leaves the owner registry empty and GPU execution/catalog readiness disabled. The real `ani-inference` owner adapter, release identity map and service-to-service contract are still absent; test owner code is not production integration.
+- `ani-accelerator-service` fixed source SHA is `1d32dd9a9173b8869fa0ef2ae64e20b88f2ca0a3`. Its consumer contract uses `GpuRequest{cluster_id,pool_id,profile_id,profile_version,replicas,devices_per_replica,container_name}`; it does not define `pool` without `_id`.
+- Accelerator `ResolveGpuRequest` returns a frozen `ResolvedGpuPlan`; it does not reserve or lock quota/capacity. The plan includes `runtime{scheduler_name,queue_name,node_labels,pod_annotations,limits_per_container,runtime_class_name,recipe_version}` and `encoding/totals`.
+- The contract says Inference owns workload rendering, model readiness, deletion and release facts; Governance owns quota/usage synchronization; Accelerator owns supply/profile/inventory/capacity/binding. A real Inference adapter must embed `GpuOwnerCreateAttachment`/`GpuOwnerDeleteAttachment`, sign actual GPU Pod assertions, observe release, and report quota release after complete deletion.
+- Current `ani-inference-service` has one Kubernetes client/config selected by `ANI_KUBECONFIG` or in-cluster config. It does not route a request to another Kubernetes cluster from `cluster_id`; multi-cluster requires a separate config/client registry and is not safe to infer from node labels.
+- KServe renderer currently owns caller container image/command/resources and does not consume Accelerator RuntimeFragment scheduler/queue/node labels/pod annotations/GPU limit keys. That is the main implementation seam.
+
+## 2026-09-30 corrected verification scope
+
+Prior fresh 1.5B and LWS runs used /tmp/ani-fresh-api.py against Governance NodePort 30095; the last response incorrectly reduced that evidence to gRPC-only. Historical status documents are stale. This run verifies lifecycle and isolation using actual HTTP responses, never database status edits.
+
+2026-09-30 results: all six KServe lifecycle operations succeeded through Governance HTTP. Generation 5 changed CPU 4→3; Higress returned real generation after create/start/update. GET after deletion returns tombstone 200, list excludes it. Four generation-specific materialization sets persisted after delete and needed exact-owner cleanup. Signed URLs use internal MinIO hostname; storage-only round-trip used port-forward. Prior status statements about missing HTTP path/current KServe stale-generation were corrected.
+
+## 2026-10-08 Resource Storage preparation
+
+- User explicitly assigns Storage to ani-resource-service; prototype and requirements are forthcoming.
+- Resource main a4ca2a0fcb18346fff27f682a5244874ca4c60c8 has Network implementation; ADR-0006 and modularization plan reserve api/storage/v1 and internal/{biz,data,service}/storage for a future actual slice in the same process.
+- Remote heads additionally include codex/image-mvp-20260930 (3d15d09a9c7edfd5fccc6a95412c4877b82bff15) and codex/install-ceph (f198a1ea75549d24a95aa52e609e458a0712b234); their content is being checked, so main inventory alone is insufficient to characterize every branch.
+- Existing Network migration validates exclusive ownership of its public tables; adding Storage requires explicit database/schema and migration design. Do not casually append Storage tables to that migration set.
+
+- The `codex/image-mvp-20260930` branch (3d15d09) contains an Image domain and Harbor-oriented specs/code. Its own scope explicitly excludes model weights, VM disks and Helm packages; it is OCI image registry management, not MinIO/Ceph model-object storage. The Image MVP spec is marked “待实施”, so branch code/specs are not proof of main deployment or product acceptance.
+- The `codex/install-ceph` branch (f198a1e) contains Ceph deployment/runbook assets, not a Resource Storage domain/API implementation.
+- Current Model storage is an external-object contract: signed upload/download URLs, object existence and SHA256 verification. `ani-model-service` can dial a Storage gRPC address or direct MinIO, but Kubernetes import still requires direct MinIO configuration; this must be resolved before making Resource Storage the sole backend.
+- Current Inference owns generation-scoped RWX model PVC, download Job/Secret, ownership labels, readiness verification and cleanup. A Resource Storage volume API must not silently take over these objects; the prototype must choose whether Storage only supplies object/volume primitives or also owns materialization.

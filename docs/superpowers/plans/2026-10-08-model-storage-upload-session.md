@@ -121,7 +121,7 @@ git commit -m "feat: upload imported models through signed URLs"
 - Modify: `cmd/ani-model-service/config_test.go`
 - Modify: `cmd/ani-model-service/main_test.go`
 - Modify: `docs/deploy/model/model-service.yaml`
-- Modify: `docs/deploy/examples/production-storage-grpc.yaml`
+- Modify: `docs/deploy/helm/ani-services.md`
 - Modify: `docs/deploy/import-job.yaml`
 
 - [ ] **Step 1: Write failing configuration tests**
@@ -147,7 +147,7 @@ Grant the Model Service service account only the `secrets` create/get/delete per
 
 ```bash
 go test ./cmd/ani-model-service -run 'Test.*Storage|Test.*Import' -count=1
-git add cmd/ani-model-service docs/deploy/model/model-service.yaml docs/deploy/examples/production-storage-grpc.yaml
+git add cmd/ani-model-service docs/deploy/model/model-service.yaml docs/deploy/helm/ani-services.md
 git commit -m "feat: remove direct MinIO requirement from model imports"
 ```
 
@@ -171,7 +171,7 @@ make verify
 - [ ] **Step 3: Check for leaked MinIO Job contract references**
 
 ```bash
-rg -n 'ANI_MINIO_|MinIOSecretName|MinIOEndpoint|MinIOBucket|MinIOTenantBuckets|MinIOSecure' internal/worker cmd/minio-provision docs/deploy/examples/production-storage-grpc.yaml
+rg -n 'ANI_MINIO_|MinIOSecretName|MinIOEndpoint|MinIOBucket|MinIOTenantBuckets|MinIOSecure' internal/worker cmd/minio-provision docs/deploy/helm/ani-services.md
 ```
 
 Expected: no import Job contract or new Storage gRPC deployment references remain; any remaining direct adapter references must be limited to the temporary internal S3-compatible adapter and old-environment manifests.

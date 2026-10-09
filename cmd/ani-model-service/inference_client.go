@@ -10,6 +10,7 @@ import (
 	inferencedata "github.com/liangzai006/ani-model-service/internal/data/inference"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func configuredInferenceReferences() (modelbiz.ReferenceChecker, func(), error) {
@@ -18,8 +19,13 @@ func configuredInferenceReferences() (modelbiz.ReferenceChecker, func(), error) 
 	if address == "" {
 		return nil, close, nil
 	}
-	creds := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: os.Getenv("ANI_INFERENCE_GRPC_SERVER_NAME")})
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	var opts []grpc.DialOption
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_ALLOW_DIRECT_ACCESS")), "true") {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else {
+		creds := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: os.Getenv("ANI_INFERENCE_GRPC_SERVER_NAME")})
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	}
 	conn, err := grpc.NewClient(address, opts...)
 	if err != nil {
 		return nil, close, err

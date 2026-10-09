@@ -2,10 +2,11 @@
 
 ## Scope
 
-The new cluster will use Higress as the only public inference gateway. The
-existing environment and its resources are out of scope and must not be
-changed. APISIX manifests remain historical records only; the new deployment
-will not depend on them.
+The new cluster will use Higress as the public inference data-plane gateway.
+`ani-governance` is a sibling business/control-plane gateway for management
+APIs; it is not an upstream proxy for Higress. The existing environment and
+its resources are out of scope and must not be changed. Retired gateway
+repository files and references are removed as authorized by the user.
 
 The external inference contract remains a fixed `POST /v1/completions` (and
 the existing `/v1` endpoint URL returned by the control plane). Clients keep
@@ -32,13 +33,12 @@ the control-plane PostgreSQL audit table.
 
 ## Code changes
 
-- Rename the gateway publisher from APISIX-specific configuration to generic
-  Higress configuration while preserving `publication.Port` and
+- Configure the gateway publisher for Higress while preserving `publication.Port` and
   `EndpointResolver`.
 - Add an exact `x-higress-llm-model` header match to each route.
 - Read `ServedModelName` from `DesiredRuntime`; reject publication when it is
   empty, because a catch-all model route is unsafe.
-- Replace `ANI_APISIX_*` deployment variables with `ANI_HIGRESS_*` variables.
+- Use `ANI_HIGRESS_*` deployment variables.
 - Keep route status confirmation based on Gateway API `Accepted` and
   `ResolvedRefs` conditions.
 
@@ -54,7 +54,7 @@ the control-plane PostgreSQL audit table.
   selected Gateway API route implementation.
 - Verify two models on the same `/v1/completions` path, an unknown model
   response, streaming, metrics, and rate-limit responses before removing the
-  new-cluster APISIX release.
+  retired new-cluster gateway release.
 
 ## Non-goals
 

@@ -32,7 +32,7 @@ This preflight is read-only. It targets the cluster described by
 - No node advertises `nvidia.com/gpu`; the hosts do not have `nvidia-smi`.
   GPU inference/vLLM cannot be validated on this cluster until GPU hardware,
   drivers, and the device plugin are installed.
-- No APISIX, Gateway API controller, KServe, LWS, or Kubeflow components are
+- No HTTP gateway, Gateway API controller, KServe, LWS, or Kubeflow components are
   installed. No PostgreSQL or MinIO workload/service exists.
 
 ## Required before a Model import smoke test
@@ -58,7 +58,7 @@ This preflight is read-only. It targets the cluster described by
 - The Inference CRD from `ani-inference-service` and a service account allowed
   to create/watch its owned runtime resources.
 - A materializer image and `ANI_MODEL_STORAGE_CLASS=cephfs`.
-- A Gateway API controller plus APISIX and a Gateway/HTTPRoute publication
+- A Gateway API controller plus an HTTP gateway and a Gateway/HTTPRoute publication
   target, or an explicitly scoped internal-only invocation path.
 - GPU nodes/device plugin and the pinned vLLM image for a real GPU completion;
   CPU-only control-plane tests do not prove this path.

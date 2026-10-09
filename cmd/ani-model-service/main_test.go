@@ -16,7 +16,6 @@ import (
 
 func TestConfigureKubernetesImportUsesStorageGRPCWithoutMinIO(t *testing.T) {
 	t.Setenv("ANI_MINIO_ENDPOINT", "")
-	t.Setenv("ANI_IMPORT_MINIO_SECRET", "")
 	t.Setenv("ANI_IMPORT_JOB_IMAGE", "registry.example/ani-model-import:v1")
 	t.Setenv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model")
 	t.Setenv("ANI_IMPORT_PROVIDER_SECRET", "ani-model-import-provider")

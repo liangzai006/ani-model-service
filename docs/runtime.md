@@ -22,7 +22,7 @@ to the service deployment, not to the template default.
 
 ## Configuration
 
-- configuration is typed from `internal/conf/v1/conf.proto`;
+- configuration is typed from `api/model/v1/conf.proto`;
 - the process reads a configuration file selected by `-conf`;
 - environment overrides use the `ANI` prefix;
 - server configuration contains gRPC, admin HTTP, request timeout, and graceful
@@ -88,10 +88,10 @@ is disabled by default. The standard gRPC health service is enabled.
 Administrative handlers use the same Kratos error, codec, and middleware path
 rather than an unrelated ad-hoc HTTP stack.
 
-`/readyz` is intentionally process-only in this template. When a service owns a
-database, broker, provider, or other mandatory dependency, the service must add
-an explicit readiness contribution and tests. It must not reinterpret the
-generic result silently.
+`/readyz` is process-only in this generic template. A concrete service that owns
+PostgreSQL, Storage, a provider, or another mandatory dependency must add an
+explicit readiness contribution and tests. The ANI Model service does this in
+its own composition root; this document does not override that service contract.
 
 ## Telemetry
 
