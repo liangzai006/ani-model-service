@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-kratos/kratos/v3/middleware"
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
-	"google.golang.org/grpc/credentials"
 
 	conf "github.com/liangzai006/ani-model-service/api/model/v1"
 )
@@ -37,9 +36,11 @@ func (c ModelServerTLSConfig) Validate() error {
 	return nil
 }
 
-// configuredModelGRPCServer creates a gRPC server with optional mTLS support.
+// configuredModelGRPCServer creates a gRPC server with mandatory mTLS support.
 // When TLS environment variables are not set, it creates a plaintext server
-// for local development. Production deployments should always configure mTLS.
+// for local development. Production deployments must configure mTLS by setting
+// ANI_MODEL_SERVER_CERT_FILE and ANI_MODEL_SERVER_KEY_FILE. When these are set,
+// ANI_MODEL_REQUIRE_CLIENT_CERT=true enforces client certificate verification.
 func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Middleware) (*kratosgrpc.Server, error) {
 	tlsConfig := ModelServerTLSConfig{
 		CAFile:            strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_CA_FILE")),
@@ -48,7 +49,8 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 		RequireClientCert: strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_MODEL_REQUIRE_CLIENT_CERT")), "true"),
 	}
 
-	// If no TLS config, create plaintext server (development only)
+	// Allow plaintext only if no TLS config is provided (local development)
+	// Production environments must set ANI_MODEL_SERVER_CERT_FILE and ANI_MODEL_SERVER_KEY_FILE
 	if !tlsConfig.IsConfigured() {
 		return kratosgrpc.NewServer(
 			kratosgrpc.Network(c.Network),
@@ -88,6 +90,24 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 
 		config.ClientAuth = tls.RequireAndVerifyClientCert
 		config.ClientCAs = clientCAs
+
+		// Verify client certificate contains exactly one DNS SAN, no wildcards
+		config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
+				return errors.New("unverified client certificate chain")
+			}
+			clientCert := verifiedChains[0][0]
+			if len(clientCert.DNSNames) != 1 {
+				return errors.New("client certificate must contain exactly one DNS SAN")
+			}
+			clientDNS := clientCert.DNSNames[0]
+			if strings.TrimSpace(clientDNS) == "" || strings.ContainsAny(clientDNS, "*:/\\ \t\n") {
+				return fmt.Errorf("invalid client DNS SAN: %s (wildcards not allowed)", clientDNS)
+			}
+			// Optionally: check against an allowlist of known client identities
+			// For now, we accept any valid DNS SAN signed by our CA
+			return nil
+		}
 	}
 
 	return kratosgrpc.NewServer(
