@@ -35,7 +35,11 @@ func buildAppWithModelService(bc *conf.Bootstrap, logger *slog.Logger, modelServ
 	// The isolated validation deployment calls Model directly and scopes each
 	// request with its tenant_id; no IAM resolver is installed here.
 	middlewares := observability.ServerMiddleware(logger)
-	grpcServer := server.NewGRPCServer(bc.Server.Grpc, middlewares...)
+	grpcServer, err := configuredModelGRPCServer(bc.Server.Grpc, middlewares...)
+	if err != nil {
+		_ = observability.Shutdown(context.Background())
+		return nil, err
+	}
 	conf.RegisterModelServiceServer(grpcServer, modelService)
 	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), middlewares...)
 	var supervisor *server.WorkerSupervisor
