@@ -37,10 +37,12 @@ func (c ModelServerTLSConfig) Validate() error {
 }
 
 // configuredModelGRPCServer creates a gRPC server with mandatory mTLS support.
-// When TLS environment variables are not set, it creates a plaintext server
-// for local development. Production deployments must configure mTLS by setting
-// ANI_MODEL_SERVER_CERT_FILE and ANI_MODEL_SERVER_KEY_FILE. When these are set,
-// ANI_MODEL_REQUIRE_CLIENT_CERT=true enforces client certificate verification.
+// Production deployments MUST configure mTLS by setting ANI_MODEL_SERVER_CERT_FILE
+// and ANI_MODEL_SERVER_KEY_FILE. When ANI_MODEL_REQUIRE_CLIENT_CERT=true is set,
+// client certificate verification is enforced.
+//
+// SECURITY: Plaintext mode is NOT SUPPORTED. If TLS is not configured, the server
+// will fail to start. This enforces zero-trust architecture in all environments.
 func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Middleware) (*kratosgrpc.Server, error) {
 	tlsConfig := ModelServerTLSConfig{
 		CAFile:            strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_CA_FILE")),
@@ -49,16 +51,9 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 		RequireClientCert: strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_MODEL_REQUIRE_CLIENT_CERT")), "true"),
 	}
 
-	// Allow plaintext only if no TLS config is provided (local development)
-	// Production environments must set ANI_MODEL_SERVER_CERT_FILE and ANI_MODEL_SERVER_KEY_FILE
+	// Enforce mTLS: server must be configured with TLS
 	if !tlsConfig.IsConfigured() {
-		return kratosgrpc.NewServer(
-			kratosgrpc.Network(c.Network),
-			kratosgrpc.Address(c.Addr),
-			kratosgrpc.Timeout(c.Timeout.AsDuration()),
-			kratosgrpc.Middleware(middlewares...),
-			kratosgrpc.DisableReflection(),
-		), nil
+		return nil, fmt.Errorf("Model server requires mTLS configuration: set ANI_MODEL_SERVER_CERT_FILE and ANI_MODEL_SERVER_KEY_FILE")
 	}
 
 	// Production: configure mTLS

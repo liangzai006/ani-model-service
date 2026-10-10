@@ -35,6 +35,11 @@ func buildAppWithModelService(bc *conf.Bootstrap, logger *slog.Logger, modelServ
 	// The isolated validation deployment calls Model directly and scopes each
 	// request with its tenant_id; no IAM resolver is installed here.
 	middlewares := observability.ServerMiddleware(logger)
+
+	// Add RPC method authorization policy when mTLS is configured
+	// This enforces that only authorized services can call specific methods
+	middlewares = append(middlewares, RPCPolicyMiddleware(ModelServicePolicy()))
+
 	grpcServer, err := configuredModelGRPCServer(bc.Server.Grpc, middlewares...)
 	if err != nil {
 		_ = observability.Shutdown(context.Background())
