@@ -262,7 +262,7 @@ main() {
 
         # Check if kubectl is available
         if command -v kubectl &>/dev/null; then
-            NAMESPACE="${ANI_IMPORT_KUBERNETES_NAMESPACE:-ani-model}"
+            NAMESPACE="${ANI_IMPORT_KUBERNETES_NAMESPACE:-ani-system}"
 
             # Check if we can create jobs
             if kubectl auth can-i create jobs -n "$NAMESPACE" &>/dev/null; then

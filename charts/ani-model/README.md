@@ -1,14 +1,11 @@
 # ani-model
 
-此 Chart 描述新环境中的 Model 服务及其 Kubernetes 导入控制器。控制器使用固定
-的 `ani-model-service` ServiceAccount 创建短生命周期导入 Job；这个名称属于
-当前应用契约，不会按 Helm release 改名。
+安装到已经存在且标记为新环境的 `ani-system`。一条 `helm upgrade --install` 会先跑数据库
+migration Job，等 Job 成功，再部署 Model。Chart 不创建 Namespace、PostgreSQL、
+S3，也不依赖 Inference。
 
-默认存储适配器连接新环境中的 S3 兼容服务。Chart values 使用与 provider 无关
-的 `storage` 名称，虽然当前二进制会把直接 S3 配置映射为 `ANI_MINIO_*`
-环境变量。导入 Job 的存储大小不是 Chart 参数，服务会根据模型 manifest
-计算物化所需容量。
+公共 cert-manager 和 `ClusterIssuer/ani-internal` 要先就绪。Chart 默认申请 Model 服务端证书。
+PostgreSQL DSN 和 S3 凭据要事先放进 Secret。直接 S3 在二进制里用 `ANI_MINIO_*`
+读取。`inference.grpcAddress` 默认为空；配置它时必须同时提供 mTLS Secret。
 
-部署文档会在安装 Chart 之前创建数据库 Secret、S3 凭据 Secret 和 CA ConfigMap。
-安装顺序和 migration 顺序见 [Chart 总说明](../README.md) 以及
-[新环境 Helm 部署文档](../../docs/deploy/helm/ani-services.md)。
+安装命令见 [Model 安装说明](../../docs/deploy/helm/ani-model.md)。

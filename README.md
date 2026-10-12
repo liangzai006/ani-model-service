@@ -36,7 +36,7 @@ kubectl --context "$KUBE_CONTEXT" -n <import-namespace> logs job/<job-name> -c i
 
 真实导入成功后，`public.model_artifacts.reference` 保存 Storage 对象引用，
 `GetModelDownloadURL` 只返回短期签名地址；对象本身要在 Storage 的 bucket 中查看。
-新环境从零部署请按 [Helm 部署文档](docs/deploy/helm/ani-services.md) 执行。
+新环境从零部署请按 [Model Helm 部署指南](docs/deploy/helm/ani-model.md) 执行。
 
 After the initial source commit, run `make supply-chain-tools` and `make audit`;
 review and commit `docs/scaffold/bom.cdx.json`. CI deliberately fails when that

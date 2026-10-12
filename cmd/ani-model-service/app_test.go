@@ -3,16 +3,25 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -20,6 +29,7 @@ import (
 )
 
 func TestBuildAppRunsProductionComposition(t *testing.T) {
+	clientTLS := useTestServerMTLS(t)
 	grpcAddress := reserveAddress(t)
 	adminAddress := reserveAddress(t)
 	for adminAddress == grpcAddress {
@@ -40,7 +50,7 @@ func TestBuildAppRunsProductionComposition(t *testing.T) {
 	go func() { runResult <- app.Run() }()
 	waitForHTTP(t, "http://"+adminAddress+"/readyz")
 	assertProductionAdmin(t, adminAddress)
-	assertProductionGRPCHealth(t, grpcAddress)
+	assertProductionGRPCHealth(t, grpcAddress, clientTLS)
 
 	if err := app.Stop(); err != nil {
 		t.Fatalf("Stop() error = %v", err)
@@ -68,6 +78,99 @@ func TestBuildAppRejectsInvalidConfig(t *testing.T) {
 	_, err := buildApp(&conf.Bootstrap{}, newRuntimeLogger(io.Discard))
 	if err == nil {
 		t.Fatal("buildApp() unexpectedly accepted an incomplete config")
+	}
+}
+
+func useTestServerMTLS(t *testing.T) *tls.Config {
+	t.Helper()
+	caKey, caCert, caPEM := newTestCA(t)
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca.crt")
+	certPath := filepath.Join(dir, "tls.crt")
+	keyPath := filepath.Join(dir, "tls.key")
+	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	serverCert, serverKey := signTestCert(t, caKey, caCert, "model.ani.internal", net.IPv4(127, 0, 0, 1), x509.ExtKeyUsageServerAuth)
+	writeCertPair(t, certPath, keyPath, serverCert, serverKey)
+	clientCert, clientKey := signTestCert(t, caKey, caCert, "ani-inference.ani.internal", nil, x509.ExtKeyUsageClientAuth)
+	t.Setenv("ANI_MODEL_SERVER_CA_FILE", caPath)
+	t.Setenv("ANI_MODEL_SERVER_CERT_FILE", certPath)
+	t.Setenv("ANI_MODEL_SERVER_KEY_FILE", keyPath)
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		t.Fatal("test CA was not added")
+	}
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{{Certificate: [][]byte{clientCert.Raw}, PrivateKey: clientKey, Leaf: clientCert}},
+		RootCAs:      pool,
+		ServerName:   "127.0.0.1",
+	}
+}
+
+func newTestCA(t *testing.T) (*rsa.PrivateKey, *x509.Certificate, []byte) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key, cert, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func signTestCert(t *testing.T, caKey *rsa.PrivateKey, caCert *x509.Certificate, dns string, ip net.IP, usage x509.ExtKeyUsage) (*x509.Certificate, *rsa.PrivateKey) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{CommonName: dns},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{usage},
+		DNSNames:     []string{dns},
+	}
+	if ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert, key
+}
+
+func writeCertPair(t *testing.T, certPath, keyPath string, cert *x509.Certificate, key *rsa.PrivateKey) {
+	t.Helper()
+	if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -124,11 +227,11 @@ func assertProductionAdmin(t *testing.T, address string) {
 	}
 }
 
-func assertProductionGRPCHealth(t *testing.T, address string) {
+func assertProductionGRPCHealth(t *testing.T, address string, clientTLS *tls.Config) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))
 	if err != nil {
 		t.Fatalf("dial production gRPC: %v", err)
 	}

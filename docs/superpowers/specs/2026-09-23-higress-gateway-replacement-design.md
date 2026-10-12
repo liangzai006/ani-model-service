@@ -45,7 +45,7 @@ the control-plane PostgreSQL audit table.
 ## Kubernetes deployment
 
 - Add isolated Higress Helm values and installation documentation under
-  `docs/deploy/higress/`.
+  the Inference repository Higress deployment bundle.
 - Use mirrored images under `docker.changqingyun.cn/mirror` and pin the
   Higress chart/plugin versions.
 - Add the Higress `GatewayClass`, `Gateway`, model-router WasmPlugin, and

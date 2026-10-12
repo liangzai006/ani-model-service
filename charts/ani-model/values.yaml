@@ -1,11 +1,41 @@
 # PostgreSQL/S3 credential Secrets and the CA ConfigMap are pre-existing.
 replicaCount: 1
+
+# Helm waits for this Job before installing or upgrading the Deployment.
+# Applied files are recorded in public.schema_migrations and skipped later.
+migration:
+  enabled: true
+  image: docker.changqingyun.cn/library/postgres:16-alpine@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  hookDeletePolicy: before-hook-creation,hook-succeeded
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 image:
   repository: docker.changqingyun.cn/ani/model-service
   tag: ani-model-new-20261008-storage-r3
   digest: sha256:71e9b7ecde91d33a248ce99c8f35bedac4c3592e3b8fd68266bc24df92c5a274
   pullPolicy: IfNotPresent
   pullSecrets: []
+tls:
+  existingSecret: ani-model-server-tls
+  caKey: ca.crt
+  certKey: tls.crt
+  keyKey: tls.key
+  certificate:
+    create: true
+    dnsName: ani-model.ani.internal
+    issuer:
+      name: ani-internal
+      kind: ClusterIssuer
+      group: cert-manager.io
 database:
   existingSecret: ani-model-database
   secretKey: dsn
@@ -14,7 +44,9 @@ database:
 storage:
   mode: direct # direct or grpc
   direct:
-    endpoint: minio.ani-foundation.svc.cluster.local:9000
+    # Set this for the target cluster. Leaving it empty prevents accidentally
+    # connecting a new release to an older environment.
+    endpoint: ""
     secure: false
     bucket: ani-models
     tenantBuckets: false
@@ -31,16 +63,25 @@ import:
     repository: docker.changqingyun.cn/ani/model-import-worker
     tag: ani-model-new-20261008-storage-r1
     digest: sha256:f93eda5753b010eab241ede0e9bb1b2d6cee9b045b3db79aacf3ed8371d0b64f
-  storageClass: cephfs
+  # Empty uses the cluster default StorageClass.
+  storageClass: ""
   providerSecret: ""
   modelscopeBaseURL: ""
   huggingfaceBaseURL: ""
 inference:
-  grpcAddress: ani-inference-grpc.ani-inference.svc.cluster.local:19090
+  # Empty on purpose. Setting an address without mTLS certificates makes the
+  # process exit. Model startup does not require Inference.
+  grpcAddress: ""
   allowDirectAccess: true
   serverName: ""
+  tls:
+    existingSecret: ""
+    mountPath: /var/run/ani-inference-tls
+    caKey: ca.crt
+    certKey: tls.crt
+    keyKey: tls.key
 caBundle:
-  enabled: true
+  enabled: false
   existingConfigMap: ani-model-public-ca
   key: ca-certificates.crt
 podSecurityContext:

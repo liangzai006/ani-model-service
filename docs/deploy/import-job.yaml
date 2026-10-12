@@ -5,7 +5,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: ani-model-import-controller
-  namespace: ani-model
+  namespace: ani-system
 rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
@@ -27,11 +27,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ani-model-import-controller
-  namespace: ani-model
+  namespace: ani-system
 subjects:
   - kind: ServiceAccount
     name: ani-model-service
-    namespace: ani-model
+    namespace: ani-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -39,7 +39,7 @@ roleRef:
 
 # Add these variables to the Model Deployment:
 #
-#   ANI_IMPORT_KUBERNETES_NAMESPACE=ani-model
+#   ANI_IMPORT_KUBERNETES_NAMESPACE=ani-system
 #   ANI_IMPORT_JOB_IMAGE=registry.example/ani-model-import:v1
 #   ANI_IMPORT_PROVIDER_SECRET=ani-model-import-provider
 #   ANI_IMPORT_STORAGE_CLASS=cephfs       # optional; empty uses cluster default
@@ -53,5 +53,5 @@ roleRef:
 # of band; it can contain MODELSCOPE_API_TOKEN and/or HF_TOKEN for the provider
 # CLI.
 #
-#   kubectl -n ani-model create secret generic ani-model-import-provider \
+#   kubectl -n ani-system create secret generic ani-model-import-provider \
 #     --from-literal=MODELSCOPE_API_TOKEN='...'

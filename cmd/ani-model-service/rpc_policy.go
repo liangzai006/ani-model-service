@@ -17,20 +17,22 @@ import (
 func RPCPolicyMiddleware(policy RPCPolicy) middleware.Middleware {
 	return func(next middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req interface{}) (interface{}, error) {
-			// Extract RPC method from transport metadata
 			tr, ok := transport.FromServerContext(ctx)
 			if !ok {
 				return nil, status.Error(codes.Internal, "transport context unavailable")
 			}
 			method := tr.Operation()
 
-			// Extract client identity from mTLS certificate
 			clientIdentity, err := extractClientIdentity(ctx)
 			if err != nil {
 				return nil, status.Errorf(codes.Unauthenticated, "client identity unavailable: %v", err)
 			}
+			// gRPC health is not a business method. The certificate is already
+			// required by the server TLS config; kubelet uses HTTP probes instead.
+			if method == "/grpc.health.v1.Health/Check" || method == "/grpc.health.v1.Health/Watch" {
+				return next(ctx, req)
+			}
 
-			// Check policy
 			if !policy.IsAllowed(clientIdentity, method) {
 				return nil, status.Errorf(codes.PermissionDenied,
 					"client %q not authorized for method %q", clientIdentity, method)
@@ -90,16 +92,13 @@ func (p StaticRPCPolicy) IsAllowed(clientIdentity, method string) bool {
 // Only Inference Service is allowed to call read-only model query methods.
 func ModelServicePolicy() RPCPolicy {
 	policy := StaticRPCPolicy{
-		// Inference Service can query model metadata and download URLs
 		"ani-inference.ani.internal": {
 			"/model.v1.ModelService/GetModel",
 			"/model.v1.ModelService/GetModelVersion",
 			"/model.v1.ModelService/GetModelDownloadURL",
 		},
-		// Add other trusted services here as needed
 	}
 
-	// Wrap with explicit identity validation
 	return &ValidatedPolicy{
 		underlying: policy,
 		expectedIdentities: map[string]string{
@@ -111,16 +110,12 @@ func ModelServicePolicy() RPCPolicy {
 // ValidatedPolicy wraps a policy with explicit service identity validation.
 type ValidatedPolicy struct {
 	underlying         RPCPolicy
-	expectedIdentities map[string]string // DNS SAN -> service name (for logging)
+	expectedIdentities map[string]string
 }
 
 func (v *ValidatedPolicy) IsAllowed(clientIdentity, method string) bool {
-	// First, verify the client identity is in our expected list
 	if _, expected := v.expectedIdentities[clientIdentity]; !expected {
-		// Unknown client identity - deny by default
 		return false
 	}
-
-	// Then check the underlying policy
 	return v.underlying.IsAllowed(clientIdentity, method)
 }

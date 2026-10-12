@@ -12,6 +12,10 @@ type WorkerRunner interface {
 	Run(context.Context) error
 }
 
+type workerHealthReporter interface {
+	SetHealthCallback(func(bool))
+}
+
 // WorkerSupervisor owns the process lifecycle of the durable import worker.
 // Readiness is true only while the worker loop is live; a failed or stopped
 // loop immediately makes dependency-gated readiness false.
@@ -40,7 +44,12 @@ func (s *WorkerSupervisor) Start(parent context.Context) error {
 	s.cancel = cancel
 	s.done = make(chan struct{})
 	done := s.done
-	s.readiness.SetWorkerReady(true)
+	if reporter, ok := s.runner.(workerHealthReporter); ok {
+		s.readiness.SetWorkerReady(false)
+		reporter.SetHealthCallback(s.readiness.SetWorkerReady)
+	} else {
+		s.readiness.SetWorkerReady(true)
+	}
 	go func() {
 		defer close(done)
 		_ = s.runner.Run(ctx)

@@ -32,21 +32,18 @@ func buildAppWithModelService(bc *conf.Bootstrap, logger *slog.Logger, modelServ
 	if err != nil {
 		return nil, err
 	}
-	// The isolated validation deployment calls Model directly and scopes each
-	// request with its tenant_id; no IAM resolver is installed here.
-	middlewares := observability.ServerMiddleware(logger)
+	// Admin HTTP is only /healthz, /readyz, and /metrics. kubelet probes cannot
+	// present a client certificate, so they must not pass through RPC authorization.
+	adminMiddleware := observability.ServerMiddleware(logger)
+	grpcMiddleware := append(adminMiddleware, RPCPolicyMiddleware(ModelServicePolicy()))
 
-	// Add RPC method authorization policy when mTLS is configured
-	// This enforces that only authorized services can call specific methods
-	middlewares = append(middlewares, RPCPolicyMiddleware(ModelServicePolicy()))
-
-	grpcServer, err := configuredModelGRPCServer(bc.Server.Grpc, middlewares...)
+	grpcServer, err := configuredModelGRPCServer(bc.Server.Grpc, grpcMiddleware...)
 	if err != nil {
 		_ = observability.Shutdown(context.Background())
 		return nil, err
 	}
 	conf.RegisterModelServiceServer(grpcServer, modelService)
-	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), middlewares...)
+	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), adminMiddleware...)
 	var supervisor *server.WorkerSupervisor
 	if len(workerRunners) > 0 && workerRunners[0] != nil {
 		supervisor = server.NewWorkerSupervisor(workerRunners[0], readiness)

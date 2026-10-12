@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -13,6 +14,38 @@ import (
 
 	storagedata "github.com/liangzai006/ani-model-service/internal/data/storage"
 )
+
+type minioReadinessFake struct {
+	bucketChecks int
+	tenantID     string
+}
+
+func (f *minioReadinessFake) CheckBucket(context.Context) error {
+	f.bucketChecks++
+	return nil
+}
+
+func (f *minioReadinessFake) CheckTenantConnection(_ context.Context, tenantID string) error {
+	f.tenantID = tenantID
+	return nil
+}
+
+func TestCheckMinIOStorageUsesConfiguredReadinessMode(t *testing.T) {
+	shared := &minioReadinessFake{}
+	if err := checkMinIOStorage(context.Background(), shared, false); err != nil {
+		t.Fatal(err)
+	}
+	if shared.bucketChecks != 1 || shared.tenantID != "" {
+		t.Fatalf("shared storage checks = %+v", shared)
+	}
+	tenant := &minioReadinessFake{}
+	if err := checkMinIOStorage(context.Background(), tenant, true); err != nil {
+		t.Fatal(err)
+	}
+	if tenant.bucketChecks != 0 || tenant.tenantID == "" {
+		t.Fatalf("tenant storage checks = %+v", tenant)
+	}
+}
 
 func TestConfigureKubernetesImportUsesStorageGRPCWithoutMinIO(t *testing.T) {
 	t.Setenv("ANI_MINIO_ENDPOINT", "")

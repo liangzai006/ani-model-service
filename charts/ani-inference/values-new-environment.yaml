@@ -1,9 +1,0 @@
-# Desired values for a clean new environment. Set higress.publicBaseURL during
-# install to the new environment's gateway address.
-higress:
-  publicBaseURL: ""
-model:
-  grpcAddress: ani-model-grpc.ani-model.svc.cluster.local:19090
-  storageClass: cephfs
-accelerator:
-  enabled: false

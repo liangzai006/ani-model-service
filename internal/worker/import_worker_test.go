@@ -6,17 +6,44 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
 )
 
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
 type workerStoreFake struct {
 	task                              workbiz.Task
 	completed, retried, failed, bound bool
 	boundModel, boundVersion          string
 	renewErr                          error
+}
+
+type pollErrorStore struct {
+	workerStoreFake
+	err error
+}
+
+func (s *pollErrorStore) ListDue(context.Context, string, int32) ([]workbiz.Task, error) {
+	return nil, s.err
 }
 
 type allTenantStoreFake struct {
@@ -235,8 +262,58 @@ func TestWorkerNotifyWakesDueScanImmediately(t *testing.T) {
 	<-done
 }
 
+func TestWorkerReportsHealthAfterDueScan(t *testing.T) {
+	store := &workerStoreFake{task: workbiz.Task{TenantID: "tenant", ID: "task", VersionID: "version", Status: workbiz.Pending}}
+	w := &Worker{Store: store, Executor: workerExecutorFake{}, TenantID: "tenant", Owner: "worker", Lease: time.Minute, PollInterval: time.Hour}
+	health := make(chan bool, 4)
+	w.SetHealthCallback(func(ready bool) { health <- ready })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { _ = w.Run(ctx); close(done) }()
+	select {
+	case ready := <-health:
+		if ready {
+			t.Fatal("worker should report unready before its first due scan")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not report initial health")
+	}
+	select {
+	case ready := <-health:
+		if !ready {
+			t.Fatal("successful due scan should report worker ready")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not report successful scan")
+	}
+	cancel()
+	<-done
+}
+
+func TestWorkerLogsDueScanFailure(t *testing.T) {
+	var logs lockedBuffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	w := &Worker{
+		Logger: logger, Store: &pollErrorStore{err: errors.New("database unavailable")},
+		TenantID: "tenant", Owner: "worker", PollInterval: time.Millisecond,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = w.Run(ctx); close(done) }()
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(logs.String(), "import worker due scan failed") && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+	if !strings.Contains(logs.String(), "import worker due scan failed") {
+		t.Fatalf("due scan failure was not logged: %s", logs.String())
+	}
+}
+
 func TestWorkerLogsTaskLifecycle(t *testing.T) {
-	var logs bytes.Buffer
+	var logs lockedBuffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	store := &workerStoreFake{task: workbiz.Task{TenantID: "tenant", ID: "task-id", VersionID: "version", Source: "huggingface", Status: workbiz.Pending}}
 	w := &Worker{Logger: logger, Store: store, Executor: workerExecutorFake{}, Finalizer: &finalizerFake{}, TenantID: "tenant", Owner: "worker", Lease: time.Minute}

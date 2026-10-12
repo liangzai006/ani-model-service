@@ -32,6 +32,12 @@ spec:
               value: 30s
             - name: ANI_SERVER_ADMIN_ADDR
               value: 0.0.0.0:19091
+            - name: ANI_MODEL_SERVER_CA_FILE
+              value: /var/run/ani-model-tls/{{ .Values.tls.caKey }}
+            - name: ANI_MODEL_SERVER_CERT_FILE
+              value: /var/run/ani-model-tls/{{ .Values.tls.certKey }}
+            - name: ANI_MODEL_SERVER_KEY_FILE
+              value: /var/run/ani-model-tls/{{ .Values.tls.keyKey }}
             - name: ANI_DATABASE_DSN
               valueFrom:
                 secretKeyRef:
@@ -94,19 +100,32 @@ spec:
             {{- end }}
             - name: ANI_ALLOW_DIRECT_ACCESS
               value: {{ .Values.inference.allowDirectAccess | quote }}
+            {{- with .Values.inference.grpcAddress }}
             - name: ANI_INFERENCE_GRPC_ADDR
-              value: {{ .Values.inference.grpcAddress | quote }}
-            {{- with .Values.inference.serverName }}
-            - name: ANI_INFERENCE_GRPC_SERVER_NAME
               value: {{ . | quote }}
+            - name: ANI_INFERENCE_CA_FILE
+              value: {{ printf "%s/%s" (trim $.Values.inference.tls.mountPath) (trim $.Values.inference.tls.caKey) | quote }}
+            - name: ANI_INFERENCE_CERT_FILE
+              value: {{ printf "%s/%s" (trim $.Values.inference.tls.mountPath) (trim $.Values.inference.tls.certKey) | quote }}
+            - name: ANI_INFERENCE_KEY_FILE
+              value: {{ printf "%s/%s" (trim $.Values.inference.tls.mountPath) (trim $.Values.inference.tls.keyKey) | quote }}
+            - name: ANI_INFERENCE_SERVER_NAME
+              value: {{ required "inference.serverName is required when inference.grpcAddress is set" (trim $.Values.inference.serverName) | quote }}
             {{- end }}
           ports:
             - name: grpc
               containerPort: 19090
             - name: admin
               containerPort: 19091
-          {{- if or .Values.caBundle.enabled .Values.storage.grpc.caCertSecret }}
           volumeMounts:
+            - name: model-server-tls
+              mountPath: /var/run/ani-model-tls
+              readOnly: true
+          {{- if .Values.inference.grpcAddress }}
+            - name: inference-tls
+              mountPath: {{ .Values.inference.tls.mountPath | quote }}
+              readOnly: true
+          {{- end }}
           {{- if .Values.caBundle.enabled }}
             - name: public-ca-certificates
               mountPath: /etc/ssl/certs
@@ -116,7 +135,6 @@ spec:
             - name: storage-ca
               mountPath: /var/run/ani-storage-ca
               readOnly: true
-          {{- end }}
           {{- end }}
           readinessProbe:
             httpGet:
@@ -131,6 +149,14 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
+        - name: model-server-tls
+          secret:
+            secretName: {{ required "tls.existingSecret is required" .Values.tls.existingSecret }}
+      {{- if .Values.inference.grpcAddress }}
+        - name: inference-tls
+          secret:
+            secretName: {{ required "inference.tls.existingSecret is required when inference.grpcAddress is set" (trim .Values.inference.tls.existingSecret) }}
+      {{- end }}
       {{- if .Values.caBundle.enabled }}
         - name: public-ca-certificates
           configMap:

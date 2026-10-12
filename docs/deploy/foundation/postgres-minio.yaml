@@ -1,6 +1,8 @@
-# New-cluster foundation only. Apply with the dedicated kubeconfig for the
-# .clusterenv cluster. Secret values are created out of band and are never
-# stored in this file.
+# Legacy foundation example. It requires an already-provisioned Rook-Ceph
+# `rook-ceph-block` StorageClass and is not the installation used by the
+# current disk-only new cluster. For the current cluster, PostgreSQL and S3
+# were installed independently in `ani-infra` on `local-path`; do not apply
+# this file until a dedicated Ceph StorageClass exists.
 apiVersion: v1
 kind: Namespace
 metadata:

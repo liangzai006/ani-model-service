@@ -1,8 +1,8 @@
 # Helm 部署
 
-Model 和 Inference 两个业务服务的完整部署步骤见
-[ani-services.md](ani-services.md)。
+Model 的安装说明：[ani-model.md](ani-model.md)。
 
-该文档只针对 `.clusterenv` 对应的新集群，所有安装命令都显式使用
-`kubernetes-admin@kubekey` context；旧集群、基础组件和 CRD 不在这两个 Chart
-的管理范围内。
+安装前显式核对当前 kubeconfig context 是新集群；正式 Helm 命令不传
+`--kube-context`。配置 values 后执行 `helm upgrade --install`。
+Helm 先初始化数据库，再部署 Model。Model 不依赖 KServe、LWS、Gateway 或 Higress；
+PostgreSQL、S3 和 cert-manager 由平台公共流程提供。

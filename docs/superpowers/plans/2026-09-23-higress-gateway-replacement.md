@@ -40,11 +40,11 @@
 ### Task 2: Add isolated Higress deployment and plugin manifests
 
 **Files:**
-- Create: `/root/kubercon/ani-model-service/docs/deploy/higress/new-cluster-values.yaml`
-- Create: `/root/kubercon/ani-model-service/docs/deploy/higress/gateway.yaml`
-- Create: `/root/kubercon/ani-model-service/docs/deploy/higress/plugins.yaml`
-- Create: `/root/kubercon/ani-model-service/docs/deploy/higress/README.md`
-- Modify: `/root/kubercon/ani-model-service/docs/deploy/inference/inference-control-plane.yaml`
+- Create: `/root/kubercon/ani-inference-service/docs/deploy/higress/new-cluster-values.yaml`
+- Create: `/root/kubercon/ani-inference-service/docs/deploy/higress/gateway.yaml`
+- Create: `/root/kubercon/ani-inference-service/docs/deploy/higress/plugins.yaml`
+- Create: `/root/kubercon/ani-inference-service/docs/deploy/higress/README.md`
+- Modify: `/root/kubercon/ani-inference-service/charts/ani-inference`
 
 **Interfaces:**
 - Consumes: Higress Helm chart 2.2.4 and Gateway API v1.6 CRDs.
@@ -52,7 +52,7 @@
 
 - [x] Configure Higress Gateway API support, isolated namespace, mirrored images, `NodePort 30090`, and a pinned chart version.
 - [x] Configure gateway Prometheus annotations and the new-cluster observability storage class without changing Kubeflow's Istio gateway.
-- [x] Add a GatewayClass controller name `higress.io/gateway-controller` and Gateway `higress-system/ani-higress` with an HTTP listener allowing routes from `ani-inference`.
+- [x] Add a GatewayClass controller name `higress.io/gateway-controller` and Gateway `higress-system/ani-higress` with an HTTP listener allowing routes from `ani-system`.
 - [x] Add a pinned `model-router` WasmPlugin in the dedicated Higress namespace, explicitly setting `modelToHeader: x-higress-llm-model` and `/completions` suffix support.
 - [x] Add AI statistics configuration for OpenAI-compatible request/response usage and a local request-limit plugin configuration that does not require IAM or Redis.
 - [x] Configure the inference Deployment environment variables with `ANI_HIGRESS_*` and update Role comments; keep Gateway API `HTTPRoute` RBAC.
@@ -61,7 +61,7 @@
 ### Task 3: Mirror images and migrate the new cluster
 
 **Files:**
-- Create: `/root/kubercon/ani-model-service/docs/deploy/higress/verify-vllm.sh`
+- Create: `/root/kubercon/ani-inference-service/docs/deploy/higress/verify-vllm.sh`
 - Create: `/root/kubercon/ani-model-service/docs/execution/records/2026-09-23-higress-migration.md`
 
 **Interfaces:**

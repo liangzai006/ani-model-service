@@ -61,6 +61,28 @@ type Worker struct {
 	Logger              *slog.Logger
 	wake                chan struct{}
 	wakeInit            sync.Once
+	healthMu            sync.RWMutex
+	healthCallback      func(bool)
+}
+
+// SetHealthCallback lets the runtime readiness gate follow the worker's due
+// scan health. A worker is unready until its first successful scan.
+func (w *Worker) SetHealthCallback(callback func(bool)) {
+	w.healthMu.Lock()
+	w.healthCallback = callback
+	w.healthMu.Unlock()
+	if callback != nil {
+		callback(false)
+	}
+}
+
+func (w *Worker) reportHealth(ready bool) {
+	w.healthMu.RLock()
+	callback := w.healthCallback
+	w.healthMu.RUnlock()
+	if callback != nil {
+		callback(ready)
+	}
 }
 
 func (w *Worker) initWake() {
@@ -84,6 +106,7 @@ func (w *Worker) Notify() {
 
 func (w *Worker) Run(ctx context.Context) error {
 	w.initWake()
+	defer w.reportHealth(false)
 	if w.PollInterval <= 0 {
 		w.PollInterval = time.Second
 	}
@@ -99,8 +122,16 @@ func (w *Worker) Run(ctx context.Context) error {
 	tick := time.NewTicker(w.PollInterval)
 	defer tick.Stop()
 	for {
-		if err := w.runOnce(ctx); err != nil && ctx.Err() != nil {
-			return ctx.Err()
+		if err := w.runOnce(ctx); err != nil {
+			w.reportHealth(false)
+			if w.Logger != nil {
+				w.Logger.ErrorContext(ctx, "import worker due scan failed", slog.String("error", err.Error()))
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+		} else {
+			w.reportHealth(true)
 		}
 		select {
 		case <-ctx.Done():

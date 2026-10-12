@@ -21,6 +21,7 @@ import (
 	"github.com/go-kratos/kratos/v3/log"
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	conf "github.com/liangzai006/ani-model-service/api/model/v1"
 	bizstorage "github.com/liangzai006/ani-model-service/internal/biz/storage"
@@ -44,6 +45,20 @@ var (
 	flagconf string
 	id, _    = os.Hostname()
 )
+
+type minioReadinessChecker interface {
+	CheckBucket(context.Context) error
+	CheckTenantConnection(context.Context, string) error
+}
+
+func checkMinIOStorage(ctx context.Context, storage minioReadinessChecker, tenantBuckets bool) error {
+	if tenantBuckets {
+		// Tenant buckets are created lazily after a tenant is known. Check
+		// credentials and endpoint without creating a bucket.
+		return storage.CheckTenantConnection(ctx, uuid.NewString())
+	}
+	return storage.CheckBucket(ctx)
+}
 
 func init() {
 	flag.StringVar(&flagconf, "conf", "configs", "config path, for example -conf configs/config.yaml")
@@ -112,6 +127,12 @@ func run(logger *slog.Logger) error {
 		err = createErr
 		if err != nil {
 			return fmt.Errorf("configure MinIO Storage: %w", err)
+		}
+		checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = checkMinIOStorage(checkCtx, minioStorage, minioTenantBuckets)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("check MinIO Storage: %w", err)
 		}
 		storagePort = minioStorage
 		storageReady = true

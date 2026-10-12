@@ -87,7 +87,7 @@ Expected result: service-to-service TLS and tenant identity are real deployment 
 ### Task 6: Deploy the refactored Model service
 
 - [x] Publish immutable Model and Import Job images to a registry reachable by the new nodes.
-- [x] Apply Model Deployment, gRPC/admin Services, ConfigMap, Secret references, ServiceAccount, and import-controller RBAC in the dedicated `ani-model` namespace.
+- [x] Apply Model Deployment, gRPC/admin Services, ConfigMap, Secret references, ServiceAccount, and import-controller RBAC in the shared `ani-system` namespace.
 - [x] Configure `ANI_DATABASE_DSN`, `ANI_MINIO_ENDPOINT`, `ANI_IMPORT_JOB_IMAGE`, `ANI_IMPORT_MINIO_SECRET`, `ANI_IMPORT_KUBERNETES_NAMESPACE`, and `ANI_IMPORT_STORAGE_CLASS=cephfs`; imports always run as Kubernetes Jobs and size their staging PVC from the provider manifest.
 - [x] Verify `/healthz`, `/readyz`, PostgreSQL/Storage readiness, and namespace-scoped import RBAC without touching unrelated namespaces.
 - [ ] Verify an authenticated Model gRPC request and run one import after the trusted IAM resolver is available.
@@ -98,7 +98,7 @@ Expected result: Model import and metadata APIs are ready in the isolated new-cl
 ### Task 7: Install the gateway/runtime prerequisites for Inference
 
 - [ ] Install Higress with Gateway API support as the inference data-plane gateway. Keep Kubeflow's Istio ingress separate from inference publication.
-- [ ] Configure the Higress `GatewayClass`/`Gateway` and the inference publisher's `ANI_HIGRESS_*` environment variables using `docs/deploy/higress/`.
+- [ ] Configure the Higress `GatewayClass`/`Gateway` and the inference publisher's `ANI_HIGRESS_*` environment variables using the Inference repository Higress deployment bundle.
 - [ ] Apply the Inference CRD `inferenceservices.ani.kubercloud.com` and namespace-scoped controller RBAC.
 - [ ] Provide the materializer image and `ANI_MODEL_STORAGE_CLASS=cephfs`.
 - [ ] Deploy Inference with its new-cluster PostgreSQL DSN, Model gRPC TLS address, namespace, and publication base URL.

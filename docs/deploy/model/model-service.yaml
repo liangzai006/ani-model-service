@@ -1,24 +1,24 @@
 # New-cluster Model service only. Secrets are created out of band in the
-# ani-model namespace and are intentionally not stored in this manifest.
+# ani-system namespace and are intentionally not stored in this manifest.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ani-model
+  name: ani-system
   labels:
     ani.liangzai006.io/environment: new-cluster
-    ani.liangzai006.io/purpose: model-service
+    ani.liangzai006.io/purpose: ani-services
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ani-model-service
-  namespace: ani-model
+  namespace: ani-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: ani-model-import-controller
-  namespace: ani-model
+  namespace: ani-system
 rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
@@ -40,11 +40,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ani-model-import-controller
-  namespace: ani-model
+  namespace: ani-system
 subjects:
   - kind: ServiceAccount
     name: ani-model-service
-    namespace: ani-model
+    namespace: ani-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -54,7 +54,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ani-model-service
-  namespace: ani-model
+  namespace: ani-system
   labels:
     app.kubernetes.io/name: ani-model-service
     app.kubernetes.io/component: control-plane
@@ -126,7 +126,7 @@ spec:
             - name: ANI_ALLOW_DIRECT_ACCESS
               value: "true"
             - name: ANI_INFERENCE_GRPC_ADDR
-              value: ani-inference-grpc.ani-inference.svc.cluster.local:19090
+              value: ani-inference-grpc.ani-system.svc.cluster.local:19090
           ports:
             - name: grpc
               containerPort: 19090
@@ -170,7 +170,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ani-model-grpc
-  namespace: ani-model
+  namespace: ani-system
   labels:
     app.kubernetes.io/name: ani-model-service
 spec:
@@ -186,7 +186,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ani-model-admin
-  namespace: ani-model
+  namespace: ani-system
   labels:
     app.kubernetes.io/name: ani-model-service
 spec:

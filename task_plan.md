@@ -70,7 +70,7 @@ does not itself change the Model service's identity enforcement.
   `ani-models` bucket.
 - [x] Apply the Model migrations to the new-cluster `ani_model` database.
 - [x] Build and deploy the refactored Model service and its Kubernetes import
-  Job image in the isolated `ani-model` namespace.
+  Job image in the shared `ani-system` namespace.
 - [x] Create the separate `ani_inference` database, apply all twelve
   migrations, and deploy the refactored Inference control plane with its
   Kubernetes runtime composition and namespace-scoped RBAC.
@@ -88,7 +88,7 @@ does not itself change the Model service's identity enforcement.
   now requires and starts its Kubernetes runtime in every deployment.
 - [x] Install the Inference CRD and LWS controller/CRDs on the new cluster.
 - [x] Deploy the new-cluster ServiceAccount, namespace Role and RoleBinding;
-  verify the account can manage only the `ani-inference` runtime resources.
+  verify the account can manage only the `ani-system` runtime resources.
 - [x] Verify the new image starts, opens the gRPC/admin listeners and reaches
   the Kubernetes manager without cache-sync errors.
 - [x] Superseded by the user's direct-access requirement: use plaintext Model

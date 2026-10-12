@@ -1,66 +1,28 @@
 package main
 
-import (
-	"context"
-	"net"
-	"testing"
+import "testing"
 
-	inferencev1 "github.com/liangzai006/ani-model-service/api/inference/v1"
-	"google.golang.org/grpc"
-)
-
-type directReferenceServer struct {
-	inferencev1.UnimplementedModelReferenceServiceServer
-}
-
-func (directReferenceServer) CheckModelVersionReferences(context.Context, *inferencev1.CheckModelVersionReferencesRequest) (*inferencev1.CheckModelVersionReferencesResponse, error) {
-	return &inferencev1.CheckModelVersionReferencesResponse{}, nil
-}
-
-func TestConfiguredInferenceReferencesUsesDirectAccessTransport(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := grpc.NewServer()
-	inferencev1.RegisterModelReferenceServiceServer(server, directReferenceServer{})
-	go server.Serve(listener)
-	defer server.Stop()
-
-	t.Setenv("ANI_INFERENCE_GRPC_ADDR", listener.Addr().String())
-	t.Setenv("ANI_ALLOW_DIRECT_ACCESS", "true")
+func TestConfiguredInferenceReferencesDisabledWithoutAddress(t *testing.T) {
+	t.Setenv("ANI_INFERENCE_GRPC_ADDR", "")
 	references, closeReferences, err := configuredInferenceReferences()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeReferences()
-	if references == nil {
-		t.Fatal("configured reference checker is nil")
-	}
-	if _, err := references.HasActiveVersionReferences(context.Background(), "tenant-a", []string{"22222222-2222-4222-8222-222222222222"}); err != nil {
-		t.Fatalf("direct reference check failed: %v", err)
+	if references != nil {
+		t.Fatal("inference reference checker should be disabled without an address")
 	}
 }
 
-func TestConfiguredInferenceReferencesKeepsTLSWhenDirectAccessDisabled(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := grpc.NewServer()
-	inferencev1.RegisterModelReferenceServiceServer(server, directReferenceServer{})
-	go server.Serve(listener)
-	defer server.Stop()
-
-	t.Setenv("ANI_INFERENCE_GRPC_ADDR", listener.Addr().String())
-	t.Setenv("ANI_ALLOW_DIRECT_ACCESS", "false")
-	references, closeReferences, err := configuredInferenceReferences()
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestConfiguredInferenceReferencesRequiresTLS(t *testing.T) {
+	t.Setenv("ANI_INFERENCE_GRPC_ADDR", "inference.ani-system.svc.cluster.local:19090")
+	t.Setenv("ANI_INFERENCE_CA_FILE", "")
+	t.Setenv("ANI_INFERENCE_CERT_FILE", "")
+	t.Setenv("ANI_INFERENCE_KEY_FILE", "")
+	t.Setenv("ANI_INFERENCE_SERVER_NAME", "")
+	_, closeReferences, err := configuredInferenceReferences()
 	defer closeReferences()
-	_, err = references.HasActiveVersionReferences(context.Background(), "tenant-a", []string{"22222222-2222-4222-8222-222222222222"})
 	if err == nil {
-		t.Fatal("plaintext server unexpectedly accepted TLS-disabled direct access")
+		t.Fatal("expected mTLS configuration error")
 	}
 }

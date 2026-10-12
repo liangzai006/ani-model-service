@@ -39,7 +39,7 @@ Implemented and unit-tested. The KServe provider publishes to `<inferenceservice
 **Files:**
 - Modify: `/root/kubercon/ani-inference-service/cmd/ani-inference-service/main.go`
 - Modify: `/root/kubercon/ani-inference-service/internal/data/kubernetes/executor.go`
-- Modify: `/root/kubercon/ani-model-service/docs/deploy/inference/inference-control-plane.yaml`
+- Modify: `/root/kubercon/ani-inference-service/charts/ani-inference`
 
 Added a persisted per-generation `runtime.provider` (`deployment` or `kserve`), a distinct `KServeInferenceService` binding kind, migrations `000013` and `000014`, KServe RBAC, and a runtime router. Omitted provider remains deployment for compatibility; updates inherit the current provider unless one is explicitly supplied. The running control plane remains deployment-backed so existing services are not migrated.
 

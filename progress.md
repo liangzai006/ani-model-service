@@ -282,7 +282,7 @@ Explicit kubeconfig targets 192.168.102.68; all three nodes Ready, Inference cle
   enabled a separate `ani-inference-key-auth` WasmPlugin on the new-cluster
   Higress listeners. The credential is generated outside Git at
   `/root/.config/ani/higress/inference-api-key`; the repository contains only the
-  protected-value template `docs/deploy/higress/key-auth.yaml.tmpl`.
+  protected-value template in the Inference repository Higress deployment bundle.
 - Fresh gateway checks: no key, an invalid key, and a query-string key each
   returned HTTP 401; the valid `x-api-key` returned HTTP 200 with a real
   `smollm2-135m` completion. Envoy's active listener config contains the new

@@ -14,80 +14,50 @@ import (
 	conf "github.com/liangzai006/ani-model-service/api/model/v1"
 )
 
-// ModelServerTLSConfig holds the mTLS configuration for the Model gRPC server.
-// When client certificate verification is enabled, only clients with valid
-// certificates signed by the configured CA can connect.
+// ModelServerTLSConfig is the mandatory mTLS material for the Model gRPC server.
+// Client certificates are always required; there is no plaintext or server-only mode.
 type ModelServerTLSConfig struct {
 	CAFile, CertFile, KeyFile string
-	RequireClientCert         bool
-}
-
-func (c ModelServerTLSConfig) IsConfigured() bool {
-	return c.CertFile != "" || c.KeyFile != ""
 }
 
 func (c ModelServerTLSConfig) Validate() error {
-	if strings.TrimSpace(c.CertFile) == "" || strings.TrimSpace(c.KeyFile) == "" {
-		return errors.New("server TLS requires cert and key files")
-	}
-	if c.RequireClientCert && strings.TrimSpace(c.CAFile) == "" {
-		return errors.New("client certificate verification requires CA file")
+	if strings.TrimSpace(c.CertFile) == "" || strings.TrimSpace(c.KeyFile) == "" || strings.TrimSpace(c.CAFile) == "" {
+		return errors.New("mTLS requires ANI_MODEL_SERVER_CA_FILE, ANI_MODEL_SERVER_CERT_FILE, and ANI_MODEL_SERVER_KEY_FILE")
 	}
 	return nil
 }
 
-// configuredModelGRPCServer creates a gRPC server with mandatory mTLS support.
-// Production deployments MUST configure mTLS by setting ANI_MODEL_SERVER_CERT_FILE
-// and ANI_MODEL_SERVER_KEY_FILE. When ANI_MODEL_REQUIRE_CLIENT_CERT=true is set,
-// client certificate verification is enforced.
-//
-// SECURITY: Plaintext mode is NOT SUPPORTED. If TLS is not configured, the server
-// will fail to start. This enforces zero-trust architecture in all environments.
+// configuredModelGRPCServer creates a gRPC server that always requires a client
+// certificate signed by the configured CA. Callers cannot disable that check.
 func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Middleware) (*kratosgrpc.Server, error) {
 	tlsConfig := ModelServerTLSConfig{
-		CAFile:            strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_CA_FILE")),
-		CertFile:          strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_CERT_FILE")),
-		KeyFile:           strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_KEY_FILE")),
-		RequireClientCert: strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_MODEL_REQUIRE_CLIENT_CERT")), "true"),
+		CAFile:   strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_CA_FILE")),
+		CertFile: strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_CERT_FILE")),
+		KeyFile:  strings.TrimSpace(os.Getenv("ANI_MODEL_SERVER_KEY_FILE")),
 	}
-
-	// Enforce mTLS: server must be configured with TLS
-	if !tlsConfig.IsConfigured() {
-		return nil, fmt.Errorf("Model server requires mTLS configuration: set ANI_MODEL_SERVER_CERT_FILE and ANI_MODEL_SERVER_KEY_FILE")
-	}
-
-	// Production: configure mTLS
 	if err := tlsConfig.Validate(); err != nil {
-		return nil, fmt.Errorf("model server TLS config: %w", err)
+		return nil, err
 	}
 
 	cert, err := tls.LoadX509KeyPair(tlsConfig.CertFile, tlsConfig.KeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("load Model server certificate: %w", err)
 	}
+	caPEM, err := os.ReadFile(tlsConfig.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read Model server CA: %w", err)
+	}
+	clientCAs := x509.NewCertPool()
+	if !clientCAs.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("Model server CA bundle has no certificates")
+	}
 
 	config := &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{cert},
-	}
-
-	// If client cert verification is required
-	if tlsConfig.RequireClientCert {
-		caPEM, err := os.ReadFile(tlsConfig.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("read Model server CA: %w", err)
-		}
-
-		clientCAs := x509.NewCertPool()
-		if !clientCAs.AppendCertsFromPEM(caPEM) {
-			return nil, errors.New("Model server CA bundle has no certificates")
-		}
-
-		config.ClientAuth = tls.RequireAndVerifyClientCert
-		config.ClientCAs = clientCAs
-
-		// Verify client certificate contains exactly one DNS SAN, no wildcards
-		config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientCAs,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
 				return errors.New("unverified client certificate chain")
 			}
@@ -99,10 +69,8 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 			if strings.TrimSpace(clientDNS) == "" || strings.ContainsAny(clientDNS, "*:/\\ \t\n") {
 				return fmt.Errorf("invalid client DNS SAN: %s (wildcards not allowed)", clientDNS)
 			}
-			// Optionally: check against an allowlist of known client identities
-			// For now, we accept any valid DNS SAN signed by our CA
 			return nil
-		}
+		},
 	}
 
 	return kratosgrpc.NewServer(
