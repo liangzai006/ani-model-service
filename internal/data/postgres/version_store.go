@@ -68,11 +68,7 @@ func (s *VersionStore) CreateVersion(ctx context.Context, v modelbiz.Version) (m
 		return modelbiz.Version{}, fmt.Errorf("model_id: %w", err)
 	}
 	args, _ := json.Marshal(v.StartupArgs)
-	fingerprintBytes, _ := json.Marshal(struct {
-		ModelID, Version, Format, ArtifactReference, ArtifactSHA256, EngineType, EngineImage, StartupCommand string
-		StartupArgs                                                                                          []string
-	}{v.ModelID, v.Version, v.Format, v.ArtifactReference, v.ArtifactSHA256, v.EngineType, v.EngineImage, v.StartupCommand, v.StartupArgs})
-	fingerprint := idempotency.Fingerprint(fingerprintBytes)
+	fingerprint := versionFingerprint(v)
 	q := New(s.pool)
 	if v.IdempotencyKey != "" {
 		if existing, lookupErr := q.GetModelVersionByIdempotency(ctx, GetModelVersionByIdempotencyParams{TenantID: uuidType(t), IdempotencyKey: v.IdempotencyKey}); lookupErr == nil {
@@ -90,6 +86,15 @@ func (s *VersionStore) CreateVersion(ctx context.Context, v modelbiz.Version) (m
 	}
 	return versionFromRow(r, v.TenantID), nil
 }
+
+func versionFingerprint(v modelbiz.Version) string {
+	fingerprintBytes, _ := json.Marshal(struct {
+		ModelID, Version, Format, ArtifactReference, ArtifactSHA256, EngineType, EngineImage, StartupCommand string
+		StartupArgs                                                                                          []string
+	}{v.ModelID, v.Version, v.Format, v.ArtifactReference, v.ArtifactSHA256, v.EngineType, v.EngineImage, v.StartupCommand, v.StartupArgs})
+	return idempotency.Fingerprint(fingerprintBytes)
+}
+
 func (s *VersionStore) ListVersions(ctx context.Context, tenant, model string, options modelbiz.ListOptions) ([]modelbiz.Version, error) {
 	t, mid, err := parseModelIDs(tenant, model)
 	if err != nil {

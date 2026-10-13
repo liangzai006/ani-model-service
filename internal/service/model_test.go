@@ -104,6 +104,9 @@ func (f *versionCatalogFake) GetVersion(_ context.Context, tenant, id string) (m
 	}
 	return model.Version{}, nil
 }
+func (f *versionCatalogFake) GetVersionByExternalRef(context.Context, string, string, string) (model.Version, error) {
+	return f.created, nil
+}
 func (f *versionCatalogFake) CreateVersion(_ context.Context, v model.Version) (model.Version, error) {
 	f.created = v
 	return v, nil
@@ -272,5 +275,29 @@ func TestCreateModelVersionFinalizesUploadedArtifact(t *testing.T) {
 	}
 	if !versions.ready || got.GetStatus() != "ready" || got.GetSizeBytes() != 42 || versions.created.SizeBytes != 42 || artifacts.created.Reference != "tenant-a/model-a/v1/model.gguf" || artifacts.created.SHA256 != checksum {
 		t.Fatalf("version=%+v ready=%v artifact=%+v", got, versions.ready, artifacts.created)
+	}
+}
+
+func TestCreateAndGetModelVersionPreservesEngineDefaults(t *testing.T) {
+	versions := &versionCatalogFake{}
+	catalog := &referenceCatalog{}
+	s := NewModelServiceWithDependencies(versions, versions, catalog, nil, nil)
+	command := "exec  vllm serve '/models'   --served-model-name \"qwen2.5\""
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "test", Workload: "test"})
+	created, err := s.CreateModelVersion(ctx, &modelv1.CreateModelVersionRequest{TenantId: "tenant-a", ModelId: "Qwen3-32B", Version: "v1", Format: "gguf", EngineType: "vllm", EngineImage: "registry/vllm:latest", StartupCommand: command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.GetId() == "" {
+		t.Fatalf("created version id empty: %+v", created)
+	}
+	if versions.created.EngineImage != "registry/vllm:latest" || versions.created.StartupCommand != command {
+		t.Fatalf("captured defaults: %+v", versions.created)
+	}
+	versions.created.Status = "ready"
+	versions.created.ArtifactProvider, versions.created.ArtifactReference, versions.created.ArtifactSHA256 = "s3", "obj", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	got := toProtoVersion(versions.created)
+	if got.GetEngineImage() != "registry/vllm:latest" || got.GetStartupCommand() != command {
+		t.Fatalf("returned defaults: image=%q command=%q", got.GetEngineImage(), got.GetStartupCommand())
 	}
 }
