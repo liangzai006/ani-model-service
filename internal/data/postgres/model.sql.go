@@ -98,7 +98,7 @@ func (q *Queries) ClaimImportTask(ctx context.Context, arg ClaimImportTaskParams
 const completeImportTask = `-- name: CompleteImportTask :execrows
 UPDATE public.model_import_tasks
 SET status = 'completed', progress_pct = 100, lease_owner = '', lease_until = NULL,
-    completed_at = clock_timestamp(), error_message = '', updated_at = clock_timestamp()
+	completed_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE tenant_id = $1 AND id = $2 AND status = 'importing'
   AND lease_owner = $3 AND lease_epoch = $4 AND lease_until > clock_timestamp()
 `
