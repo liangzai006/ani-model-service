@@ -36,9 +36,14 @@ func (c *Client) HasActiveVersionReferences(ctx context.Context, tenant string, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// This header is a consistency assertion. Only the receiver's resolver can
-	// establish identity; no server may authenticate from this header alone.
-	ctx = metadata.AppendToOutgoingContext(ctx, "x-tenant-id", tenant)
+	// The mTLS receiver establishes the service identity; these values only
+	// bind the already-authenticated call to its tenant and audit request.
+	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs(
+		"x-ani-tenant-id", tenant,
+		"x-tenant-id", tenant,
+		"x-ani-actor", "model:service",
+		"x-ani-request-id", uuid.NewString(),
+	))
 	out, err := c.api.CheckModelVersionReferences(ctx, &inferencev1.CheckModelVersionReferencesRequest{ModelVersionIds: versions})
 	if err != nil {
 		return false, err

@@ -72,14 +72,19 @@ inference:
   # Empty on purpose. Setting an address without mTLS certificates makes the
   # process exit. Model startup does not require Inference.
   grpcAddress: ""
-  allowDirectAccess: true
+  # Tenant scope must come from a verified caller certificate and metadata.
+  # Keep the isolated direct-access escape hatch disabled in the new cluster.
+  allowDirectAccess: false
   serverName: ""
   tls:
-    existingSecret: ""
+    existingSecret: model-inference-mtls
     mountPath: /var/run/ani-inference-tls
     caKey: ca.crt
     certKey: tls.crt
     keyKey: tls.key
+    certificate:
+      create: true
+      dnsName: ani-model.ani.internal
 caBundle:
   enabled: false
   existingConfigMap: ani-model-public-ca

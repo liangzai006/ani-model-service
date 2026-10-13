@@ -1,7 +1,7 @@
 -- name: GetModelVersion :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -14,7 +14,7 @@ WHERE v.tenant_id = $1 AND v.id = $2;
 -- name: GetReadyModelVersion :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -29,7 +29,7 @@ FOR SHARE OF m, v;
 -- name: GetReadyModelVersionByExternalRef :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -93,10 +93,10 @@ WITH parent AS (
 )
 INSERT INTO public.model_versions
  (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
-  encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, idempotency_key, request_fingerprint)
+  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image, startup_command, startup_args, idempotency_key, request_fingerprint)
 SELECT sqlc.arg(tenant_id), sqlc.arg(id), parent.id, sqlc.arg(version), sqlc.arg(format), 'pending',
        sqlc.arg(is_encrypted), sqlc.arg(encrypt_algo), sqlc.arg(encrypt_hint), sqlc.arg(size_bytes),
-       sqlc.arg(checksum_sha256), sqlc.arg(engine_type), sqlc.arg(startup_command), sqlc.arg(startup_args),
+       sqlc.arg(checksum_sha256), sqlc.arg(engine_type), sqlc.arg(engine_image), sqlc.arg(startup_command), sqlc.arg(startup_args),
        sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint) FROM parent
 RETURNING *;
 
@@ -148,7 +148,7 @@ WHERE tenant_id = $1 AND id = $2 AND status = 'importing'
 -- name: ListModelVersions :many
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
-       v.startup_args, v.error_message, v.created_at, v.updated_at,
+       v.engine_image, v.startup_args, v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        COALESCE(a.provider, '')::text AS artifact_provider,
        COALESCE(a.reference, '')::text AS artifact_reference
@@ -165,7 +165,7 @@ LIMIT sqlc.arg(page_limit);
 SELECT DISTINCT ON (v.model_id)
        v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
-       v.startup_args, v.error_message, v.created_at, v.updated_at,
+       v.engine_image, v.startup_args, v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        COALESCE(a.provider, '')::text AS artifact_provider,
        COALESCE(a.reference, '')::text AS artifact_reference
@@ -188,7 +188,7 @@ RETURNING *;
 -- name: CompleteImportTask :execrows
 UPDATE public.model_import_tasks
 SET status = 'completed', progress_pct = 100, lease_owner = '', lease_until = NULL,
-    completed_at = clock_timestamp(), updated_at = clock_timestamp()
+    completed_at = clock_timestamp(), error_message = '', updated_at = clock_timestamp()
 WHERE tenant_id = $1 AND id = $2 AND status = 'importing'
   AND lease_owner = $3 AND lease_epoch = $4 AND lease_until > clock_timestamp();
 

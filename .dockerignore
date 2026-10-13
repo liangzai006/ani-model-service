@@ -12,8 +12,6 @@ AGENTS.md
 docs
 migrations
 queries
-configs
-api
 # Keep the source needed by the Dockerfile.
 !go.mod
 !go.sum

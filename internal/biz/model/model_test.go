@@ -22,6 +22,19 @@ func TestValidateEngineAcceptsCallerOwnedRuntime(t *testing.T) {
 	}
 }
 
+func TestValidateEngineDefaultsRequiresCompleteTuple(t *testing.T) {
+	if err := ValidateEngineDefaults("", "", ""); err != ErrInvalidModelVersion {
+		t.Fatalf("expected empty engine defaults rejection, got %v", err)
+	}
+	if err := ValidateEngineDefaults("vllm", "", "exec vllm serve /models"); err != ErrInvalidModelVersion {
+		t.Fatalf("expected partial engine defaults rejection, got %v", err)
+	}
+	const command = "exec vllm serve /models --served-model-name qwen2.5-1.5b-instruct"
+	if err := ValidateEngineDefaults("vllm", "ghcr.io/vllm/vllm-openai:latest", command); err != nil {
+		t.Fatalf("exact command should be accepted: %v", err)
+	}
+}
+
 func TestArtifactValidateRequiresChecksumAndReference(t *testing.T) {
 	a := Artifact{TenantID: "t", ID: "a", ModelVersionID: "v", Provider: "storage", Reference: "obj://1", Format: "safetensors", SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 	if err := a.Validate(); err != nil {

@@ -98,7 +98,7 @@ func (q *Queries) ClaimImportTask(ctx context.Context, arg ClaimImportTaskParams
 const completeImportTask = `-- name: CompleteImportTask :execrows
 UPDATE public.model_import_tasks
 SET status = 'completed', progress_pct = 100, lease_owner = '', lease_until = NULL,
-    completed_at = clock_timestamp(), updated_at = clock_timestamp()
+	completed_at = clock_timestamp(), error_message = '', updated_at = clock_timestamp()
 WHERE tenant_id = $1 AND id = $2 AND status = 'importing'
   AND lease_owner = $3 AND lease_epoch = $4 AND lease_until > clock_timestamp()
 `
@@ -294,17 +294,17 @@ func (q *Queries) CreateModelArtifact(ctx context.Context, arg CreateModelArtifa
 const createModelVersion = `-- name: CreateModelVersion :one
 WITH parent AS (
  SELECT m.id FROM public.models m
- WHERE m.tenant_id = $1 AND m.id = $15 AND m.status <> 'deleted'
+ WHERE m.tenant_id = $1 AND m.id = $16 AND m.status <> 'deleted'
  FOR KEY SHARE
 )
 INSERT INTO public.model_versions
  (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
-  encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, idempotency_key, request_fingerprint)
+  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image, startup_command, startup_args, idempotency_key, request_fingerprint)
 SELECT $1, $2, parent.id, $3, $4, 'pending',
        $5, $6, $7, $8,
-       $9, $10, $11, $12,
-       $13, $14 FROM parent
-RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint
+       $9, $10, $11, $12, $13,
+       $14, $15 FROM parent
+RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image
 `
 
 type CreateModelVersionParams struct {
@@ -318,6 +318,7 @@ type CreateModelVersionParams struct {
 	SizeBytes          int64       `json:"size_bytes"`
 	ChecksumSha256     string      `json:"checksum_sha256"`
 	EngineType         string      `json:"engine_type"`
+	EngineImage        string      `json:"engine_image"`
 	StartupCommand     string      `json:"startup_command"`
 	StartupArgs        []byte      `json:"startup_args"`
 	IdempotencyKey     string      `json:"idempotency_key"`
@@ -337,6 +338,7 @@ func (q *Queries) CreateModelVersion(ctx context.Context, arg CreateModelVersion
 		arg.SizeBytes,
 		arg.ChecksumSha256,
 		arg.EngineType,
+		arg.EngineImage,
 		arg.StartupCommand,
 		arg.StartupArgs,
 		arg.IdempotencyKey,
@@ -364,6 +366,7 @@ func (q *Queries) CreateModelVersion(ctx context.Context, arg CreateModelVersion
 		&i.UpdatedAt,
 		&i.IdempotencyKey,
 		&i.RequestFingerprint,
+		&i.EngineImage,
 	)
 	return i, err
 }
@@ -711,7 +714,7 @@ func (q *Queries) GetModelByIdempotency(ctx context.Context, arg GetModelByIdemp
 const getModelVersion = `-- name: GetModelVersion :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -740,6 +743,7 @@ type GetModelVersionRow struct {
 	SizeBytes         int64              `json:"size_bytes"`
 	ChecksumSha256    string             `json:"checksum_sha256"`
 	EngineType        string             `json:"engine_type"`
+	EngineImage       string             `json:"engine_image"`
 	StartupCommand    string             `json:"startup_command"`
 	StartupArgs       []byte             `json:"startup_args"`
 	ErrorMessage      string             `json:"error_message"`
@@ -768,6 +772,7 @@ func (q *Queries) GetModelVersion(ctx context.Context, arg GetModelVersionParams
 		&i.SizeBytes,
 		&i.ChecksumSha256,
 		&i.EngineType,
+		&i.EngineImage,
 		&i.StartupCommand,
 		&i.StartupArgs,
 		&i.ErrorMessage,
@@ -783,7 +788,7 @@ func (q *Queries) GetModelVersion(ctx context.Context, arg GetModelVersionParams
 }
 
 const getModelVersionByIdempotency = `-- name: GetModelVersionByIdempotency :one
-SELECT tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint FROM public.model_versions WHERE tenant_id = $1 AND idempotency_key = $2
+SELECT tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image FROM public.model_versions WHERE tenant_id = $1 AND idempotency_key = $2
 `
 
 type GetModelVersionByIdempotencyParams struct {
@@ -814,6 +819,7 @@ func (q *Queries) GetModelVersionByIdempotency(ctx context.Context, arg GetModel
 		&i.UpdatedAt,
 		&i.IdempotencyKey,
 		&i.RequestFingerprint,
+		&i.EngineImage,
 	)
 	return i, err
 }
@@ -841,7 +847,7 @@ func (q *Queries) GetModelVersionForImport(ctx context.Context, arg GetModelVers
 const getReadyModelVersion = `-- name: GetReadyModelVersion :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -872,6 +878,7 @@ type GetReadyModelVersionRow struct {
 	SizeBytes         int64              `json:"size_bytes"`
 	ChecksumSha256    string             `json:"checksum_sha256"`
 	EngineType        string             `json:"engine_type"`
+	EngineImage       string             `json:"engine_image"`
 	StartupCommand    string             `json:"startup_command"`
 	StartupArgs       []byte             `json:"startup_args"`
 	ErrorMessage      string             `json:"error_message"`
@@ -900,6 +907,7 @@ func (q *Queries) GetReadyModelVersion(ctx context.Context, arg GetReadyModelVer
 		&i.SizeBytes,
 		&i.ChecksumSha256,
 		&i.EngineType,
+		&i.EngineImage,
 		&i.StartupCommand,
 		&i.StartupArgs,
 		&i.ErrorMessage,
@@ -917,7 +925,7 @@ func (q *Queries) GetReadyModelVersion(ctx context.Context, arg GetReadyModelVer
 const getReadyModelVersionByExternalRef = `-- name: GetReadyModelVersionByExternalRef :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -949,6 +957,7 @@ type GetReadyModelVersionByExternalRefRow struct {
 	SizeBytes         int64              `json:"size_bytes"`
 	ChecksumSha256    string             `json:"checksum_sha256"`
 	EngineType        string             `json:"engine_type"`
+	EngineImage       string             `json:"engine_image"`
 	StartupCommand    string             `json:"startup_command"`
 	StartupArgs       []byte             `json:"startup_args"`
 	ErrorMessage      string             `json:"error_message"`
@@ -977,6 +986,7 @@ func (q *Queries) GetReadyModelVersionByExternalRef(ctx context.Context, arg Get
 		&i.SizeBytes,
 		&i.ChecksumSha256,
 		&i.EngineType,
+		&i.EngineImage,
 		&i.StartupCommand,
 		&i.StartupArgs,
 		&i.ErrorMessage,
@@ -1032,7 +1042,7 @@ const latestModelVersions = `-- name: LatestModelVersions :many
 SELECT DISTINCT ON (v.model_id)
        v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
-       v.startup_args, v.error_message, v.created_at, v.updated_at,
+       v.engine_image, v.startup_args, v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        COALESCE(a.provider, '')::text AS artifact_provider,
        COALESCE(a.reference, '')::text AS artifact_reference
@@ -1062,6 +1072,7 @@ type LatestModelVersionsRow struct {
 	ChecksumSha256    string             `json:"checksum_sha256"`
 	EngineType        string             `json:"engine_type"`
 	StartupCommand    string             `json:"startup_command"`
+	EngineImage       string             `json:"engine_image"`
 	StartupArgs       []byte             `json:"startup_args"`
 	ErrorMessage      string             `json:"error_message"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
@@ -1094,6 +1105,7 @@ func (q *Queries) LatestModelVersions(ctx context.Context, arg LatestModelVersio
 			&i.ChecksumSha256,
 			&i.EngineType,
 			&i.StartupCommand,
+			&i.EngineImage,
 			&i.StartupArgs,
 			&i.ErrorMessage,
 			&i.CreatedAt,
@@ -1275,7 +1287,7 @@ func (q *Queries) ListDueImportTasksAll(ctx context.Context, limit int32) ([]Lis
 const listModelVersions = `-- name: ListModelVersions :many
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
-       v.startup_args, v.error_message, v.created_at, v.updated_at,
+       v.engine_image, v.startup_args, v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        COALESCE(a.provider, '')::text AS artifact_provider,
        COALESCE(a.reference, '')::text AS artifact_reference
@@ -1311,6 +1323,7 @@ type ListModelVersionsRow struct {
 	ChecksumSha256    string             `json:"checksum_sha256"`
 	EngineType        string             `json:"engine_type"`
 	StartupCommand    string             `json:"startup_command"`
+	EngineImage       string             `json:"engine_image"`
 	StartupArgs       []byte             `json:"startup_args"`
 	ErrorMessage      string             `json:"error_message"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
@@ -1349,6 +1362,7 @@ func (q *Queries) ListModelVersions(ctx context.Context, arg ListModelVersionsPa
 			&i.ChecksumSha256,
 			&i.EngineType,
 			&i.StartupCommand,
+			&i.EngineImage,
 			&i.StartupArgs,
 			&i.ErrorMessage,
 			&i.CreatedAt,

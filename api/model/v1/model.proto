@@ -63,7 +63,8 @@ message ModelVersion {
   string status = 12;
   string engine_type = 13;
   string startup_command = 14;
-  repeated string startup_args = 15;
+  reserved 15;
+  string engine_image = 16;
 }
 
 message ModelArtifact {
@@ -130,7 +131,8 @@ message CreateModelVersionRequest {
   string idempotency_key = 11;
   string engine_type = 12;
   string startup_command = 13;
-  repeated string startup_args = 14;
+  reserved 14;
+  string engine_image = 15;
 }
 
 message GetUploadURLRequest {

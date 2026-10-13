@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-kratos/kratos/v3/middleware"
 	"github.com/go-kratos/kratos/v3/transport"
+	"github.com/liangzai006/ani-model-service/internal/identity"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
+
+const governanceClientIdentity = "ani-governance.ani.internal"
 
 // RPCPolicyMiddleware enforces method-level authorization based on client certificate identity.
 // This implements deny-by-default: only explicitly allowed (client identity, RPC method) pairs are permitted.
@@ -89,12 +94,28 @@ func (p StaticRPCPolicy) IsAllowed(clientIdentity, method string) bool {
 }
 
 // ModelServicePolicy defines the RPC authorization policy for Model Service.
-// Only Inference Service is allowed to call read-only model query methods.
+// Inference receives read-only model queries; Governance receives the
+// tenant-scoped management and import lifecycle methods.
 func ModelServicePolicy() RPCPolicy {
 	policy := StaticRPCPolicy{
 		"ani-inference.ani.internal": {
 			"/model.v1.ModelService/GetModel",
 			"/model.v1.ModelService/GetModelVersion",
+			"/model.v1.ModelService/GetModelDownloadURL",
+		},
+		governanceClientIdentity: {
+			"/model.v1.ModelService/CreateModel",
+			"/model.v1.ModelService/GetModel",
+			"/model.v1.ModelService/ListModels",
+			"/model.v1.ModelService/DeleteModel",
+			"/model.v1.ModelService/GetModelVersion",
+			"/model.v1.ModelService/ListModelVersions",
+			"/model.v1.ModelService/DeleteModelVersion",
+			"/model.v1.ModelService/CreateModelVersion",
+			"/model.v1.ModelService/GetUploadURL",
+			"/model.v1.ModelService/ImportModel",
+			"/model.v1.ModelService/GetImportTask",
+			"/model.v1.ModelService/RetryImportTask",
 			"/model.v1.ModelService/GetModelDownloadURL",
 		},
 	}
@@ -103,8 +124,140 @@ func ModelServicePolicy() RPCPolicy {
 		underlying: policy,
 		expectedIdentities: map[string]string{
 			"ani-inference.ani.internal": "Inference Service",
+			governanceClientIdentity:     "Governance Service",
 		},
 	}
+}
+
+// ModelPrincipalMiddleware binds the tenant and actor asserted by Governance
+// after RPCPolicyMiddleware has authenticated the caller's mTLS certificate.
+// Request bodies still carry tenant_id for API compatibility, but handlers
+// compare them against this trusted context and never use a mismatched value.
+func ModelPrincipalMiddleware() middleware.Middleware {
+	return func(next middleware.Handler) middleware.Handler {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
+			if tr, ok := transport.FromServerContext(ctx); ok {
+				// Health is intentionally metadata-free. RPCPolicyMiddleware has
+				// already verified the client certificate before reaching here.
+				if method := tr.Operation(); method == "/grpc.health.v1.Health/Check" || method == "/grpc.health.v1.Health/Watch" {
+					return next(ctx, req)
+				}
+			}
+			clientIdentity, err := extractClientIdentity(ctx)
+			if err != nil {
+				return nil, status.Errorf(codes.Unauthenticated, "client identity unavailable: %v", err)
+			}
+			if clientIdentity != governanceClientIdentity {
+				if clientIdentity == "ani-inference.ani.internal" {
+					principal, err := inferencePrincipal(ctx)
+					if err != nil {
+						return nil, status.Errorf(codes.Unauthenticated, "inference identity unavailable: %v", err)
+					}
+					return next(identity.WithPrincipal(ctx, principal), req)
+				}
+				return next(ctx, req)
+			}
+			principal, err := governancePrincipal(ctx)
+			if err != nil {
+				return nil, status.Errorf(codes.Unauthenticated, "governance identity unavailable: %v", err)
+			}
+			return next(identity.WithPrincipal(ctx, principal), req)
+		}
+	}
+}
+
+func inferencePrincipal(ctx context.Context) (identity.Principal, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return identity.Principal{}, fmt.Errorf("incoming metadata unavailable")
+	}
+	tenant, err := singleConsistentMetadataValue(md, "x-ani-tenant-id", "x-tenant-id")
+	if err != nil {
+		return identity.Principal{}, err
+	}
+	requestID, err := singleMetadataValue(md, "x-ani-request-id", true)
+	if err != nil {
+		return identity.Principal{}, err
+	}
+	return identity.Principal{
+		TenantID:  tenant,
+		Actor:     "inference:service",
+		Workload:  "ani-inference.ani.internal",
+		RequestID: requestID,
+	}, nil
+}
+
+func governancePrincipal(ctx context.Context) (identity.Principal, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return identity.Principal{}, fmt.Errorf("incoming metadata unavailable")
+	}
+	tenant, err := singleMetadataValue(md, "x-ani-tenant-id", true)
+	if err != nil {
+		return identity.Principal{}, err
+	}
+	actor, err := singleMetadataValue(md, "x-ani-actor", true)
+	if err != nil {
+		return identity.Principal{}, err
+	}
+	if !strings.HasPrefix(actor, "governance:") {
+		return identity.Principal{}, fmt.Errorf("metadata %q must identify a governance actor", "x-ani-actor")
+	}
+	requestID, err := singleMetadataValue(md, "x-ani-request-id", true)
+	if err != nil {
+		return identity.Principal{}, err
+	}
+	return identity.Principal{
+		TenantID:  tenant,
+		Actor:     actor,
+		Workload:  governanceClientIdentity,
+		RequestID: requestID,
+	}, nil
+}
+
+func singleMetadataValue(md metadata.MD, key string, required bool) (string, error) {
+	values := md.Get(key)
+	if len(values) == 0 {
+		if required {
+			return "", fmt.Errorf("metadata %q is required", key)
+		}
+		return "", nil
+	}
+	if len(values) != 1 {
+		return "", fmt.Errorf("metadata %q must contain exactly one value", key)
+	}
+	value := strings.TrimSpace(values[0])
+	if value == "" {
+		return "", fmt.Errorf("metadata %q must not be empty", key)
+	}
+	if strings.ContainsAny(value, "\r\n") {
+		return "", fmt.Errorf("metadata %q contains a newline", key)
+	}
+	return value, nil
+}
+
+func singleConsistentMetadataValue(md metadata.MD, keys ...string) (string, error) {
+	var value string
+	for _, key := range keys {
+		candidate, err := singleMetadataValue(md, key, false)
+		if err != nil {
+			return "", err
+		}
+		if candidate == "" {
+			continue
+		}
+		if value == "" {
+			value = candidate
+			continue
+		}
+		if value != candidate {
+			return "", fmt.Errorf("metadata %q and %q conflict", keys[0], key)
+		}
+	}
+	if value == "" {
+		return "", fmt.Errorf("metadata %q is required", keys[0])
+	}
+	return value, nil
 }
 
 // ValidatedPolicy wraps a policy with explicit service identity validation.

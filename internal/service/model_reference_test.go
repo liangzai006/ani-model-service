@@ -76,7 +76,7 @@ func TestModelCRUDResolvesExternalID(t *testing.T) {
 			if err != nil || got.GetId() != referenceModelUUID || got.GetModelId() != "Qwen3-32B" {
 				t.Fatalf("get=%v error=%v", got, err)
 			}
-			created, err := s.CreateModelVersion(ctx, &modelv1.CreateModelVersionRequest{ModelId: selector, Version: "v2", Format: "gguf"})
+			created, err := s.CreateModelVersion(ctx, &modelv1.CreateModelVersionRequest{ModelId: selector, Version: "v2", Format: "gguf", EngineType: "vllm", EngineImage: "image", StartupCommand: "exec vllm serve /models"})
 			if err != nil || versions.created.ModelID != referenceModelUUID || created.GetModelId() != "Qwen3-32B" {
 				t.Fatalf("create=%v stored=%+v error=%v", created, versions.created, err)
 			}

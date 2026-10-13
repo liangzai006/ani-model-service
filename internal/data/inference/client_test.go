@@ -27,7 +27,7 @@ func (s *referenceServer) CheckModelVersionReferences(ctx context.Context, req *
 		return nil, status.Error(codes.Unavailable, "database unavailable")
 	}
 	md, _ := metadata.FromIncomingContext(ctx)
-	s.tenant = md.Get("x-tenant-id")[0]
+	s.tenant = md.Get("x-ani-tenant-id")[0]
 	s.ids = req.ModelVersionIds
 	return &inferencev1.CheckModelVersionReferencesResponse{HasActiveReferences: true}, nil
 }
