@@ -17,7 +17,7 @@ func TestRuntimeModelMappingLeavesEmptyCommandArgvEmpty(t *testing.T) {
 }
 
 func TestRuntimeModelMappingIgnoresStoredStartupFields(t *testing.T) {
-	v, err := runtimeModelFromVersion(&modelv1.ModelVersion{Id: "v", ModelId: "m", Status: "ready", StoragePath: "object://model", ChecksumSha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", StartupCommand: "python", StartupArgs: []string{"serve", "--port", "8080"}})
+	v, err := runtimeModelFromVersion(&modelv1.ModelVersion{Id: "v", ModelId: "m", Status: "ready", StoragePath: "object://model", ChecksumSha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", StartupCommand: "python"})
 	if err != nil {
 		t.Fatal(err)
 	}

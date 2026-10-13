@@ -100,4 +100,5 @@ type ModelVersion struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	IdempotencyKey     string             `json:"idempotency_key"`
 	RequestFingerprint string             `json:"request_fingerprint"`
+	EngineImage        string             `json:"engine_image"`
 }

@@ -260,8 +260,8 @@ func (s *ModelService) CreateModelVersion(ctx context.Context, in *modelv1.Creat
 	if err != nil {
 		return nil, err
 	}
-	v := model.Version{TenantID: p.TenantID, ID: uuid.NewString(), ModelID: m.ID, ExternalModelID: m.ExternalModelID, Version: in.GetVersion(), Format: in.GetFormat(), Status: "pending", SizeBytes: in.GetSizeBytes(), ArtifactSHA256: in.GetChecksumSha256(), EngineType: in.GetEngineType(), StartupCommand: in.GetStartupCommand(), StartupArgs: in.GetStartupArgs(), IdempotencyKey: in.GetIdempotencyKey()}
-	if err := v.Validate(); err != nil || model.ValidateEngine(v.EngineType, v.StartupCommand, v.StartupArgs) != nil {
+	v := model.Version{TenantID: p.TenantID, ID: uuid.NewString(), ModelID: m.ID, ExternalModelID: m.ExternalModelID, Version: in.GetVersion(), Format: in.GetFormat(), Status: "pending", SizeBytes: in.GetSizeBytes(), ArtifactSHA256: in.GetChecksumSha256(), EngineType: in.GetEngineType(), EngineImage: in.GetEngineImage(), StartupCommand: in.GetStartupCommand(), IdempotencyKey: in.GetIdempotencyKey()}
+	if err := v.Validate(); err != nil || model.ValidateEngineDefaults(v.EngineType, v.EngineImage, v.StartupCommand) != nil {
 		return nil, errors2.New(400, "INVALID_ARGUMENT", "invalid model version")
 	}
 	r, err := s.versions.CreateVersion(ctx, v)
@@ -378,7 +378,7 @@ func toProtoVersion(v model.Version) *modelv1.ModelVersion {
 	if modelID == "" {
 		modelID = v.ModelID
 	}
-	return &modelv1.ModelVersion{Id: v.ID, ModelId: modelID, Version: v.Version, Format: v.Format, Status: v.Status, ChecksumSha256: v.ArtifactSHA256, StoragePath: v.ArtifactReference, EngineType: v.EngineType, StartupCommand: v.StartupCommand, StartupArgs: v.StartupArgs, SizeBytes: v.SizeBytes, IsEncrypted: v.IsEncrypted, EncryptAlgo: v.EncryptAlgo, EncryptHint: v.EncryptHint, CreatedAt: protoTime(v.CreatedAt)}
+	return &modelv1.ModelVersion{Id: v.ID, ModelId: modelID, Version: v.Version, Format: v.Format, Status: v.Status, ChecksumSha256: v.ArtifactSHA256, StoragePath: v.ArtifactReference, EngineType: v.EngineType, EngineImage: v.EngineImage, StartupCommand: v.StartupCommand, SizeBytes: v.SizeBytes, IsEncrypted: v.IsEncrypted, EncryptAlgo: v.EncryptAlgo, EncryptHint: v.EncryptHint, CreatedAt: protoTime(v.CreatedAt)}
 }
 
 func (s *ModelService) GetModelDownloadURL(ctx context.Context, in *modelv1.GetModelDownloadURLRequest) (*modelv1.GetModelDownloadURLResponse, error) {
@@ -575,7 +575,11 @@ func toProtoModel(r model.Record) *modelv1.Model {
 }
 
 func toProtoImportTask(t workbiz.Task) *modelv1.ImportTask {
-	return &modelv1.ImportTask{TaskId: t.ID, TaskType: t.TaskType, Status: t.Status, ModelId: t.ModelID, ModelVersionId: t.VersionID, AttemptCount: int32(t.AttemptCount), ProgressPct: int32(t.ProgressPct), ErrorMessage: t.ErrorMessage, CreatedAt: protoTime(t.CreatedAt), CompletedAt: protoTime(t.CompletedAt)}
+	errorMessage := t.ErrorMessage
+	if t.Status == workbiz.Completed {
+		errorMessage = ""
+	}
+	return &modelv1.ImportTask{TaskId: t.ID, TaskType: t.TaskType, Status: t.Status, ModelId: t.ModelID, ModelVersionId: t.VersionID, AttemptCount: int32(t.AttemptCount), ProgressPct: int32(t.ProgressPct), ErrorMessage: errorMessage, CreatedAt: protoTime(t.CreatedAt), CompletedAt: protoTime(t.CompletedAt)}
 }
 
 func protoTime(t time.Time) *timestamppb.Timestamp {

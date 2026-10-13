@@ -264,6 +264,7 @@ func TestCreateModelVersionFinalizesUploadedArtifact(t *testing.T) {
 	checksum := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	got, err := s.CreateModelVersion(ctx, &modelv1.CreateModelVersionRequest{
 		TenantId: "tenant-a", ModelId: referenceModelUUID, Version: "v1", Format: "gguf",
+		EngineType: "vllm", EngineImage: "image", StartupCommand: "exec vllm serve /models",
 		StoragePath: "tenant-a/model-a/v1/model.gguf", SizeBytes: 42, ChecksumSha256: checksum,
 	})
 	if err != nil {

@@ -18,7 +18,7 @@ var checksumPattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 type Version struct {
 	TenantID, ID, ModelID, ExternalModelID, Version, Format, Status string
 	ArtifactProvider, ArtifactReference, ArtifactSHA256             string
-	EngineType, StartupCommand                                      string
+	EngineType, EngineImage, StartupCommand                         string
 	StartupArgs                                                     []string
 	IdempotencyKey                                                  string
 	SizeBytes                                                       int64
@@ -88,6 +88,13 @@ func ValidateEngine(engine, command string, args []string) error {
 		return ErrInvalidModelVersion
 	}
 	if strings.TrimSpace(command) == "" || strings.ContainsAny(command, "\r\n") {
+		return ErrInvalidModelVersion
+	}
+	return nil
+}
+
+func ValidateEngineDefaults(engine, image, command string) error {
+	if strings.TrimSpace(engine) == "" || strings.TrimSpace(image) == "" || strings.TrimSpace(command) == "" || strings.ContainsAny(command, "\r\n") {
 		return ErrInvalidModelVersion
 	}
 	return nil
