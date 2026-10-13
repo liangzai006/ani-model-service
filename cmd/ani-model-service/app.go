@@ -35,7 +35,7 @@ func buildAppWithModelService(bc *conf.Bootstrap, logger *slog.Logger, modelServ
 	// Admin HTTP is only /healthz, /readyz, and /metrics. kubelet probes cannot
 	// present a client certificate, so they must not pass through RPC authorization.
 	adminMiddleware := observability.ServerMiddleware(logger)
-	grpcMiddleware := append(adminMiddleware, RPCPolicyMiddleware(ModelServicePolicy()))
+	grpcMiddleware := append(adminMiddleware, RPCPolicyMiddleware(ModelServicePolicy()), ModelPrincipalMiddleware())
 
 	grpcServer, err := configuredModelGRPCServer(bc.Server.Grpc, grpcMiddleware...)
 	if err != nil {

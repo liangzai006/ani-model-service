@@ -1,0 +1,100 @@
+package main
+
+import (
+	"context"
+	"testing"
+
+	"github.com/liangzai006/ani-model-service/internal/identity"
+	"google.golang.org/grpc/metadata"
+)
+
+func TestModelServicePolicyAllowsGovernanceModelLifecycle(t *testing.T) {
+	policy := ModelServicePolicy()
+	methods := []string{
+		"/model.v1.ModelService/CreateModel",
+		"/model.v1.ModelService/GetModel",
+		"/model.v1.ModelService/ListModels",
+		"/model.v1.ModelService/DeleteModel",
+		"/model.v1.ModelService/CreateModelVersion",
+		"/model.v1.ModelService/GetModelVersion",
+		"/model.v1.ModelService/ListModelVersions",
+		"/model.v1.ModelService/DeleteModelVersion",
+		"/model.v1.ModelService/GetUploadURL",
+		"/model.v1.ModelService/ImportModel",
+		"/model.v1.ModelService/GetImportTask",
+		"/model.v1.ModelService/RetryImportTask",
+		"/model.v1.ModelService/GetModelDownloadURL",
+	}
+	for _, method := range methods {
+		if !policy.IsAllowed("ani-governance.ani.internal", method) {
+			t.Errorf("governance is not allowed to call %s", method)
+		}
+	}
+	if policy.IsAllowed("ani-inference.ani.internal", "/model.v1.ModelService/ImportModel") {
+		t.Fatal("inference unexpectedly received model import permission")
+	}
+}
+
+func TestGovernancePrincipalUsesVerifiedMetadata(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-ani-tenant-id", "tenant-a",
+		"x-ani-actor", "governance:user:7",
+		"x-ani-request-id", "request-1",
+	))
+
+	principal, err := governancePrincipal(ctx)
+	if err != nil {
+		t.Fatalf("governancePrincipal() error = %v", err)
+	}
+	want := identity.Principal{
+		TenantID:  "tenant-a",
+		Actor:     "governance:user:7",
+		Workload:  "ani-governance.ani.internal",
+		RequestID: "request-1",
+	}
+	if principal.TenantID != want.TenantID || principal.Actor != want.Actor || principal.Workload != want.Workload || principal.RequestID != want.RequestID {
+		t.Fatalf("principal = %+v, want %+v", principal, want)
+	}
+}
+
+func TestGovernancePrincipalRejectsMissingOrDuplicateMetadata(t *testing.T) {
+	tests := []struct {
+		name string
+		md   metadata.MD
+	}{
+		{name: "missing tenant", md: metadata.Pairs("x-ani-actor", "governance:user:7")},
+		{name: "missing actor", md: metadata.Pairs("x-ani-tenant-id", "tenant-a")},
+		{name: "missing request id", md: metadata.Pairs("x-ani-tenant-id", "tenant-a", "x-ani-actor", "governance:user:7")},
+		{name: "non-governance actor", md: metadata.Pairs("x-ani-tenant-id", "tenant-a", "x-ani-actor", "user:7")},
+		{name: "duplicate tenant", md: metadata.Pairs("x-ani-tenant-id", "tenant-a", "x-ani-tenant-id", "tenant-b", "x-ani-actor", "governance:user:7")},
+		{name: "duplicate actor", md: metadata.Pairs("x-ani-tenant-id", "tenant-a", "x-ani-actor", "governance:user:7", "x-ani-actor", "governance:user:8")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := governancePrincipal(metadata.NewIncomingContext(context.Background(), tt.md)); err == nil {
+				t.Fatal("governancePrincipal() unexpectedly accepted invalid metadata")
+			}
+		})
+	}
+}
+
+func TestInferencePrincipalRequiresConsistentTenantMetadata(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-ani-tenant-id", "tenant-a",
+		"x-tenant-id", "tenant-a",
+		"x-ani-request-id", "request-1",
+	))
+	p, err := inferencePrincipal(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TenantID != "tenant-a" || p.Actor != "inference:service" || p.Workload != "ani-inference.ani.internal" || p.RequestID != "request-1" {
+		t.Fatalf("unexpected inference principal: %#v", p)
+	}
+	conflict := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-ani-tenant-id", "tenant-a", "x-tenant-id", "tenant-b", "x-ani-request-id", "request-1",
+	))
+	if _, err := inferencePrincipal(conflict); err == nil {
+		t.Fatal("conflicting inference tenant metadata accepted")
+	}
+}

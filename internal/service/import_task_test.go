@@ -49,6 +49,22 @@ func TestGetImportTaskReturnsProgressAndError(t *testing.T) {
 	}
 }
 
+func TestCompletedImportTaskDoesNotExposeStaleError(t *testing.T) {
+	s := NewModelImportService(nil)
+	s.SetImportTaskReader(importTaskReaderFake{task: workbiz.Task{
+		TenantID: "tenant-a", ID: "11111111-1111-1111-1111-111111111111", Source: "modelscope", Status: workbiz.Completed,
+		ProgressPct: 100, ErrorMessage: "previous attempt failed", CompletedAt: time.Now().UTC(),
+	}})
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "actor", Workload: "gateway"})
+	got, err := s.GetImportTask(ctx, &modelv1.GetImportTaskRequest{TenantId: "tenant-a", TaskId: "11111111-1111-1111-1111-111111111111"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetTask().GetStatus() != workbiz.Completed || got.GetTask().GetErrorMessage() != "" {
+		t.Fatalf("completed task response = %+v; want no error", got.GetTask())
+	}
+}
+
 func TestRetryImportTaskResetsFailedTask(t *testing.T) {
 	retrier := &importTaskRetrierFake{task: workbiz.Task{TenantID: "tenant-a", ID: "11111111-1111-1111-1111-111111111111", Status: workbiz.Pending, AttemptCount: 0}}
 	s := NewModelImportService(nil)
