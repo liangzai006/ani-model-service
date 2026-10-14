@@ -98,6 +98,15 @@ type versionCatalogFake struct {
 	ready   bool
 }
 
+type listDefaultsVersionCatalog struct{ versionCatalogFake }
+
+func (f *listDefaultsVersionCatalog) ListVersions(context.Context, string, string, model.ListOptions) ([]model.Version, error) {
+	return []model.Version{
+		{TenantID: "tenant-a", ID: "v1", ModelID: referenceModelUUID, Version: "v1", Status: "ready", EngineType: "vllm", EngineImage: "registry/vllm:latest", StartupCommand: "exec vllm serve /models"},
+		{TenantID: "tenant-a", ID: "v2", ModelID: referenceModelUUID, Version: "v2", Status: "ready", EngineType: "sglang", EngineImage: "registry/sglang:latest", StartupCommand: "exec python -m sglang.launch_server --model /models"},
+	}, nil
+}
+
 func (f *versionCatalogFake) GetVersion(_ context.Context, tenant, id string) (model.Version, error) {
 	if f.created.ID == id && f.created.TenantID == tenant {
 		return f.created, nil
@@ -291,13 +300,34 @@ func TestCreateAndGetModelVersionPreservesEngineDefaults(t *testing.T) {
 	if created.GetId() == "" {
 		t.Fatalf("created version id empty: %+v", created)
 	}
-	if versions.created.EngineImage != "registry/vllm:latest" || versions.created.StartupCommand != command {
+	if versions.created.EngineType != "vllm" || versions.created.EngineImage != "registry/vllm:latest" || versions.created.StartupCommand != command {
 		t.Fatalf("captured defaults: %+v", versions.created)
 	}
 	versions.created.Status = "ready"
 	versions.created.ArtifactProvider, versions.created.ArtifactReference, versions.created.ArtifactSHA256 = "s3", "obj", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	got := toProtoVersion(versions.created)
-	if got.GetEngineImage() != "registry/vllm:latest" || got.GetStartupCommand() != command {
-		t.Fatalf("returned defaults: image=%q command=%q", got.GetEngineImage(), got.GetStartupCommand())
+	got, err := s.GetModelVersion(ctx, &modelv1.GetModelVersionRequest{TenantId: "tenant-a", ModelVersionId: versions.created.ID})
+	if err != nil {
+		t.Fatalf("GetModelVersion() error = %v", err)
+	}
+	if got.GetVersion().GetEngineType() != "vllm" || got.GetVersion().GetEngineImage() != "registry/vllm:latest" || got.GetVersion().GetStartupCommand() != command {
+		t.Fatalf("returned defaults: type=%q image=%q command=%q", got.GetVersion().GetEngineType(), got.GetVersion().GetEngineImage(), got.GetVersion().GetStartupCommand())
+	}
+}
+
+func TestListModelVersionsPreservesPerVersionEngineDefaults(t *testing.T) {
+	versions := &listDefaultsVersionCatalog{}
+	s := NewModelServiceWithDependencies(versions, versions, &referenceCatalog{}, nil, nil)
+	got, err := s.ListModelVersions(referenceContext("tenant-a"), &modelv1.ListModelVersionsRequest{ModelId: referenceModelUUID})
+	if err != nil {
+		t.Fatalf("ListModelVersions() error = %v", err)
+	}
+	if len(got.GetVersions()) != 2 {
+		t.Fatalf("versions = %d, want 2", len(got.GetVersions()))
+	}
+	want := [][3]string{{"vllm", "registry/vllm:latest", "exec vllm serve /models"}, {"sglang", "registry/sglang:latest", "exec python -m sglang.launch_server --model /models"}}
+	for i, version := range got.GetVersions() {
+		if version.GetEngineType() != want[i][0] || version.GetEngineImage() != want[i][1] || version.GetStartupCommand() != want[i][2] {
+			t.Fatalf("version %d defaults = (%q, %q, %q)", i, version.GetEngineType(), version.GetEngineImage(), version.GetStartupCommand())
+		}
 	}
 }

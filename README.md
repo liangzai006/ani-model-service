@@ -38,6 +38,25 @@ kubectl --context "$KUBE_CONTEXT" -n <import-namespace> logs job/<job-name> -c i
 `GetModelDownloadURL` 只返回短期签名地址；对象本身要在 Storage 的 bucket 中查看。
 新环境从零部署请按 [Model Helm 部署指南](docs/deploy/helm/ani-model.md) 执行。
 
+## 模型版本与推理启动配置
+
+`ModelVersion` 保存推理默认配置：`engine_type`、`engine_image` 和完整的
+`startup_command`。创建版本时由调用方提供，例如：
+
+```json
+{
+  "engine_type": "vllm",
+  "engine_image": "registry.example/vllm:latest",
+  "startup_command": "vllm serve /models --served-model-name qwen2.5-1.5b-instruct"
+}
+```
+
+`GetModelVersion` 和 `ListModelVersions` 会原样返回这些字段。前端选择版本后将其
+带入推理创建表单，创建请求仍提交最终的 `engine.type`、`engine.image` 和
+`engine.command`，因此可以针对单次推理临时修改，而不会修改 ModelVersion 默认值。
+`startup_command` 始终是一条完整字符串；服务不会把它拆成数组，也不会拼接启动
+参数。
+
 After the initial source commit, run `make supply-chain-tools` and `make audit`;
 review and commit `docs/scaffold/bom.cdx.json`. CI deliberately fails when that
 runtime SBOM is missing or stale and reruns the vulnerability, secret,
