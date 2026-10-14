@@ -104,6 +104,14 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("scan config: %w", err)
 	}
 	modelService := service.NewModelService(nil)
+	// Use one provider registry for both transient catalog search and the
+	// existing import worker so provider URL and HTTP behavior stay aligned.
+	providerHTTPClient := newImporterHTTPClient()
+	providers := importer.Registry{
+		"huggingface": importer.NewHuggingFaceAdapter(os.Getenv("ANI_HUGGINGFACE_BASE_URL"), providerHTTPClient),
+		"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), providerHTTPClient),
+	}
+	modelService.SetExternalModelSearcher(providers)
 	var importWorker *worker.Worker
 	var storagePort bizstorage.Port
 	var storageConn *grpc.ClientConn
@@ -188,13 +196,6 @@ func run(logger *slog.Logger) error {
 				owner = id
 			}
 
-			// Create HTTP client with proper timeouts for external providers
-			httpClient := newImporterHTTPClient()
-
-			providers := importer.Registry{
-				"huggingface": importer.NewHuggingFaceAdapter(os.Getenv("ANI_HUGGINGFACE_BASE_URL"), httpClient),
-				"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), httpClient),
-			}
 			artifactStore := postgres.NewArtifactStore(pool)
 			executor, configErr := configuredKubernetesImportExecutor(storagePort)
 			if configErr != nil {

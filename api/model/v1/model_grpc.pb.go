@@ -20,19 +20,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ModelService_CreateModel_FullMethodName         = "/model.v1.ModelService/CreateModel"
-	ModelService_GetModel_FullMethodName            = "/model.v1.ModelService/GetModel"
-	ModelService_ListModels_FullMethodName          = "/model.v1.ModelService/ListModels"
-	ModelService_DeleteModel_FullMethodName         = "/model.v1.ModelService/DeleteModel"
-	ModelService_GetModelVersion_FullMethodName     = "/model.v1.ModelService/GetModelVersion"
-	ModelService_ListModelVersions_FullMethodName   = "/model.v1.ModelService/ListModelVersions"
-	ModelService_DeleteModelVersion_FullMethodName  = "/model.v1.ModelService/DeleteModelVersion"
-	ModelService_CreateModelVersion_FullMethodName  = "/model.v1.ModelService/CreateModelVersion"
-	ModelService_GetUploadURL_FullMethodName        = "/model.v1.ModelService/GetUploadURL"
-	ModelService_ImportModel_FullMethodName         = "/model.v1.ModelService/ImportModel"
-	ModelService_GetImportTask_FullMethodName       = "/model.v1.ModelService/GetImportTask"
-	ModelService_RetryImportTask_FullMethodName     = "/model.v1.ModelService/RetryImportTask"
-	ModelService_GetModelDownloadURL_FullMethodName = "/model.v1.ModelService/GetModelDownloadURL"
+	ModelService_CreateModel_FullMethodName          = "/model.v1.ModelService/CreateModel"
+	ModelService_GetModel_FullMethodName             = "/model.v1.ModelService/GetModel"
+	ModelService_ListModels_FullMethodName           = "/model.v1.ModelService/ListModels"
+	ModelService_SearchExternalModels_FullMethodName = "/model.v1.ModelService/SearchExternalModels"
+	ModelService_DeleteModel_FullMethodName          = "/model.v1.ModelService/DeleteModel"
+	ModelService_GetModelVersion_FullMethodName      = "/model.v1.ModelService/GetModelVersion"
+	ModelService_ListModelVersions_FullMethodName    = "/model.v1.ModelService/ListModelVersions"
+	ModelService_DeleteModelVersion_FullMethodName   = "/model.v1.ModelService/DeleteModelVersion"
+	ModelService_CreateModelVersion_FullMethodName   = "/model.v1.ModelService/CreateModelVersion"
+	ModelService_GetUploadURL_FullMethodName         = "/model.v1.ModelService/GetUploadURL"
+	ModelService_ImportModel_FullMethodName          = "/model.v1.ModelService/ImportModel"
+	ModelService_GetImportTask_FullMethodName        = "/model.v1.ModelService/GetImportTask"
+	ModelService_RetryImportTask_FullMethodName      = "/model.v1.ModelService/RetryImportTask"
+	ModelService_GetModelDownloadURL_FullMethodName  = "/model.v1.ModelService/GetModelDownloadURL"
 )
 
 // ModelServiceClient is the client API for ModelService service.
@@ -46,6 +47,7 @@ type ModelServiceClient interface {
 	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Legacy contract shares Model response.
 	GetModel(ctx context.Context, in *GetModelRequest, opts ...grpc.CallOption) (*Model, error)
 	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
+	SearchExternalModels(ctx context.Context, in *SearchExternalModelsRequest, opts ...grpc.CallOption) (*SearchExternalModelsResponse, error)
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract uses google.protobuf.Empty.
 	DeleteModel(ctx context.Context, in *DeleteModelRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetModelVersion(ctx context.Context, in *GetModelVersionRequest, opts ...grpc.CallOption) (*GetModelVersionResponse, error)
@@ -93,6 +95,16 @@ func (c *modelServiceClient) ListModels(ctx context.Context, in *ListModelsReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListModelsResponse)
 	err := c.cc.Invoke(ctx, ModelService_ListModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *modelServiceClient) SearchExternalModels(ctx context.Context, in *SearchExternalModelsRequest, opts ...grpc.CallOption) (*SearchExternalModelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchExternalModelsResponse)
+	err := c.cc.Invoke(ctx, ModelService_SearchExternalModels_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +222,7 @@ type ModelServiceServer interface {
 	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Legacy contract shares Model response.
 	GetModel(context.Context, *GetModelRequest) (*Model, error)
 	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
+	SearchExternalModels(context.Context, *SearchExternalModelsRequest) (*SearchExternalModelsResponse, error)
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract uses google.protobuf.Empty.
 	DeleteModel(context.Context, *DeleteModelRequest) (*emptypb.Empty, error)
 	GetModelVersion(context.Context, *GetModelVersionRequest) (*GetModelVersionResponse, error)
@@ -241,6 +254,9 @@ func (UnimplementedModelServiceServer) GetModel(context.Context, *GetModelReques
 }
 func (UnimplementedModelServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListModels not implemented")
+}
+func (UnimplementedModelServiceServer) SearchExternalModels(context.Context, *SearchExternalModelsRequest) (*SearchExternalModelsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SearchExternalModels not implemented")
 }
 func (UnimplementedModelServiceServer) DeleteModel(context.Context, *DeleteModelRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteModel not implemented")
@@ -343,6 +359,24 @@ func _ModelService_ListModels_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ModelServiceServer).ListModels(ctx, req.(*ListModelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ModelService_SearchExternalModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchExternalModelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).SearchExternalModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_SearchExternalModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).SearchExternalModels(ctx, req.(*SearchExternalModelsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -545,6 +579,10 @@ var ModelService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListModels",
 			Handler:    _ModelService_ListModels_Handler,
+		},
+		{
+			MethodName: "SearchExternalModels",
+			Handler:    _ModelService_SearchExternalModels_Handler,
 		},
 		{
 			MethodName: "DeleteModel",

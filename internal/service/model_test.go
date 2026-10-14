@@ -10,6 +10,7 @@ import (
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
 	"github.com/liangzai006/ani-model-service/internal/biz/storage"
 	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
+	"github.com/liangzai006/ani-model-service/internal/data/importer"
 	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
@@ -83,6 +84,17 @@ type importNotifierFake struct{ calls int }
 
 func (f *importNotifierFake) Notify() { f.calls++ }
 
+type externalModelSearcherFake struct {
+	request model.SearchRequest
+	page    model.SearchPage
+	err     error
+}
+
+func (f *externalModelSearcherFake) Search(_ context.Context, request model.SearchRequest) (model.SearchPage, error) {
+	f.request = request
+	return f.page, f.err
+}
+
 func (f versionReaderFunc) GetVersion(ctx context.Context, tenant, id string) (model.Version, error) {
 	return f(ctx, tenant, id)
 }
@@ -147,6 +159,88 @@ func TestGetModelVersionUsesRequestTenantWithoutPrincipal(t *testing.T) {
 	_, err := s.GetModelVersion(context.Background(), &modelv1.GetModelVersionRequest{TenantId: "t", ModelVersionId: "v"})
 	if kratoserrors.Code(err) != 401 {
 		t.Fatalf("code=%v err=%v", kratoserrors.Code(err), err)
+	}
+}
+
+func TestSearchExternalModelsForwardsFiltersAndMapsCandidates(t *testing.T) {
+	searcher := &externalModelSearcherFake{page: model.SearchPage{
+		Items: []model.SearchResult{{
+			Source: "huggingface", RepoID: "Qwen/Qwen3-8B", Name: "Qwen3-8B", DisplayName: "Qwen 3 8B",
+			Description: "text model", Revision: "main", SizeBytes: 123, Tags: []string{"text-generation"},
+			UpdatedAt: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC),
+		}}, NextCursor: "opaque", HasMore: true}}
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(searcher)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	got, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{
+		TenantId: "tenant-a", Source: "huggingface", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers",
+		Page: &modelv1.CursorPageRequest{Limit: 7, Cursor: "cursor-1"},
+	})
+	if err != nil {
+		t.Fatalf("SearchExternalModels() error = %v", err)
+	}
+	want := model.SearchRequest{Source: "huggingface", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers", Limit: 7, Cursor: "cursor-1"}
+	if searcher.request != want {
+		t.Fatalf("search request = %+v, want %+v", searcher.request, want)
+	}
+	if len(got.GetCandidates()) != 1 || got.GetCandidates()[0].GetRepoId() != "Qwen/Qwen3-8B" || got.GetCandidates()[0].GetRevision() != "main" {
+		t.Fatalf("candidates = %+v", got.GetCandidates())
+	}
+	if got.GetCandidates()[0].GetUpdatedAt().AsTime() != searcher.page.Items[0].UpdatedAt || got.GetMeta().GetNextCursor() != "opaque" || !got.GetMeta().GetHasMore() {
+		t.Fatalf("response metadata = %+v", got.GetMeta())
+	}
+}
+
+func TestSearchExternalModelsRejectsInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *modelv1.SearchExternalModelsRequest
+	}{
+		{name: "blank keyword", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Page: &modelv1.CursorPageRequest{Limit: 1}}},
+		{name: "unknown source", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "custom", Keyword: "q", Page: &modelv1.CursorPageRequest{Limit: 1}}},
+		{name: "invalid limit", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q", Page: &modelv1.CursorPageRequest{Limit: 51}}},
+	}
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewModelService(nil)
+			searcher := &externalModelSearcherFake{}
+			s.SetExternalModelSearcher(searcher)
+			_, err := s.SearchExternalModels(ctx, tt.in)
+			if kratoserrors.Code(err) != 400 {
+				t.Fatalf("code=%v err=%v, want 400", kratoserrors.Code(err), err)
+			}
+		})
+	}
+}
+
+func TestSearchExternalModelsRejectsCrossTenant(t *testing.T) {
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(&externalModelSearcherFake{})
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	_, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{TenantId: "tenant-b", Source: "huggingface", Keyword: "q"})
+	if kratoserrors.Code(err) != 403 {
+		t.Fatalf("code=%v err=%v, want 403", kratoserrors.Code(err), err)
+	}
+}
+
+func TestSearchExternalModelsMapsProviderFailure(t *testing.T) {
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(&externalModelSearcherFake{err: importer.ErrProvider})
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	_, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q"})
+	if kratoserrors.Code(err) != 502 {
+		t.Fatalf("code=%v err=%v, want 502", kratoserrors.Code(err), err)
+	}
+}
+
+func TestSearchExternalModelsRejectsMalformedProviderResult(t *testing.T) {
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(&externalModelSearcherFake{page: model.SearchPage{Items: []model.SearchResult{{Source: "huggingface", Name: "missing-repository"}}}})
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	_, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q"})
+	if kratoserrors.Code(err) != 502 {
+		t.Fatalf("code=%v err=%v, want 502", kratoserrors.Code(err), err)
 	}
 }
 
