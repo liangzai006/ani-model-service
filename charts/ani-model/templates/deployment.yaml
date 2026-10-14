@@ -98,8 +98,6 @@ spec:
             - name: ANI_HUGGINGFACE_BASE_URL
               value: {{ . | quote }}
             {{- end }}
-            - name: ANI_ALLOW_DIRECT_ACCESS
-              value: {{ .Values.inference.allowDirectAccess | quote }}
             {{- with .Values.inference.grpcAddress }}
             - name: ANI_INFERENCE_GRPC_ADDR
               value: {{ . | quote }}

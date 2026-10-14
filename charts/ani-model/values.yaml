@@ -72,9 +72,7 @@ inference:
   # Empty on purpose. Setting an address without mTLS certificates makes the
   # process exit. Model startup does not require Inference.
   grpcAddress: ""
-  # Tenant scope must come from a verified caller certificate and metadata.
-  # Keep the isolated direct-access escape hatch disabled in the new cluster.
-  allowDirectAccess: false
+  # Tenant scope comes from a verified caller certificate and metadata.
   serverName: ""
   tls:
     existingSecret: model-inference-mtls

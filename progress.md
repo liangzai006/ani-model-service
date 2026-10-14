@@ -180,8 +180,8 @@
   `sha256:eba3ec6edb4a8d3772631293582106e6b3ab9816573db95bdfac6213ef159c08`.
   The image includes the non-background readiness fix and a readable runtime
   config for its non-root user.
-- Deployed one replica with internal ClusterIP gRPC/admin Services and
-  `ANI_KUBERNETES_ENABLED=false`. The Pod is `1/1 Running`; `/healthz` and
+- Deployed one replica with internal ClusterIP gRPC/admin Services while the
+  Kubernetes runtime switch was still present. The Pod is `1/1 Running`; `/healthz` and
   `/readyz` both return `{"status":"ok"}` and `{"status":"ready"}`.
 - This is the database-backed control plane only. IAM/trusted principal,
   Model gRPC TLS, Kubernetes runtime reconciliation, quota/publication,
@@ -250,7 +250,7 @@
 
 - Cloned and inspected Governance at `d27847b99479553b1a56fc84bc4ee8f1a0992e1e` and Accelerator at `1d32dd9a9173b8869fa0ef2ae64e20b88f2ca0a3`; no project files or cluster resources changed.
 - Confirmed Governance is an admin/quota BFF, not the Higress inference gateway; Model routes were removed. Confirmed Accelerator `GpuRequest` uses `pool_id`, Resolve returns a frozen plan without reservation, and the production Inference owner adapter is not wired.
-- Next decision is integration scope: read-only Accelerator plan resolution first versus full Governance quota/owner/release integration. TLS/mTLS is required by the Accelerator consumer contract and conflicts with the currently deferred direct-access IAM/TLS posture.
+- Next decision is integration scope: read-only Accelerator plan resolution first versus full Governance quota/owner/release integration. TLS/mTLS is required by the Accelerator consumer contract and is also required by the current Model service deployment.
 
 ## 2026-09-30 lifecycle acceptance started
 

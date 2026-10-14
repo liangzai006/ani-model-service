@@ -6,7 +6,7 @@ Model：
 
 - `api/model/v1/model.proto` 增加 `DeleteModelVersion`；新增 `api/inference/v1/model_reference.proto` 为 Inference 引用协议的客户端副本。Go 输出由固定版本 buf 工作流生成；宿主机容量故障期间使用本地模块缓存代理完成生成，未手改生成代码。
 - `internal/data/inference/client.go` 调用版本化引用 RPC，传实际版本 UUID，限制每批 256，5 秒超时；开发凭据绑定配置租户，未知结果返回错误。
-- `cmd/ani-model-service/inference_client.go` 和 main 接线。配置 `ANI_INFERENCE_GRPC_ADDR`；TLS 默认启用。只有显式 `ANI_DEVELOPMENT_ENABLED=true`、loopback 地址、有效专用租户和凭据时允许 `ANI_INFERENCE_GRPC_INSECURE=true`。配置缺失继续拒绝删除。
+- `cmd/ani-model-service/inference_client.go` 和 main 接线。配置 `ANI_INFERENCE_GRPC_ADDR`；服务间 TLS 由部署配置提供，配置缺失继续拒绝删除。
 - `internal/data/postgres/deletion_store.go` 在 read committed 事务中锁定模型/版本，再查询远端引用，最后软删除；活动引用返回 MODEL_IN_USE，远端失败回滚；已删除对象重试幂等。移除了 Catalog 的未保护 SoftDeleteModel 入口。对象存储制品保留。
 - ready 版本读取对模型和版本加共享锁；创建版本锁父模型并拒绝已删除父模型。必须锁版本本身，否则单版本删除后等待中的查询可能仍返回旧 snapshot。
 - 单元、配置、gRPC 客户端测试以及事务删除/并发数据库测试已在实际 Model 仓库。

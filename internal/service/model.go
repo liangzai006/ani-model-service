@@ -36,6 +36,7 @@ type ModelService struct {
 	audit      auditbiz.Store
 	references InferenceReferenceChecker
 	notifier   ImportNotifier
+	searcher   model.Searcher
 }
 
 // ImportNotifier wakes the durable import worker after a task is committed.
@@ -58,6 +59,7 @@ func (s *ModelService) SetArtifactStore(store model.ArtifactStore)              
 func (s *ModelService) SetImportNotifier(n ImportNotifier)                       { s.notifier = n }
 func (s *ModelService) SetImportTaskReader(r workbiz.Reader)                     { s.taskReader = r }
 func (s *ModelService) SetImportTaskRetrier(r workbiz.Retrier)                   { s.taskRetry = r }
+func (s *ModelService) SetExternalModelSearcher(searcher model.Searcher)         { s.searcher = searcher }
 
 func NewModelService(r model.VersionReader) *ModelService { return &ModelService{reader: r} }
 func NewModelServiceWithDependencies(r model.VersionReader, v model.VersionCatalog, c model.Catalog, st storage.Port, w workbiz.Creator) *ModelService {
@@ -190,6 +192,54 @@ func (s *ModelService) ListModels(ctx context.Context, in *modelv1.ListModelsReq
 		out.Models[i] = toProtoModel(r)
 	}
 	return out, nil
+}
+
+func (s *ModelService) SearchExternalModels(ctx context.Context, in *modelv1.SearchExternalModelsRequest) (*modelv1.SearchExternalModelsResponse, error) {
+	_, err := identity.RequireTenant(ctx, in.GetTenantId())
+	if err != nil {
+		return nil, mapIdentity(err)
+	}
+	if s.searcher == nil {
+		return nil, errors2.New(503, "MODEL_PROVIDER_UNAVAILABLE", "external model search is not configured")
+	}
+	limit := int(in.GetPage().GetLimit())
+	if limit == 0 {
+		limit = 20
+	}
+	request := model.SearchRequest{
+		Source:  in.GetSource(),
+		Keyword: in.GetKeyword(),
+		Owner:   in.GetOwner(),
+		Task:    in.GetTask(),
+		Library: in.GetLibrary(),
+		Limit:   limit,
+		Cursor:  in.GetPage().GetCursor(),
+	}
+	if err := request.Validate(); err != nil {
+		return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid external model search request")
+	}
+	page, err := s.searcher.Search(ctx, request)
+	if err != nil {
+		if stderrors.Is(err, model.ErrInvalidSearchRequest) {
+			return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid external model search request")
+		}
+		return nil, errors2.New(502, "MODEL_PROVIDER_UNAVAILABLE", "external model provider is unavailable")
+	}
+	response := &modelv1.SearchExternalModelsResponse{
+		Candidates: make([]*modelv1.ExternalModelCandidate, len(page.Items)),
+		Meta:       &modelv1.CursorPageMeta{NextCursor: page.NextCursor, HasMore: page.HasMore},
+	}
+	for i, item := range page.Items {
+		if item.Source != request.Source || strings.TrimSpace(item.RepoID) == "" || strings.TrimSpace(item.Name) == "" || strings.TrimSpace(item.Revision) == "" {
+			return nil, errors2.New(502, "MODEL_PROVIDER_INVALID_RESPONSE", "external model provider returned an invalid candidate")
+		}
+		response.Candidates[i] = &modelv1.ExternalModelCandidate{
+			Source: item.Source, RepoId: item.RepoID, Name: item.Name, DisplayName: item.DisplayName,
+			Description: item.Description, Revision: item.Revision, SizeBytes: item.SizeBytes,
+			Tags: append([]string(nil), item.Tags...), UpdatedAt: protoTime(item.UpdatedAt),
+		}
+	}
+	return response, nil
 }
 func (s *ModelService) DeleteModel(ctx context.Context, in *modelv1.DeleteModelRequest) (*emptypb.Empty, error) {
 	p, err := identity.RequireTenant(ctx, in.GetTenantId())

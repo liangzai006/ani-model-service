@@ -10,6 +10,7 @@ import (
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
 	"github.com/liangzai006/ani-model-service/internal/biz/storage"
 	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
+	"github.com/liangzai006/ani-model-service/internal/data/importer"
 	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
@@ -83,6 +84,17 @@ type importNotifierFake struct{ calls int }
 
 func (f *importNotifierFake) Notify() { f.calls++ }
 
+type externalModelSearcherFake struct {
+	request model.SearchRequest
+	page    model.SearchPage
+	err     error
+}
+
+func (f *externalModelSearcherFake) Search(_ context.Context, request model.SearchRequest) (model.SearchPage, error) {
+	f.request = request
+	return f.page, f.err
+}
+
 func (f versionReaderFunc) GetVersion(ctx context.Context, tenant, id string) (model.Version, error) {
 	return f(ctx, tenant, id)
 }
@@ -96,6 +108,15 @@ func (f externalVersionReaderFake) GetVersionByExternalRef(context.Context, stri
 type versionCatalogFake struct {
 	created model.Version
 	ready   bool
+}
+
+type listDefaultsVersionCatalog struct{ versionCatalogFake }
+
+func (f *listDefaultsVersionCatalog) ListVersions(context.Context, string, string, model.ListOptions) ([]model.Version, error) {
+	return []model.Version{
+		{TenantID: "tenant-a", ID: "v1", ModelID: referenceModelUUID, Version: "v1", Status: "ready", EngineType: "vllm", EngineImage: "registry/vllm:latest", StartupCommand: "exec vllm serve /models"},
+		{TenantID: "tenant-a", ID: "v2", ModelID: referenceModelUUID, Version: "v2", Status: "ready", EngineType: "sglang", EngineImage: "registry/sglang:latest", StartupCommand: "exec python -m sglang.launch_server --model /models"},
+	}, nil
 }
 
 func (f *versionCatalogFake) GetVersion(_ context.Context, tenant, id string) (model.Version, error) {
@@ -131,13 +152,95 @@ func (f *artifactFake) GetArtifact(context.Context, string, string) (model.Artif
 }
 
 func TestGetModelVersionUsesRequestTenantWithoutPrincipal(t *testing.T) {
-	// SECURITY: Without principal and without ANI_ALLOW_DIRECT_ACCESS, should fail auth
+	// SECURITY: Without a principal, the request must fail authentication.
 	s := NewModelService(versionReaderFunc(func(context.Context, string, string) (model.Version, error) {
 		return model.Version{TenantID: "t", ID: "v", Status: "pending"}, nil
 	}))
 	_, err := s.GetModelVersion(context.Background(), &modelv1.GetModelVersionRequest{TenantId: "t", ModelVersionId: "v"})
 	if kratoserrors.Code(err) != 401 {
 		t.Fatalf("code=%v err=%v", kratoserrors.Code(err), err)
+	}
+}
+
+func TestSearchExternalModelsForwardsFiltersAndMapsCandidates(t *testing.T) {
+	searcher := &externalModelSearcherFake{page: model.SearchPage{
+		Items: []model.SearchResult{{
+			Source: "huggingface", RepoID: "Qwen/Qwen3-8B", Name: "Qwen3-8B", DisplayName: "Qwen 3 8B",
+			Description: "text model", Revision: "main", SizeBytes: 123, Tags: []string{"text-generation"},
+			UpdatedAt: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC),
+		}}, NextCursor: "opaque", HasMore: true}}
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(searcher)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	got, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{
+		TenantId: "tenant-a", Source: "huggingface", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers",
+		Page: &modelv1.CursorPageRequest{Limit: 7, Cursor: "cursor-1"},
+	})
+	if err != nil {
+		t.Fatalf("SearchExternalModels() error = %v", err)
+	}
+	want := model.SearchRequest{Source: "huggingface", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers", Limit: 7, Cursor: "cursor-1"}
+	if searcher.request != want {
+		t.Fatalf("search request = %+v, want %+v", searcher.request, want)
+	}
+	if len(got.GetCandidates()) != 1 || got.GetCandidates()[0].GetRepoId() != "Qwen/Qwen3-8B" || got.GetCandidates()[0].GetRevision() != "main" {
+		t.Fatalf("candidates = %+v", got.GetCandidates())
+	}
+	if got.GetCandidates()[0].GetUpdatedAt().AsTime() != searcher.page.Items[0].UpdatedAt || got.GetMeta().GetNextCursor() != "opaque" || !got.GetMeta().GetHasMore() {
+		t.Fatalf("response metadata = %+v", got.GetMeta())
+	}
+}
+
+func TestSearchExternalModelsRejectsInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *modelv1.SearchExternalModelsRequest
+	}{
+		{name: "blank keyword", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Page: &modelv1.CursorPageRequest{Limit: 1}}},
+		{name: "unknown source", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "custom", Keyword: "q", Page: &modelv1.CursorPageRequest{Limit: 1}}},
+		{name: "invalid limit", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q", Page: &modelv1.CursorPageRequest{Limit: 51}}},
+	}
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewModelService(nil)
+			searcher := &externalModelSearcherFake{}
+			s.SetExternalModelSearcher(searcher)
+			_, err := s.SearchExternalModels(ctx, tt.in)
+			if kratoserrors.Code(err) != 400 {
+				t.Fatalf("code=%v err=%v, want 400", kratoserrors.Code(err), err)
+			}
+		})
+	}
+}
+
+func TestSearchExternalModelsRejectsCrossTenant(t *testing.T) {
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(&externalModelSearcherFake{})
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	_, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{TenantId: "tenant-b", Source: "huggingface", Keyword: "q"})
+	if kratoserrors.Code(err) != 403 {
+		t.Fatalf("code=%v err=%v, want 403", kratoserrors.Code(err), err)
+	}
+}
+
+func TestSearchExternalModelsMapsProviderFailure(t *testing.T) {
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(&externalModelSearcherFake{err: importer.ErrProvider})
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	_, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q"})
+	if kratoserrors.Code(err) != 502 {
+		t.Fatalf("code=%v err=%v, want 502", kratoserrors.Code(err), err)
+	}
+}
+
+func TestSearchExternalModelsRejectsMalformedProviderResult(t *testing.T) {
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(&externalModelSearcherFake{page: model.SearchPage{Items: []model.SearchResult{{Source: "huggingface", Name: "missing-repository"}}}})
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	_, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q"})
+	if kratoserrors.Code(err) != 502 {
+		t.Fatalf("code=%v err=%v, want 502", kratoserrors.Code(err), err)
 	}
 }
 
@@ -291,13 +394,34 @@ func TestCreateAndGetModelVersionPreservesEngineDefaults(t *testing.T) {
 	if created.GetId() == "" {
 		t.Fatalf("created version id empty: %+v", created)
 	}
-	if versions.created.EngineImage != "registry/vllm:latest" || versions.created.StartupCommand != command {
+	if versions.created.EngineType != "vllm" || versions.created.EngineImage != "registry/vllm:latest" || versions.created.StartupCommand != command {
 		t.Fatalf("captured defaults: %+v", versions.created)
 	}
 	versions.created.Status = "ready"
 	versions.created.ArtifactProvider, versions.created.ArtifactReference, versions.created.ArtifactSHA256 = "s3", "obj", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	got := toProtoVersion(versions.created)
-	if got.GetEngineImage() != "registry/vllm:latest" || got.GetStartupCommand() != command {
-		t.Fatalf("returned defaults: image=%q command=%q", got.GetEngineImage(), got.GetStartupCommand())
+	got, err := s.GetModelVersion(ctx, &modelv1.GetModelVersionRequest{TenantId: "tenant-a", ModelVersionId: versions.created.ID})
+	if err != nil {
+		t.Fatalf("GetModelVersion() error = %v", err)
+	}
+	if got.GetVersion().GetEngineType() != "vllm" || got.GetVersion().GetEngineImage() != "registry/vllm:latest" || got.GetVersion().GetStartupCommand() != command {
+		t.Fatalf("returned defaults: type=%q image=%q command=%q", got.GetVersion().GetEngineType(), got.GetVersion().GetEngineImage(), got.GetVersion().GetStartupCommand())
+	}
+}
+
+func TestListModelVersionsPreservesPerVersionEngineDefaults(t *testing.T) {
+	versions := &listDefaultsVersionCatalog{}
+	s := NewModelServiceWithDependencies(versions, versions, &referenceCatalog{}, nil, nil)
+	got, err := s.ListModelVersions(referenceContext("tenant-a"), &modelv1.ListModelVersionsRequest{ModelId: referenceModelUUID})
+	if err != nil {
+		t.Fatalf("ListModelVersions() error = %v", err)
+	}
+	if len(got.GetVersions()) != 2 {
+		t.Fatalf("versions = %d, want 2", len(got.GetVersions()))
+	}
+	want := [][3]string{{"vllm", "registry/vllm:latest", "exec vllm serve /models"}, {"sglang", "registry/sglang:latest", "exec python -m sglang.launch_server --model /models"}}
+	for i, version := range got.GetVersions() {
+		if version.GetEngineType() != want[i][0] || version.GetEngineImage() != want[i][1] || version.GetStartupCommand() != want[i][2] {
+			t.Fatalf("version %d defaults = (%q, %q, %q)", i, version.GetEngineType(), version.GetEngineImage(), version.GetStartupCommand())
+		}
 	}
 }

@@ -79,15 +79,10 @@ idempotency transaction, so replay still requires Model availability. The
 planned live test checks replay while Model is available; outage-independent
 replay is not covered by this change.
 
-The contract test requires a dedicated tenant with an existing ready Model
-version and a real artifact smaller than 16 MiB. Supply `E2E_DSN`,
-`E2E_INFERENCE_DSN`, `E2E_TENANT_ID`, `E2E_VERSION_ID`, `E2E_MINIO_ENDPOINT`,
-`E2E_MINIO_ACCESS`, and `E2E_MINIO_SECRET` through the environment; use
-`E2E_MINIO_INSECURE=1` only for the existing plaintext development MinIO.
-
-```sh
-MODEL_CONTRACT_E2E=1 bash scripts/test-model-inference-contract /root/kubercon/ani-inference-service
-```
+The contract test described in this historical record is no longer part of
+the Model repository. Its old cross-repository environment contract and
+invocation example were removed because no current source or test consumes
+them. Current validation is documented in the active deployment records.
 
 The test preserves newly created Inference rows. It verifies neither real IAM,
 GPU loading, runtime materialization, quota/publication, nor Kubernetes readiness.

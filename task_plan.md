@@ -84,16 +84,16 @@ does not itself change the Model service's identity enforcement.
 
 ## New-cluster runtime wiring (2026-09-22)
 
-- [x] Remove the Inference-only `ANI_KUBERNETES_ENABLED` switch. The service
-  now requires and starts its Kubernetes runtime in every deployment.
+- [x] Remove the Inference-only Kubernetes runtime switch. The service now
+  requires and starts its Kubernetes runtime in every deployment.
 - [x] Install the Inference CRD and LWS controller/CRDs on the new cluster.
 - [x] Deploy the new-cluster ServiceAccount, namespace Role and RoleBinding;
   verify the account can manage only the `ani-system` runtime resources.
 - [x] Verify the new image starts, opens the gRPC/admin listeners and reaches
   the Kubernetes manager without cache-sync errors.
-- [x] Superseded by the user's direct-access requirement: use plaintext Model
-  gRPC and request tenant metadata, plus fixed quota capacity 10. No external
-  IAM, trusted identity or TLS prerequisite remains in the current validation.
+- [x] Superseded by the current new-cluster deployment: Model business gRPC
+  requires the verified mTLS caller identity and tenant metadata. The direct
+  access bypass is no longer supported.
 
 ## Current new-cluster real validation (2026-09-22)
 

@@ -54,15 +54,15 @@ cache is synchronized; it does not mean a model runtime has been created.
 - The new-cluster PostgreSQL query confirmed 11 `inference_%` tables. No
   HTTPRoute, model runtime or public inference call was created.
 
-## 2026-09-22 direct Model and fixed-quota update
+## 2026-09-22 Model and fixed-quota update
 
-The isolated validation requirement changed: Model does not require a trusted
-Principal or TLS. Inference now uses plaintext Model gRPC inside the cluster,
-and the materializer accepts the MinIO HTTP signed URL used by this environment
-as well as HTTPS. The fetch Job receives the recorded Model artifact size as its
-limit instead of the old fixed 512 MiB ceiling. The quota adapter is a local
-fixed-capacity provider with a limit of 10 demand units per reservation and no
-external IAM/quota dependency.
+The old isolated plaintext Model arrangement is retired. Current Model business
+gRPC calls require the verified mTLS caller identity and tenant metadata. The
+materializer accepts the S3-compatible signed URL used by this environment and
+HTTPS; the fetch Job receives the recorded Model artifact size instead of the
+old fixed 512 MiB ceiling. The quota adapter is a local fixed-capacity
+provider with a limit of 10 demand units per reservation and no external
+IAM/quota dependency.
 
 Inference was rolled to `ani-inference-new-20260923-r11` at
 `sha256:1be3093813a12db73309e74a971d77c36c53a45c3f249c1750f7d0c62264333a`.

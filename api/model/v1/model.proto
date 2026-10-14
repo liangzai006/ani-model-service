@@ -15,6 +15,7 @@ service ModelService {
   // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Legacy contract shares Model response.
   rpc GetModel(GetModelRequest) returns (Model);
   rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  rpc SearchExternalModels(SearchExternalModelsRequest) returns (SearchExternalModelsResponse);
   // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract uses google.protobuf.Empty.
   rpc DeleteModel(DeleteModelRequest) returns (google.protobuf.Empty);
   rpc GetModelVersion(GetModelVersionRequest) returns (GetModelVersionResponse);
@@ -109,6 +110,33 @@ message ListModelsRequest {
   string capability = 6;
 }
 message ListModelsResponse { repeated Model models = 1; CursorPageMeta meta = 2; }
+
+message SearchExternalModelsRequest {
+  string tenant_id = 1;
+  string source = 2;
+  string keyword = 3;
+  string owner = 4;
+  string task = 5;
+  string library = 6;
+  CursorPageRequest page = 7;
+}
+
+message ExternalModelCandidate {
+  string source = 1;
+  string repo_id = 2;
+  string name = 3;
+  string display_name = 4;
+  string description = 5;
+  string revision = 6;
+  int64 size_bytes = 7;
+  repeated string tags = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message SearchExternalModelsResponse {
+  repeated ExternalModelCandidate candidates = 1;
+  CursorPageMeta meta = 2;
+}
 
 message ListModelVersionsRequest {
   string tenant_id = 1;
