@@ -145,7 +145,7 @@ func TestRegistrySearchModelScope(t *testing.T) {
 		if req.URL.Path != "/openapi/v1/models" || query.Get("search") != "Qwen" || query.Get("page_size") != "2" || query.Get("owner") != "Qwen" || query.Get("filter.task") != "text-generation" || query.Get("filter.library") != "transformers" {
 			t.Fatalf("search request=%s", req.URL.String())
 		}
-		body := `{"data":{"models":[{"id":"Qwen/Qwen3","name":"Qwen3","display_name":"Qwen 3","description":"A model","tags":["llm","qwen"],"last_modified":"2025-01-02T03:04:05Z"}],"total_count":1,"page_number":1,"page_size":2}}`
+		body := `{"success":true,"data":{"models":[{"id":"Qwen/Qwen3","display_name":"Qwen 3","description":"A model","tags":["llm","qwen"],"tasks":["text-generation"],"last_modified":"2025-01-02T03:04:05Z","file_size":123}],"total_count":1,"page_number":1,"page_size":2}}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
 	page, err := Registry{"modelscope": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "modelscope", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers", Limit: 2})
@@ -156,7 +156,7 @@ func TestRegistrySearchModelScope(t *testing.T) {
 		t.Fatalf("items=%+v", page.Items)
 	}
 	got := page.Items[0]
-	if got.Source != "modelscope" || got.RepoID != "Qwen/Qwen3" || got.Name != "Qwen3" || got.DisplayName != "Qwen 3" || got.Description != "A model" || got.Revision != "master" || got.SizeBytes != 0 || len(got.Tags) != 2 || !got.UpdatedAt.Equal(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)) {
+	if got.Source != "modelscope" || got.RepoID != "Qwen/Qwen3" || got.Name != "Qwen3" || got.DisplayName != "Qwen 3" || got.Description != "A model" || got.Revision != "master" || got.SizeBytes != 123 || len(got.Tags) != 3 || !got.UpdatedAt.Equal(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)) {
 		t.Fatalf("result=%+v", got)
 	}
 	if page.HasMore || page.NextCursor != "" {
@@ -184,11 +184,35 @@ func TestRegistrySearchModelScopePagination(t *testing.T) {
 	}
 }
 
+func TestRegistrySearchModelScopeUsesRepoIDWhenCatalogIDIsNumeric(t *testing.T) {
+	adapter := NewModelScopeAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		body := `{"success":true,"data":{"models":[{"id":12345,"repo_id":"org/model","display_name":"Model","file_size":42}],"total_count":1,"page_number":1,"page_size":2}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	page, err := Registry{"modelscope": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "modelscope", Keyword: "model", Limit: 2})
+	if err != nil || len(page.Items) != 1 || page.Items[0].RepoID != "org/model" || page.Items[0].SizeBytes != 42 {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+}
+
+func TestRegistrySearchModelScopeRejectsFailureEnvelope(t *testing.T) {
+	adapter := NewModelScopeAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		body := `{"success":false,"message":"rate limited","data":{}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	_, err := Registry{"modelscope": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "modelscope", Keyword: "model", Limit: 2})
+	if !errors.Is(err, ErrProvider) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestRegistrySearchHuggingFace(t *testing.T) {
 	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
 	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		query := req.URL.Query()
-		if req.URL.Path != "/api/models" || query.Get("search") != "Qwen" || query.Get("limit") != "2" || query.Get("author") != "Qwen" || query.Get("pipeline_tag") != "text-generation" || query.Get("library") != "transformers" {
+		if req.URL.Path != "/api/models" || query.Get("search") != "Qwen" || query.Get("limit") != "2" || query.Get("author") != "Qwen" || query.Get("pipeline_tag") != "text-generation" || query.Get("filter") != "transformers" || query.Get("library") != "" {
 			t.Fatalf("search request=%s", req.URL.String())
 		}
 		body := `[{"id":"Qwen/Qwen3","tags":["llm","qwen"],"pipeline_tag":"text-generation","lastModified":"2025-01-02T03:04:05Z","sha":"abc123"}]`
@@ -202,7 +226,7 @@ func TestRegistrySearchHuggingFace(t *testing.T) {
 		t.Fatalf("items=%+v", page.Items)
 	}
 	got := page.Items[0]
-	if got.Source != "huggingface" || got.RepoID != "Qwen/Qwen3" || got.Name != "Qwen3" || got.DisplayName != "Qwen3" || got.Revision != "abc123" || got.SizeBytes != 0 || len(got.Tags) != 3 || !got.UpdatedAt.Equal(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)) {
+	if got.Source != "huggingface" || got.RepoID != "Qwen/Qwen3" || got.Name != "Qwen3" || got.DisplayName != "Qwen3" || got.Revision != "main" || got.SizeBytes != 0 || len(got.Tags) != 3 || !got.UpdatedAt.Equal(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)) {
 		t.Fatalf("result=%+v", got)
 	}
 	if got.Tags[2] != "text-generation" {
@@ -213,16 +237,46 @@ func TestRegistrySearchHuggingFace(t *testing.T) {
 func TestRegistrySearchUsesOpaqueProviderPageCursor(t *testing.T) {
 	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
 	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Query().Get("offset") != "2" {
+		if req.URL.Query().Get("cursor") != "opaque-token" || req.URL.Query().Get("offset") != "" {
 			t.Fatalf("search request=%s", req.URL.String())
 		}
 		body := `[{"id":"org/model","lastModified":"2025-01-02T03:04:05Z"}]`
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		header := make(http.Header)
+		header.Set("Link", `<https://example.invalid/api/models?search=Qwen&limit=2&cursor=next-token>; rel="next"`)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: header}, nil
 	})}
-	cursor := encodeSearchCursor(2)
+	cursor := encodeHuggingFaceSearchCursor("opaque-token")
 	page, err := Registry{"huggingface": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "huggingface", Keyword: "Qwen", Limit: 2, Cursor: cursor})
-	if err != nil || len(page.Items) != 1 {
+	if err != nil || len(page.Items) != 1 || !page.HasMore {
 		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	next, err := decodeHuggingFaceSearchCursor(page.NextCursor)
+	if err != nil || next != "next-token" {
+		t.Fatalf("next cursor=%q err=%v", page.NextCursor, err)
+	}
+}
+
+func TestRegistrySearchHuggingFaceEmptyPageHasNoContinuation(t *testing.T) {
+	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`[]`)), Header: make(http.Header)}, nil
+	})}
+	page, err := Registry{"huggingface": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "huggingface", Keyword: "none", Limit: 2})
+	if err != nil || len(page.Items) != 0 || page.HasMore || page.NextCursor != "" {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+}
+
+func TestRegistrySearchHuggingFaceRejectsCrossOriginContinuation(t *testing.T) {
+	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Link", `<https://evil.invalid/api/models?cursor=next>; rel="next"`)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`[]`)), Header: header}, nil
+	})}
+	_, err := Registry{"huggingface": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "huggingface", Keyword: "none", Limit: 2})
+	if !errors.Is(err, ErrProvider) {
+		t.Fatalf("error=%v", err)
 	}
 }
 
