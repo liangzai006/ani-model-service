@@ -24,6 +24,7 @@ func TestModelServicePolicyAllowsGovernanceModelLifecycle(t *testing.T) {
 		"/model.v1.ModelService/GetImportTask",
 		"/model.v1.ModelService/RetryImportTask",
 		"/model.v1.ModelService/GetModelDownloadURL",
+		"/model.v1.ModelService/SearchExternalModels",
 	}
 	for _, method := range methods {
 		if !policy.IsAllowed("ani-governance.ani.internal", method) {
@@ -32,6 +33,9 @@ func TestModelServicePolicyAllowsGovernanceModelLifecycle(t *testing.T) {
 	}
 	if policy.IsAllowed("ani-inference.ani.internal", "/model.v1.ModelService/ImportModel") {
 		t.Fatal("inference unexpectedly received model import permission")
+	}
+	if policy.IsAllowed("ani-inference.ani.internal", "/model.v1.ModelService/SearchExternalModels") {
+		t.Fatal("inference unexpectedly received external model search permission")
 	}
 }
 

@@ -111,7 +111,6 @@ func run(logger *slog.Logger) error {
 		"huggingface": importer.NewHuggingFaceAdapter(os.Getenv("ANI_HUGGINGFACE_BASE_URL"), providerHTTPClient),
 		"modelscope":  importer.NewModelScopeAdapter(os.Getenv("ANI_MODELSCOPE_BASE_URL"), providerHTTPClient),
 	}
-	modelService.SetExternalModelSearcher(providers)
 	var importWorker *worker.Worker
 	var storagePort bizstorage.Port
 	var storageConn *grpc.ClientConn
@@ -219,6 +218,9 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}
+	// Attach the shared provider registry after the database-backed service is
+	// constructed; that branch replaces the initial service value.
+	modelService.SetExternalModelSearcher(providers)
 	var runners []server.WorkerRunner
 	references, closeReferences, err := configuredInferenceReferences()
 	if err != nil {
