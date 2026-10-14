@@ -208,6 +208,18 @@ func TestRegistrySearchModelScopeRejectsFailureEnvelope(t *testing.T) {
 	}
 }
 
+func TestRegistrySearchModelScopeEmptyPageHasNoContinuation(t *testing.T) {
+	adapter := NewModelScopeAdapter("https://example.invalid", nil)
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		body := `{"success":true,"data":{"models":[],"total_count":3,"page_number":1,"page_size":2}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	page, err := Registry{"modelscope": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "modelscope", Keyword: "none", Limit: 2})
+	if err != nil || len(page.Items) != 0 || page.HasMore || page.NextCursor != "" {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+}
+
 func TestRegistrySearchHuggingFace(t *testing.T) {
 	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
 	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

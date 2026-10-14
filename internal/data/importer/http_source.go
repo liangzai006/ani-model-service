@@ -389,7 +389,7 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 			result.HasMore = true
 			result.NextCursor = encodeHuggingFaceSearchCursor(token)
 		}
-	} else if (totalCount != nil && currentPage*pageSize < *totalCount) || (totalCount == nil && len(items) >= request.Limit) {
+	} else if len(items) > 0 && ((totalCount != nil && currentPage*pageSize < *totalCount) || (totalCount == nil && len(items) >= request.Limit)) {
 		result.HasMore = true
 		result.NextCursor = encodeSearchCursor(currentPage + 1)
 	}
