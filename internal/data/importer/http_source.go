@@ -2,12 +2,17 @@ package importer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
+	"time"
+
+	modelbiz "github.com/liangzai006/ani-model-service/internal/biz/model"
 )
 
 // HTTPSourceAdapter downloads one explicitly selected repository file. The
@@ -178,6 +183,264 @@ func (a *HTTPSourceAdapter) ListFiles(ctx context.Context, req Request) ([]File,
 		return nil, fmt.Errorf("%w: manifest contains no files", ErrProvider)
 	}
 	return files, nil
+}
+
+type searchCursor struct {
+	Page int `json:"page"`
+}
+
+func encodeSearchCursor(page int) string {
+	if page < 1 {
+		page = 1
+	}
+	data, _ := json.Marshal(searchCursor{Page: page})
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeSearchCursor(value string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return 1, nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid search cursor", modelbiz.ErrInvalidSearchRequest)
+	}
+	var cursor searchCursor
+	if err := json.Unmarshal(data, &cursor); err != nil || cursor.Page < 1 {
+		return 0, fmt.Errorf("%w: invalid search cursor", modelbiz.ErrInvalidSearchRequest)
+	}
+	return cursor.Page, nil
+}
+
+type modelScopeSearchResponse struct {
+	Data struct {
+		Models []modelScopeSearchModel `json:"models"`
+	} `json:"data"`
+	Models []modelScopeSearchModel `json:"models"`
+}
+
+type modelScopeSearchModel struct {
+	ID              string   `json:"id"`
+	Path            string   `json:"path"`
+	Name            string   `json:"name"`
+	DisplayName     string   `json:"display_name"`
+	DisplayNameAlt  string   `json:"displayName"`
+	Description     string   `json:"description"`
+	Tags            []string `json:"tags"`
+	Revision        string   `json:"revision"`
+	LastModified    string   `json:"last_modified"`
+	LastModifiedAlt string   `json:"lastModified"`
+	Size            int64    `json:"size"`
+	SizeBytes       int64    `json:"size_bytes"`
+}
+
+type huggingFaceSearchModel struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Description string `json:"description"`
+	CardData    struct {
+		Description string `json:"description"`
+	} `json:"cardData"`
+	Tags         []string `json:"tags"`
+	PipelineTag  string   `json:"pipeline_tag"`
+	Revision     string   `json:"sha"`
+	LastModified string   `json:"lastModified"`
+	Size         int64    `json:"size"`
+	SizeBytes    int64    `json:"size_bytes"`
+}
+
+// Search queries the provider's fixed model-list endpoint and returns only
+// catalog metadata. It never returns download URLs or provider credentials.
+func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchRequest) (modelbiz.SearchPage, error) {
+	if err := request.Validate(); err != nil {
+		return modelbiz.SearchPage{}, err
+	}
+	if request.Source != a.ManifestKind {
+		return modelbiz.SearchPage{}, fmt.Errorf("%w: source does not match adapter", ErrProvider)
+	}
+	page, err := decodeSearchCursor(request.Cursor)
+	if err != nil {
+		return modelbiz.SearchPage{}, err
+	}
+	endpoint, err := a.searchURL(request, page)
+	if err != nil {
+		return modelbiz.SearchPage{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return modelbiz.SearchPage{}, fmt.Errorf("%w: create search request: %v", ErrProvider, err)
+	}
+	client := a.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return modelbiz.SearchPage{}, fmt.Errorf("%w: search request: %v", ErrProvider, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return modelbiz.SearchPage{}, fmt.Errorf("%w: search returned status %d", ErrProvider, resp.StatusCode)
+	}
+	var items []modelbiz.SearchResult
+	switch a.ManifestKind {
+	case "modelscope":
+		var payload modelScopeSearchResponse
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return modelbiz.SearchPage{}, fmt.Errorf("%w: decode search response: %v", ErrProvider, err)
+		}
+		models := payload.Data.Models
+		if models == nil {
+			models = payload.Models
+		}
+		items = make([]modelbiz.SearchResult, 0, len(models))
+		for _, item := range models {
+			items = append(items, a.modelScopeResult(item))
+		}
+	case "huggingface":
+		var payload []huggingFaceSearchModel
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return modelbiz.SearchPage{}, fmt.Errorf("%w: decode search response: %v", ErrProvider, err)
+		}
+		items = make([]modelbiz.SearchResult, 0, len(payload))
+		for _, item := range payload {
+			items = append(items, a.huggingFaceResult(item))
+		}
+	default:
+		return modelbiz.SearchPage{}, fmt.Errorf("%w: unsupported search provider", ErrProvider)
+	}
+	result := modelbiz.SearchPage{Items: items}
+	if len(items) >= request.Limit {
+		result.HasMore = true
+		result.NextCursor = encodeSearchCursor(page + 1)
+	}
+	return result, nil
+}
+
+func (a *HTTPSourceAdapter) searchURL(request modelbiz.SearchRequest, page int) (string, error) {
+	base := strings.TrimRight(a.BaseURL, "/")
+	if base == "" {
+		return "", fmt.Errorf("%w: search base URL is empty", ErrProvider)
+	}
+	values := url.Values{}
+	values.Set("search", request.Keyword)
+	switch a.ManifestKind {
+	case "modelscope":
+		if request.Owner != "" {
+			values.Set("owner", request.Owner)
+		}
+		if request.Task != "" {
+			values.Set("task", request.Task)
+		}
+		if request.Library != "" {
+			values.Set("library", request.Library)
+		}
+		values.Set("page_size", strconv.Itoa(request.Limit))
+		if page > 1 {
+			values.Set("page_number", strconv.Itoa(page))
+		}
+		return base + "/openapi/v1/models?" + values.Encode(), nil
+	case "huggingface":
+		if request.Owner != "" {
+			values.Set("author", request.Owner)
+		}
+		if request.Task != "" {
+			values.Set("filter", request.Task)
+		}
+		if request.Library != "" {
+			values.Set("library", request.Library)
+		}
+		values.Set("limit", strconv.Itoa(request.Limit))
+		if page > 1 {
+			values.Set("offset", strconv.Itoa((page-1)*request.Limit))
+		}
+		return base + "/api/models?" + values.Encode(), nil
+	default:
+		return "", fmt.Errorf("%w: unsupported search provider", ErrProvider)
+	}
+}
+
+func (a *HTTPSourceAdapter) modelScopeResult(item modelScopeSearchModel) modelbiz.SearchResult {
+	repoID := strings.TrimSpace(item.ID)
+	if repoID == "" {
+		repoID = strings.TrimSpace(item.Path)
+	}
+	name := strings.TrimSpace(item.Name)
+	if name == "" {
+		name = path.Base(repoID)
+	}
+	displayName := strings.TrimSpace(item.DisplayName)
+	if displayName == "" {
+		displayName = strings.TrimSpace(item.DisplayNameAlt)
+	}
+	if displayName == "" {
+		displayName = name
+	}
+	revision := strings.TrimSpace(item.Revision)
+	if revision == "" {
+		revision = a.revision("")
+	}
+	updated := parseProviderTime(item.LastModified)
+	if updated.IsZero() {
+		updated = parseProviderTime(item.LastModifiedAlt)
+	}
+	size := item.SizeBytes
+	if size == 0 {
+		size = item.Size
+	}
+	return modelbiz.SearchResult{Source: "modelscope", RepoID: repoID, Name: name, DisplayName: displayName, Description: item.Description, Revision: revision, SizeBytes: size, Tags: append([]string(nil), item.Tags...), UpdatedAt: updated}
+}
+
+func (a *HTTPSourceAdapter) huggingFaceResult(item huggingFaceSearchModel) modelbiz.SearchResult {
+	repoID := strings.TrimSpace(item.ID)
+	name := strings.TrimSpace(item.Name)
+	if name == "" {
+		name = path.Base(repoID)
+	}
+	displayName := strings.TrimSpace(item.DisplayName)
+	if displayName == "" {
+		displayName = name
+	}
+	tags := append([]string(nil), item.Tags...)
+	if tag := strings.TrimSpace(item.PipelineTag); tag != "" {
+		seen := false
+		for _, existing := range tags {
+			if existing == tag {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			tags = append(tags, tag)
+		}
+	}
+	description := item.Description
+	if description == "" {
+		description = item.CardData.Description
+	}
+	revision := strings.TrimSpace(item.Revision)
+	if revision == "" {
+		revision = a.revision("")
+	}
+	size := item.SizeBytes
+	if size == 0 {
+		size = item.Size
+	}
+	return modelbiz.SearchResult{Source: "huggingface", RepoID: repoID, Name: name, DisplayName: displayName, Description: description, Revision: revision, SizeBytes: size, Tags: tags, UpdatedAt: parseProviderTime(item.LastModified)}
+}
+
+func parseProviderTime(value string) time.Time {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
 }
 
 func splitRepoFile(repoID string) (string, string, error) {

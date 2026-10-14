@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+
+	modelbiz "github.com/liangzai006/ani-model-service/internal/biz/model"
 )
 
 var ErrUnsupportedSource = errors.New("unsupported import source")
@@ -60,4 +62,31 @@ func (r Registry) Resolve(source string) (SourceAdapter, error) {
 		return nil, ErrUnsupportedSource
 	}
 	return a, nil
+}
+
+// ResolveSearcher returns the search capability for a fixed provider. Download
+// adapters remain the source of truth for existing import behavior.
+func (r Registry) ResolveSearcher(source string) (modelbiz.Searcher, error) {
+	a, ok := r[source]
+	if !ok || a == nil {
+		return nil, ErrUnsupportedSource
+	}
+	searcher, ok := a.(modelbiz.Searcher)
+	if !ok || searcher == nil {
+		return nil, ErrUnsupportedSource
+	}
+	return searcher, nil
+}
+
+// Search dispatches an external model search to the provider selected by the
+// validated source enum.
+func (r Registry) Search(ctx context.Context, request modelbiz.SearchRequest) (modelbiz.SearchPage, error) {
+	if err := request.Validate(); err != nil {
+		return modelbiz.SearchPage{}, err
+	}
+	searcher, err := r.ResolveSearcher(request.Source)
+	if err != nil {
+		return modelbiz.SearchPage{}, err
+	}
+	return searcher.Search(ctx, request)
 }
