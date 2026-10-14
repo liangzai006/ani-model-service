@@ -69,7 +69,8 @@ become Kubernetes Service names.
 
 The Inference service now always starts its Kubernetes runtime and creates the
 ServiceAccount, Role, RoleBinding, model workloads, PVCs, Services and
-Gateway API routes. `ANI_KUBERNETES_ENABLED` is no longer a runtime gate.
+Gateway API routes. Kubernetes runtime startup is not controlled by a runtime
+environment switch.
 Quota reservation is opt-in in the executor and disabled for this validation
 cluster; there is no fixed ten-unit quota provider. Trusted model identity,
 TLS and IAM checks are not part of this validation scope.

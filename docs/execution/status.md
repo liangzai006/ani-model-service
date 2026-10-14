@@ -82,7 +82,7 @@ Notebook、Kubeflow 用户工作流不属于本状态文件。
 
 ## 2026-09-22 新集群验证
 
-- `pass`：新集群 PostgreSQL、MinIO、Model、Inference 控制面和 Higress 已部署；Model 明文 gRPC 可直接按 request tenant 调用。IAM、可信身份、TLS 和配额校验暂不接入，Inference 不使用固定 quota provider。
+- `pass`：新集群 PostgreSQL、MinIO、Model、Inference 控制面和 Higress 已部署；Model 业务 gRPC 通过 mTLS 和可信租户元数据调用。外部 IAM 和用户级配额仍未接入，Inference 不使用固定 quota provider。
 - `pass`：Inference 物化下载脚本支持 HTTP/HTTPS，大小限制使用 Model 制品实际 `size_bytes`；Model 快照映射对历史 `model_versions.size_bytes=0` 的数据回退到正的 `model_artifacts.size_bytes`，本次 272455680 字节制品已真实通过物化和推理。
 
 ## 2026-09-18 continuation

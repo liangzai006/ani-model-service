@@ -131,7 +131,7 @@ func (f *artifactFake) GetArtifact(context.Context, string, string) (model.Artif
 }
 
 func TestGetModelVersionUsesRequestTenantWithoutPrincipal(t *testing.T) {
-	// SECURITY: Without principal and without ANI_ALLOW_DIRECT_ACCESS, should fail auth
+	// SECURITY: Without a principal, the request must fail authentication.
 	s := NewModelService(versionReaderFunc(func(context.Context, string, string) (model.Version, error) {
 		return model.Version{TenantID: "t", ID: "v", Status: "pending"}, nil
 	}))
