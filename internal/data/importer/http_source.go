@@ -214,9 +214,15 @@ func decodeSearchCursor(value string) (int, error) {
 
 type modelScopeSearchResponse struct {
 	Data struct {
-		Models []modelScopeSearchModel `json:"models"`
+		Models     []modelScopeSearchModel `json:"models"`
+		TotalCount *int                    `json:"total_count"`
+		PageNumber int                     `json:"page_number"`
+		PageSize   int                     `json:"page_size"`
 	} `json:"data"`
-	Models []modelScopeSearchModel `json:"models"`
+	Models     []modelScopeSearchModel `json:"models"`
+	TotalCount *int                    `json:"total_count"`
+	PageNumber int                     `json:"page_number"`
+	PageSize   int                     `json:"page_size"`
 }
 
 type modelScopeSearchModel struct {
@@ -284,6 +290,9 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 		return modelbiz.SearchPage{}, fmt.Errorf("%w: search returned status %d", ErrProvider, resp.StatusCode)
 	}
 	var items []modelbiz.SearchResult
+	var totalCount *int
+	currentPage := page
+	pageSize := request.Limit
 	switch a.ManifestKind {
 	case "modelscope":
 		var payload modelScopeSearchResponse
@@ -293,6 +302,20 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 		models := payload.Data.Models
 		if models == nil {
 			models = payload.Models
+		}
+		totalCount = payload.Data.TotalCount
+		if totalCount == nil {
+			totalCount = payload.TotalCount
+		}
+		if payload.Data.PageNumber > 0 {
+			currentPage = payload.Data.PageNumber
+		} else if payload.PageNumber > 0 {
+			currentPage = payload.PageNumber
+		}
+		if payload.Data.PageSize > 0 {
+			pageSize = payload.Data.PageSize
+		} else if payload.PageSize > 0 {
+			pageSize = payload.PageSize
 		}
 		items = make([]modelbiz.SearchResult, 0, len(models))
 		for _, item := range models {
@@ -311,9 +334,9 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 		return modelbiz.SearchPage{}, fmt.Errorf("%w: unsupported search provider", ErrProvider)
 	}
 	result := modelbiz.SearchPage{Items: items}
-	if len(items) >= request.Limit {
+	if (totalCount != nil && currentPage*pageSize < *totalCount) || (totalCount == nil && len(items) >= request.Limit) {
 		result.HasMore = true
-		result.NextCursor = encodeSearchCursor(page + 1)
+		result.NextCursor = encodeSearchCursor(currentPage + 1)
 	}
 	return result, nil
 }
@@ -331,10 +354,10 @@ func (a *HTTPSourceAdapter) searchURL(request modelbiz.SearchRequest, page int) 
 			values.Set("owner", request.Owner)
 		}
 		if request.Task != "" {
-			values.Set("task", request.Task)
+			values.Set("filter.task", request.Task)
 		}
 		if request.Library != "" {
-			values.Set("library", request.Library)
+			values.Set("filter.library", request.Library)
 		}
 		values.Set("page_size", strconv.Itoa(request.Limit))
 		if page > 1 {
@@ -346,7 +369,7 @@ func (a *HTTPSourceAdapter) searchURL(request modelbiz.SearchRequest, page int) 
 			values.Set("author", request.Owner)
 		}
 		if request.Task != "" {
-			values.Set("filter", request.Task)
+			values.Set("pipeline_tag", request.Task)
 		}
 		if request.Library != "" {
 			values.Set("library", request.Library)
