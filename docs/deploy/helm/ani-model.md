@@ -20,6 +20,12 @@ S3 通过 `minio.ani-infra.svc.cluster.local:9000` 提供服务；这些资源�
 服务端身份为 `ani-model.ani.internal`。如果平台已经创建这张 Secret，可以设置
 `tls.certificate.create=false`，Chart 只读取它。
 
+Governance 调用 Model 时，客户端证书必须由该 CA 签发，且只有 DNS SAN
+`ani-governance`，不能附带其他 DNS、URI、IP 或 email SAN，也不能只用 CN。
+Model 的 RPC 白名单和可信租户/actor 分支均使用这一精确身份；旧身份
+`ani-governance.ani.internal` 不再授权。上线本变更时须同步 Governance 的客户端
+证书与配置。Inference 调用 Model 的现有登记身份仍为 `ani-inference.ani.internal`。
+
 如果同时部署 Inference，请先按 Inference 仓库部署文档中的 Helm 命令安装或复用
 cert-manager 和其他平台依赖，再执行这里的 Model 安装命令。Model Chart 本身不会
 安装共享的 cert-manager 或创建 `ClusterIssuer`，也不会触碰旧集群。

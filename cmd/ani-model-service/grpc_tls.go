@@ -61,15 +61,8 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
 				return errors.New("unverified client certificate chain")
 			}
-			clientCert := verifiedChains[0][0]
-			if len(clientCert.DNSNames) != 1 {
-				return errors.New("client certificate must contain exactly one DNS SAN")
-			}
-			clientDNS := clientCert.DNSNames[0]
-			if strings.TrimSpace(clientDNS) == "" || strings.ContainsAny(clientDNS, "*:/\\ \t\n") {
-				return fmt.Errorf("invalid client DNS SAN: %s (wildcards not allowed)", clientDNS)
-			}
-			return nil
+			_, err := clientDNSIdentity(verifiedChains[0][0])
+			return err
 		},
 	}
 
@@ -81,4 +74,15 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 		kratosgrpc.Middleware(middlewares...),
 		kratosgrpc.DisableReflection(),
 	), nil
+}
+
+func clientDNSIdentity(cert *x509.Certificate) (string, error) {
+	if cert == nil || len(cert.DNSNames) != 1 || len(cert.URIs) != 0 || len(cert.IPAddresses) != 0 || len(cert.EmailAddresses) != 0 {
+		return "", errors.New("client certificate must contain exactly one DNS SAN and no URI, IP, or email SANs")
+	}
+	clientDNS := cert.DNSNames[0]
+	if strings.TrimSpace(clientDNS) == "" || strings.ContainsAny(clientDNS, "*:/\\ \t\r\n") {
+		return "", fmt.Errorf("invalid client DNS SAN: %q (wildcards not allowed)", clientDNS)
+	}
+	return clientDNS, nil
 }
