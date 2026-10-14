@@ -44,24 +44,6 @@
 如果历史 ModelVersion 的三个字段为空，前端不能自动填充，必须在创建推理时提供
 完整值；Model 服务不会猜测引擎或启动命令。
 
-## 外部模型搜索与导入
-
-前端按下面的顺序处理外部模型：
-
-1. 调用 Governance 的 `POST /api/v1/models:search-external`，传入 `source`
-   (`modelscope` 或 `huggingface`)、`keyword`，以及可选的 `owner`、`task`、
-   `library` 和分页 `page`。
-2. 展示返回的候选模型。搜索只读取 Provider 的目录元数据，不创建本地
-   Model/ModelVersion，也不会启动下载。
-3. 用户确认候选后，调用 `CreateModel` 创建本地模型，再调用
-   `CreateModelVersion` 保存版本的镜像、引擎类型和完整启动命令。
-4. 使用候选返回的 `source`、`repo_id`、`revision`，连同新建的本地
-   `model_id`/`model_version_id`，调用 `ImportModel`。导入 Job 下载整个仓库。
-
-Model 服务只允许两个固定 Provider：ModelScope 缺省 revision 为 `master`，
-Hugging Face 缺省 revision 为 `main`。搜索结果中的 cursor 只用于继续搜索，
-不能当作下载地址或凭据。
-
 ## 从 ModelScope/Hugging Face 导入模型
 
 外部模型搜索和本地模型目录是两个动作。前端通过 Gov 的
