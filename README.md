@@ -57,6 +57,29 @@ kubectl --context "$KUBE_CONTEXT" -n <import-namespace> logs job/<job-name> -c i
 `startup_command` 始终是一条完整字符串；服务不会把它拆成数组，也不会拼接启动
 参数。
 
+## 外部模型搜索与导入
+
+前端可以通过 Gov 的 `POST /api/v1/models:search-external` 按名称搜索
+ModelScope 或 Hugging Face。Model 服务内部对应 `SearchExternalModels` gRPC，
+只接受固定的 `source`（`modelscope` 或 `huggingface`）、`keyword`，以及可选的
+`owner`、`task`、`library` 和分页游标。搜索结果只作为临时候选返回，不写入本地
+Model/ModelVersion，也不下载模型；ModelScope 默认 revision 是 `master`，Hugging
+Face 默认 revision 是 `main`。
+
+用户确认候选后，前端按 `CreateModel` → `CreateModelVersion` → `ImportModel` 的
+顺序提交：
+
+1. `CreateModel` 使用候选 `repo_id` 作为 `model_id`，建立租户本地 Model。
+2. `CreateModelVersion` 使用候选 revision 建立版本，并提交调用方选择的
+   `engine_type`、`engine_image` 和完整 `startup_command`。搜索逻辑不会猜测或
+   拼接引擎命令。
+3. `ImportModel` 携带候选 `source`、`repo_id`、`revision`，以及前两步返回的本地
+   `model_id`、`model_version_id`，导入整个仓库。
+
+取消确认不会创建记录或启动下载。导入启动后仍通过 `GetImportTask` 查询任务状态。
+ModelScope/Hugging Face 的 HTTP 访问只存在于 Model 服务的 provider 适配器中，Gov
+只负责鉴权、租户上下文和字段转发。
+
 After the initial source commit, run `make supply-chain-tools` and `make audit`;
 review and commit `docs/scaffold/bom.cdx.json`. CI deliberately fails when that
 runtime SBOM is missing or stale and reruns the vulnerability, secret,
