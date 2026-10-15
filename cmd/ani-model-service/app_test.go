@@ -135,7 +135,7 @@ func newTestCA(t *testing.T) (*rsa.PrivateKey, *x509.Certificate, []byte) {
 	return key, cert, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
-func signTestCert(t *testing.T, caKey *rsa.PrivateKey, caCert *x509.Certificate, dns string, ip net.IP, usage x509.ExtKeyUsage) (*x509.Certificate, *rsa.PrivateKey) {
+func signTestCert(t *testing.T, caKey *rsa.PrivateKey, caCert *x509.Certificate, dns string, ip net.IP, usage x509.ExtKeyUsage, options ...func(*x509.Certificate)) (*x509.Certificate, *rsa.PrivateKey) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -152,6 +152,9 @@ func signTestCert(t *testing.T, caKey *rsa.PrivateKey, caCert *x509.Certificate,
 	}
 	if ip != nil {
 		template.IPAddresses = []net.IP{ip}
+	}
+	for _, option := range options {
+		option(&template)
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &template, caCert, &key.PublicKey, caKey)
 	if err != nil {

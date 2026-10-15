@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"strings"
 
@@ -15,7 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const governanceClientIdentity = "ani-governance.ani.internal"
+const governanceClientIdentity = "ani-governance"
 
 // RPCPolicyMiddleware enforces method-level authorization based on client certificate identity.
 // This implements deny-by-default: only explicitly allowed (client identity, RPC method) pairs are permitted.
@@ -59,17 +60,18 @@ func extractClientIdentity(ctx context.Context) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("not a TLS connection")
 	}
+	if tlsInfo.State.Version < tls.VersionTLS13 {
+		return "", fmt.Errorf("TLS 1.3 is required")
+	}
+	if len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
+		return "", fmt.Errorf("unverified client certificate chain")
+	}
 
 	if len(tlsInfo.State.PeerCertificates) == 0 {
 		return "", fmt.Errorf("no client certificate")
 	}
 
-	cert := tlsInfo.State.PeerCertificates[0]
-	if len(cert.DNSNames) != 1 {
-		return "", fmt.Errorf("client certificate must have exactly one DNS SAN, found %d", len(cert.DNSNames))
-	}
-
-	return cert.DNSNames[0], nil
+	return clientDNSIdentity(tlsInfo.State.VerifiedChains[0][0])
 }
 
 // RPCPolicy defines which client identities can call which RPC methods.

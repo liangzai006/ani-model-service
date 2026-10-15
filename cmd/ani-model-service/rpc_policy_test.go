@@ -27,9 +27,15 @@ func TestModelServicePolicyAllowsGovernanceModelLifecycle(t *testing.T) {
 		"/model.v1.ModelService/SearchExternalModels",
 	}
 	for _, method := range methods {
-		if !policy.IsAllowed("ani-governance.ani.internal", method) {
+		if !policy.IsAllowed("ani-governance", method) {
 			t.Errorf("governance is not allowed to call %s", method)
 		}
+		if policy.IsAllowed("ani-governance.ani.internal", method) {
+			t.Errorf("legacy governance identity is allowed to call %s", method)
+		}
+	}
+	if policy.IsAllowed("ani-governance", "/model.v1.ModelService/Unknown") {
+		t.Fatal("unknown RPC unexpectedly authorized")
 	}
 	if policy.IsAllowed("ani-inference.ani.internal", "/model.v1.ModelService/ImportModel") {
 		t.Fatal("inference unexpectedly received model import permission")
@@ -53,7 +59,7 @@ func TestGovernancePrincipalUsesVerifiedMetadata(t *testing.T) {
 	want := identity.Principal{
 		TenantID:  "tenant-a",
 		Actor:     "governance:user:7",
-		Workload:  "ani-governance.ani.internal",
+		Workload:  "ani-governance",
 		RequestID: "request-1",
 	}
 	if principal.TenantID != want.TenantID || principal.Actor != want.Actor || principal.Workload != want.Workload || principal.RequestID != want.RequestID {
