@@ -174,7 +174,7 @@ func TestSearchExternalModelsForwardsFiltersAndMapsCandidates(t *testing.T) {
 			Source: "huggingface", RepoID: "Qwen/Qwen3-8B", Name: "Qwen3-8B", DisplayName: "Qwen 3 8B",
 			Description: "text model", Revision: "main", SizeBytes: 123, Tags: []string{"text-generation"},
 			UpdatedAt: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC),
-		}}, NextCursor: "opaque", HasMore: true, Total: 42}}
+		}}, NextCursor: "opaque", HasMore: true}}
 	s := NewModelService(nil)
 	s.SetExternalModelSearcher(searcher)
 	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
@@ -192,8 +192,8 @@ func TestSearchExternalModelsForwardsFiltersAndMapsCandidates(t *testing.T) {
 	if len(got.GetItems()) != 1 || got.GetItems()[0].GetRepoId() != "Qwen/Qwen3-8B" || got.GetItems()[0].GetRevision() != "main" {
 		t.Fatalf("candidates = %+v", got.GetItems())
 	}
-	if got.GetItems()[0].GetUpdatedAt().AsTime() != searcher.page.Items[0].UpdatedAt || got.GetTotal() != 42 {
-		t.Fatalf("response total = %+v", got.GetTotal())
+	if got.GetItems()[0].GetUpdatedAt().AsTime() != searcher.page.Items[0].UpdatedAt || !got.GetHasMore() {
+		t.Fatalf("response has_more = %+v", got.GetHasMore())
 	}
 }
 
@@ -431,5 +431,16 @@ func TestListModelVersionsPreservesPerVersionEngineDefaults(t *testing.T) {
 		if version.GetEngineType() != want[i][0] || version.GetEngineImage() != want[i][1] || version.GetStartupCommand() != want[i][2] {
 			t.Fatalf("version %d defaults = (%q, %q, %q)", i, version.GetEngineType(), version.GetEngineImage(), version.GetStartupCommand())
 		}
+	}
+}
+
+func TestSearchExternalModelsMapsHasMoreWithoutTotal(t *testing.T) {
+	searcher := &externalModelSearcherFake{page: model.SearchPage{HasMore: true, Items: []model.SearchResult{{Source: "huggingface", RepoID: "org/model", Name: "model", Revision: "main"}}}}
+	s := NewModelService(nil)
+	s.SetExternalModelSearcher(searcher)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
+	got, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "model"})
+	if err != nil || len(got.GetItems()) != 1 || !got.GetHasMore() {
+		t.Fatalf("response=%v err=%v", got, err)
 	}
 }

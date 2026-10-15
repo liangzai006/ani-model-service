@@ -58,7 +58,6 @@ type SearchPage struct {
 	Items      []SearchResult
 	NextCursor string
 	HasMore    bool
-	Total      int64
 }
 
 type Searcher interface {

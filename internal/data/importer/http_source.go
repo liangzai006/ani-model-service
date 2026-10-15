@@ -308,6 +308,16 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 	if err != nil {
 		return modelbiz.SearchPage{}, err
 	}
+	if a.ManifestKind == "huggingface" && request.Page > 1 && cursor == "" {
+		var exhausted bool
+		cursor, exhausted, err = a.huggingFaceCursorForPage(ctx, request, request.Page)
+		if err != nil {
+			return modelbiz.SearchPage{}, err
+		}
+		if exhausted {
+			return modelbiz.SearchPage{Items: []modelbiz.SearchResult{}}, nil
+		}
+	}
 	endpoint, err := a.searchURLWithCursor(request, page, cursor)
 	if err != nil {
 		return modelbiz.SearchPage{}, err
@@ -389,9 +399,6 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 		return modelbiz.SearchPage{}, fmt.Errorf("%w: unsupported search provider", ErrProvider)
 	}
 	result := modelbiz.SearchPage{Items: items}
-	if totalCount != nil && *totalCount >= 0 {
-		result.Total = int64(*totalCount)
-	}
 	if a.ManifestKind == "huggingface" {
 		token, err := huggingFaceNextCursor(resp, a.BaseURL)
 		if err != nil {
@@ -406,6 +413,45 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 		result.NextCursor = encodeSearchCursor(currentPage + 1)
 	}
 	return result, nil
+}
+
+// huggingFaceCursorForPage follows provider cursors until the requested page.
+// Hugging Face does not support numeric page offsets, so page N requires N-1
+// provider requests before fetching the requested page.
+func (a *HTTPSourceAdapter) huggingFaceCursorForPage(ctx context.Context, request modelbiz.SearchRequest, page int) (string, bool, error) {
+	cursor := ""
+	client := a.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	for current := 1; current < page; current++ {
+		endpoint, err := a.searchURLWithCursor(request, 1, cursor)
+		if err != nil {
+			return "", false, err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return "", false, fmt.Errorf("%w: create search request: %v", ErrProvider, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", false, fmt.Errorf("%w: search request: %v", ErrProvider, err)
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			resp.Body.Close()
+			return "", false, fmt.Errorf("%w: search returned status %d", ErrProvider, resp.StatusCode)
+		}
+		next, nextErr := huggingFaceNextCursor(resp, a.BaseURL)
+		resp.Body.Close()
+		if nextErr != nil {
+			return "", false, nextErr
+		}
+		if next == "" {
+			return "", true, nil
+		}
+		cursor = next
+	}
+	return cursor, false, nil
 }
 
 // huggingFaceNextCursor extracts the opaque cursor from Hugging Face's

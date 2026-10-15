@@ -231,7 +231,7 @@ func (s *ModelService) SearchExternalModels(ctx context.Context, in *modelv1.Sea
 		}
 		items[i] = &modelv1.ExternalModelCandidate{Source: item.Source, RepoId: item.RepoID, Name: item.Name, DisplayName: item.DisplayName, Description: item.Description, Revision: item.Revision, SizeBytes: item.SizeBytes, Tags: append([]string(nil), item.Tags...), UpdatedAt: protoTime(item.UpdatedAt)}
 	}
-	return &modelv1.SearchExternalModelsResponse{Items: items, Total: result.Total}, nil
+	return &modelv1.SearchExternalModelsResponse{Items: items, HasMore: result.HasMore}, nil
 }
 
 func (s *ModelService) DeleteModel(ctx context.Context, in *modelv1.DeleteModelRequest) (*emptypb.Empty, error) {

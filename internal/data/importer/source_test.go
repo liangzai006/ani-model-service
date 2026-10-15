@@ -327,3 +327,32 @@ func TestRegistrySearchEscapesQueryParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRegistrySearchHuggingFaceResolvesRequestedPage(t *testing.T) {
+	adapter := NewHuggingFaceAdapter("https://example.invalid", nil)
+	calls := 0
+	adapter.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if req.URL.Query().Get("limit") != "2" {
+			t.Fatalf("search request=%s", req.URL.String())
+		}
+		header := make(http.Header)
+		body := `[{"id":"org/model-1","lastModified":"2025-01-02T03:04:05Z"}]`
+		switch calls {
+		case 1:
+			header.Set("Link", `<https://example.invalid/api/models?cursor=token-2>; rel="next"`)
+		case 2:
+			header.Set("Link", `<https://example.invalid/api/models?cursor=token-3>; rel="next"`)
+			body = `[{"id":"org/model-2","lastModified":"2025-01-02T03:04:05Z"}]`
+		case 3:
+			body = `[{"id":"org/model-3","lastModified":"2025-01-02T03:04:05Z"}]`
+		default:
+			t.Fatalf("unexpected call %d", calls)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: header}, nil
+	})}
+	page, err := Registry{"huggingface": adapter}.Search(context.Background(), modelbiz.SearchRequest{Source: "huggingface", Keyword: "model", Page: 3, PageSize: 2})
+	if err != nil || calls != 3 || len(page.Items) != 1 || page.Items[0].RepoID != "org/model-3" {
+		t.Fatalf("calls=%d page=%+v err=%v", calls, page, err)
+	}
+}

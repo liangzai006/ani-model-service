@@ -144,7 +144,7 @@ message ExternalModelCandidate {
 message SearchExternalModelsResponse {
   reserved 1, 2;
   repeated ExternalModelCandidate items = 3;
-  int64 total = 4;
+  bool has_more = 4;
 }
 
 message ListModelVersionsRequest {
