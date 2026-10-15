@@ -37,10 +37,29 @@ func (s *CatalogStore) GetModelByExternalID(ctx context.Context, tenant, externa
 	e = s.withLatestVersions(ctx, tenant, rows)
 	return rows[0], e
 }
+func (s *CatalogStore) CountModels(ctx context.Context, tenant string, options modelbiz.ListOptions) (int64, error) {
+	return s.ModelStore.CountModels(ctx, tenant, options)
+}
+
+func (s *CatalogStore) ListModelsPage(ctx context.Context, tenant string, options modelbiz.ListOptions) ([]modelbiz.Record, int64, error) {
+	rs, total, err := s.ModelStore.ListModelsPage(ctx, tenant, options)
+	if err != nil {
+		return []modelbiz.Record{}, 0, err
+	}
+	out := make([]modelbiz.Record, len(rs))
+	for i, r := range rs {
+		out[i] = recordRow(GetModelRow(r), tenant)
+	}
+	if err := s.withLatestVersions(ctx, tenant, out); err != nil {
+		return []modelbiz.Record{}, 0, err
+	}
+	return out, total, nil
+}
+
 func (s *CatalogStore) ListModels(ctx context.Context, tenant string, options modelbiz.ListOptions) ([]modelbiz.Record, error) {
 	rs, e := s.ModelStore.ListModels(ctx, tenant, options)
 	if e != nil {
-		return nil, e
+		return []modelbiz.Record{}, e
 	}
 	out := make([]modelbiz.Record, len(rs))
 	for i, r := range rs {

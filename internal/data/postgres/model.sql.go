@@ -98,7 +98,7 @@ func (q *Queries) ClaimImportTask(ctx context.Context, arg ClaimImportTaskParams
 const completeImportTask = `-- name: CompleteImportTask :execrows
 UPDATE public.model_import_tasks
 SET status = 'completed', progress_pct = 100, lease_owner = '', lease_until = NULL,
-	completed_at = clock_timestamp(), error_message = '', updated_at = clock_timestamp()
+    completed_at = clock_timestamp(), error_message = '', updated_at = clock_timestamp()
 WHERE tenant_id = $1 AND id = $2 AND status = 'importing'
   AND lease_owner = $3 AND lease_epoch = $4 AND lease_until > clock_timestamp()
 `
@@ -121,6 +121,61 @@ func (q *Queries) CompleteImportTask(ctx context.Context, arg CompleteImportTask
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const countModelVersions = `-- name: CountModelVersions :one
+SELECT count(*)
+FROM public.model_versions v
+JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
+WHERE v.tenant_id = $1 AND v.model_id = $2
+  AND v.status <> 'deleted' AND m.status <> 'deleted'
+`
+
+type CountModelVersionsParams struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ModelID  pgtype.UUID `json:"model_id"`
+}
+
+func (q *Queries) CountModelVersions(ctx context.Context, arg CountModelVersionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countModelVersions, arg.TenantID, arg.ModelID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countModels = `-- name: CountModels :one
+SELECT count(*)
+FROM public.models
+WHERE tenant_id = $1
+  AND status <> 'deleted'
+  AND ($2::text = '' OR status = $2)
+  AND ($3::text = '' OR source = $3)
+  AND ($4::text = '' OR capabilities ? $4::text)
+  AND ($5::text = ''
+       OR strpos(lower(name), lower($5)) > 0
+       OR strpos(lower(display_name), lower($5)) > 0
+       OR strpos(lower(model_id), lower($5)) > 0)
+`
+
+type CountModelsParams struct {
+	TenantID     pgtype.UUID `json:"tenant_id"`
+	StatusFilter string      `json:"status_filter"`
+	SourceFilter string      `json:"source_filter"`
+	Capability   string      `json:"capability"`
+	Keyword      string      `json:"keyword"`
+}
+
+func (q *Queries) CountModels(ctx context.Context, arg CountModelsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countModels,
+		arg.TenantID,
+		arg.StatusFilter,
+		arg.SourceFilter,
+		arg.Capability,
+		arg.Keyword,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createImportTask = `-- name: CreateImportTask :one
@@ -1298,7 +1353,8 @@ WHERE v.tenant_id = $1 AND v.model_id = $2 AND v.status <> 'deleted' AND m.statu
   AND ($3::timestamptz IS NULL
        OR (v.created_at, v.id) < ($3::timestamptz, $4::uuid))
 ORDER BY v.created_at DESC, v.id DESC
-LIMIT $5
+LIMIT $6
+OFFSET $5
 `
 
 type ListModelVersionsParams struct {
@@ -1306,6 +1362,7 @@ type ListModelVersionsParams struct {
 	ModelID         pgtype.UUID        `json:"model_id"`
 	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
 	BeforeID        pgtype.UUID        `json:"before_id"`
+	PageOffset      int32              `json:"page_offset"`
 	PageLimit       int32              `json:"page_limit"`
 }
 
@@ -1339,6 +1396,7 @@ func (q *Queries) ListModelVersions(ctx context.Context, arg ListModelVersionsPa
 		arg.ModelID,
 		arg.BeforeCreatedAt,
 		arg.BeforeID,
+		arg.PageOffset,
 		arg.PageLimit,
 	)
 	if err != nil {
@@ -1397,7 +1455,8 @@ WHERE tenant_id = $1 AND status <> 'deleted'
   AND ($6::timestamptz IS NULL
        OR (created_at, id) < ($6::timestamptz, $7::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT $8
+LIMIT $9
+OFFSET $8
 `
 
 type ListModelsParams struct {
@@ -1408,6 +1467,7 @@ type ListModelsParams struct {
 	Keyword         string             `json:"keyword"`
 	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
 	BeforeID        pgtype.UUID        `json:"before_id"`
+	PageOffset      int32              `json:"page_offset"`
 	PageLimit       int32              `json:"page_limit"`
 }
 
@@ -1439,6 +1499,7 @@ func (q *Queries) ListModels(ctx context.Context, arg ListModelsParams) ([]ListM
 		arg.Keyword,
 		arg.BeforeCreatedAt,
 		arg.BeforeID,
+		arg.PageOffset,
 		arg.PageLimit,
 	)
 	if err != nil {

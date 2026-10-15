@@ -104,12 +104,18 @@ message CursorPageMeta { string next_cursor = 1; bool has_more = 2; }
 message ListModelsRequest {
   string tenant_id = 1;
   string status = 2;
-  CursorPageRequest page = 3;
+  reserved 3;
   string keyword = 4;
   string source = 5;
   string capability = 6;
+  optional int32 page = 7;
+  optional int32 page_size = 8 [json_name = "pageSize"];
 }
-message ListModelsResponse { repeated Model models = 1; CursorPageMeta meta = 2; }
+message ListModelsResponse {
+  reserved 1, 2;
+  repeated Model items = 3;
+  int64 total = 4;
+}
 
 message SearchExternalModelsRequest {
   string tenant_id = 1;
@@ -118,7 +124,9 @@ message SearchExternalModelsRequest {
   string owner = 4;
   string task = 5;
   string library = 6;
-  CursorPageRequest page = 7;
+  reserved 7;
+  optional int32 page = 8;
+  optional int32 page_size = 9 [json_name = "pageSize"];
 }
 
 message ExternalModelCandidate {
@@ -134,16 +142,23 @@ message ExternalModelCandidate {
 }
 
 message SearchExternalModelsResponse {
-  repeated ExternalModelCandidate candidates = 1;
-  CursorPageMeta meta = 2;
+  reserved 1, 2;
+  repeated ExternalModelCandidate items = 3;
+  int64 total = 4;
 }
 
 message ListModelVersionsRequest {
   string tenant_id = 1;
   string model_id = 2;
-  CursorPageRequest page = 3;
+  reserved 3;
+  optional int32 page = 4;
+  optional int32 page_size = 5 [json_name = "pageSize"];
 }
-message ListModelVersionsResponse { repeated ModelVersion versions = 1; CursorPageMeta meta = 2; }
+message ListModelVersionsResponse {
+  reserved 1, 2;
+  repeated ModelVersion items = 3;
+  int64 total = 4;
+}
 
 message CreateModelVersionRequest {
   string tenant_id = 1;

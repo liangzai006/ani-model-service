@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/go-kratos/kratos/v3/errors"
@@ -25,8 +26,28 @@ func cursorScope(parts ...string) string {
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
+// resolvePage validates optional page parameters and returns SQL pagination
+// values. The offset calculation is checked before conversion to int64.
+func resolvePage(page, pageSize *int32) (model.ListOptions, error) {
+	p, size := int64(1), int64(20)
+	if page != nil {
+		p = int64(*page)
+	}
+	if pageSize != nil {
+		size = int64(*pageSize)
+	}
+	if p < 1 || p > 100 || size < 1 || size > 100 {
+		return model.ListOptions{}, errors.BadRequest("INVALID_ARGUMENT", "page and page_size must be between 1 and 100")
+	}
+	if p-1 > math.MaxInt64/size {
+		return model.ListOptions{}, errors.BadRequest("INVALID_ARGUMENT", "page offset overflows")
+	}
+	return model.ListOptions{Limit: int32(size), Offset: (p - 1) * size}, nil
+}
+
 // A cursor is a pagination position, never an identity or authorization token.
-// Every store query still uses the tenant from the trusted principal.
+// These helpers remain for unrelated compatibility callers; new list RPCs use
+// resolvePage and never expose cursor fields.
 func listPage(page *modelv1.CursorPageRequest, scope string) (model.ListOptions, error) {
 	limit := page.GetLimit()
 	if limit < 0 || limit > 1000 {

@@ -2,152 +2,147 @@ package service
 
 import (
 	"context"
-	"strings"
+	"fmt"
 	"testing"
 	"time"
 
 	kratoserrors "github.com/go-kratos/kratos/v3/errors"
-
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
 )
 
+func int32ptr(v int32) *int32 { return &v }
+
+func paginationRecords(n int, tenant string) []model.Record {
+	created := time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)
+	rs := make([]model.Record, n)
+	for i := range rs {
+		rs[i] = model.Record{TenantID: tenant, ID: fmt.Sprintf("11111111-1111-4111-8111-%012d", n-i), Name: fmt.Sprintf("model-%02d", i), CreatedAt: created.Add(-time.Duration(i) * time.Minute)}
+	}
+	return rs
+}
+
 type paginationCatalog struct {
 	catalogFake
-	options model.ListOptions
-	calls   int
+	records model.Record
+	options []model.ListOptions
 }
 
-func (c *paginationCatalog) ListModels(_ context.Context, _ string, options model.ListOptions) ([]model.Record, error) {
-	c.options, c.calls = options, c.calls+1
-	created := time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)
-	if options.BeforeID != "" {
-		return []model.Record{{ID: "11111111-1111-4111-8111-111111111111", CreatedAt: created}}, nil
+func (c *paginationCatalog) ListModels(_ context.Context, tenant string, options model.ListOptions) ([]model.Record, error) {
+	c.options = append(c.options, options)
+	all := paginationRecords(45, tenant)
+	start := int(options.Offset)
+	if start >= len(all) {
+		return []model.Record{}, nil
 	}
-	return []model.Record{
-		{ID: "11111111-1111-4111-8111-111111111113", Name: "model-c", CreatedAt: created},
-		{ID: "11111111-1111-4111-8111-111111111112", Name: "model-b", CreatedAt: created},
-		{ID: "11111111-1111-4111-8111-111111111111", Name: "model-a", CreatedAt: created},
-	}, nil
+	end := start + int(options.Limit)
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[start:end], nil
 }
-
-func TestListModelsReturnsPageAndContinuation(t *testing.T) {
-	catalog := &paginationCatalog{}
-	server := NewModelCatalogService(nil, catalog)
-	request := &modelv1.ListModelsRequest{Status: "ready", Source: "huggingface", Keyword: "smol", Capability: "chat", Page: &modelv1.CursorPageRequest{Limit: 2}}
-	result, err := server.ListModels(referenceContext("tenant-a"), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.GetModels()) != 2 || !result.GetMeta().GetHasMore() || result.GetMeta().GetNextCursor() == "" {
-		t.Fatalf("expected two models and continuation, got %v", result)
-	}
-	if catalog.options.Limit != 3 || catalog.options.Status != "ready" || catalog.options.Keyword != "smol" || catalog.options.Source != "huggingface" || catalog.options.Capability != "chat" {
-		t.Fatalf("filters not forwarded: %+v", catalog.options)
-	}
-	request.Page.Cursor = result.Meta.NextCursor
-	last, err := server.ListModels(referenceContext("tenant-a"), request)
-	if err != nil || len(last.GetModels()) != 1 || last.GetMeta().GetHasMore() || last.GetMeta().GetNextCursor() != "" {
-		t.Fatalf("last page=%v err=%v", last, err)
-	}
-	if catalog.options.BeforeID != result.Models[1].Id || catalog.options.BeforeCreatedAt.IsZero() {
-		t.Fatalf("wrong boundary: %+v", catalog.options)
-	}
-}
-
-func TestListModelsRejectsWrongScopeAndInvalidPageBeforeStore(t *testing.T) {
-	catalog := &paginationCatalog{}
-	server := NewModelCatalogService(nil, catalog)
-	scope := cursorScope("tenant-a", "models", "", "", "", "")
-	cursor := nextCursor(scope, time.Now().UTC(), referenceModelUUID)
-	for _, tc := range []struct {
-		name, tenant, keyword, source, capability, status, cursor string
-		limit                                                     int32
-	}{
-		{name: "tenant", tenant: "tenant-b", cursor: cursor},
-		{name: "keyword", tenant: "tenant-a", keyword: "x", cursor: cursor},
-		{name: "source", tenant: "tenant-a", source: "upload", cursor: cursor},
-		{name: "capability", tenant: "tenant-a", capability: "embedding", cursor: cursor},
-		{name: "status", tenant: "tenant-a", status: "ready", cursor: cursor},
-		{name: "malformed", tenant: "tenant-a", cursor: "bad!"},
-		{name: "oversized", tenant: "tenant-a", cursor: strings.Repeat("a", 2049)},
-		{name: "negative limit", tenant: "tenant-a", limit: -1},
-		{name: "excessive limit", tenant: "tenant-a", limit: 1001},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := server.ListModels(referenceContext(tc.tenant), &modelv1.ListModelsRequest{Keyword: tc.keyword, Source: tc.source, Capability: tc.capability, Status: tc.status, Page: &modelv1.CursorPageRequest{Limit: tc.limit, Cursor: tc.cursor}})
-			if kratoserrors.Code(err) != 400 || catalog.calls != 0 {
-				t.Fatalf("error=%v store calls=%d", err, catalog.calls)
-			}
-		})
-	}
-}
-
-func TestModelProtoMetadata(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	v := model.Version{ID: referenceModelUUID, Version: "v2", SizeBytes: 123, IsEncrypted: true, EncryptAlgo: "AES-256", EncryptHint: "key-a", CreatedAt: now, ArtifactReference: "tenant/model/v2/model.tar", ArtifactSHA256: strings.Repeat("a", 64)}
-	m := toProtoModel(model.Record{CreatedAt: now, UpdatedAt: now, SourceRepoID: "org/model", ErrorMessage: "download failed", LatestVersion: &v})
-	if m.SourceRepoId != "org/model" || m.ErrorMessage != "download failed" || !m.GetCreatedAt().AsTime().Equal(now) || !m.GetUpdatedAt().AsTime().Equal(now) || len(m.Versions) != 1 {
-		t.Fatalf("missing model metadata: %v", m)
-	}
-	got := m.Versions[0]
-	if got.SizeBytes != 123 || !got.IsEncrypted || got.EncryptAlgo != "AES-256" || got.EncryptHint != "key-a" || got.StoragePath != v.ArtifactReference || !got.GetCreatedAt().AsTime().Equal(now) {
-		t.Fatalf("missing version metadata: %v", got)
-	}
+func (c *paginationCatalog) CountModels(context.Context, string, model.ListOptions) (int64, error) {
+	return 45, nil
 }
 
 type paginationVersions struct {
 	versionCatalogFake
-	options model.ListOptions
-	calls   int
+	options []model.ListOptions
 }
 
 func (v *paginationVersions) ListVersions(_ context.Context, tenant, modelID string, options model.ListOptions) ([]model.Version, error) {
-	v.options, v.calls = options, v.calls+1
+	v.options = append(v.options, options)
 	created := time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)
-	if options.BeforeID != "" {
-		return []model.Version{{ID: referenceModelUUID, TenantID: tenant, ModelID: modelID, Version: "v1", CreatedAt: created}}, nil
+	all := make([]model.Version, 31)
+	for i := range all {
+		all[i] = model.Version{ID: fmt.Sprintf("22222222-2222-4222-8222-%012d", len(all)-i), TenantID: tenant, ModelID: modelID, Version: fmt.Sprintf("v%d", len(all)-i), CreatedAt: created.Add(-time.Duration(i) * time.Minute)}
 	}
-	return []model.Version{
-		{ID: "11111111-1111-4111-8111-111111111113", TenantID: tenant, ModelID: modelID, Version: "v3", CreatedAt: created},
-		{ID: "11111111-1111-4111-8111-111111111112", TenantID: tenant, ModelID: modelID, Version: "v2", CreatedAt: created},
-		{ID: referenceModelUUID, TenantID: tenant, ModelID: modelID, Version: "v1", CreatedAt: created},
-	}, nil
+	start := int(options.Offset)
+	if start >= len(all) {
+		return []model.Version{}, nil
+	}
+	end := start + int(options.Limit)
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[start:end], nil
+}
+func (v *paginationVersions) CountModelVersions(context.Context, string, string) (int64, error) {
+	return 31, nil
 }
 
-func TestListVersionsContinuationAndModelScope(t *testing.T) {
+func TestListModelsPageAndTotal(t *testing.T) {
+	catalog := &paginationCatalog{}
+	server := NewModelCatalogService(nil, catalog)
+	first, err := server.ListModels(referenceContext("tenant-a"), &modelv1.ListModelsRequest{Page: int32ptr(1), PageSize: int32ptr(2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.GetItems()) != 2 || first.GetTotal() != 45 || first.Items[0].Name != "model-00" {
+		t.Fatalf("page 1 = %v", first)
+	}
+	third, err := server.ListModels(referenceContext("tenant-a"), &modelv1.ListModelsRequest{Page: int32ptr(3), PageSize: int32ptr(2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third.GetItems()) != 2 || third.GetTotal() != first.GetTotal() || third.Items[0].Name != "model-04" {
+		t.Fatalf("page 3 = %v", third)
+	}
+	if got := catalog.options[len(catalog.options)-1]; got.Offset != 4 || got.Limit != 2 {
+		t.Fatalf("page options = %+v", got)
+	}
+}
+
+func TestListModelsDefaultsAndEmptyPage(t *testing.T) {
+	catalog := &paginationCatalog{}
+	server := NewModelCatalogService(nil, catalog)
+	result, err := server.ListModels(referenceContext("tenant-a"), &modelv1.ListModelsRequest{})
+	if err != nil || len(result.GetItems()) != 20 || result.GetTotal() != 45 {
+		t.Fatalf("default page = %v err=%v", result, err)
+	}
+	empty, err := server.ListModels(referenceContext("tenant-a"), &modelv1.ListModelsRequest{Page: int32ptr(100), PageSize: int32ptr(100)})
+	if err != nil || len(empty.GetItems()) != 0 || empty.GetTotal() != 45 {
+		t.Fatalf("empty page = %v err=%v", empty, err)
+	}
+}
+
+func TestListModelsRejectsInvalidPageValues(t *testing.T) {
+	catalog := &paginationCatalog{}
+	server := NewModelCatalogService(nil, catalog)
+	for _, tc := range []struct {
+		name string
+		page *int32
+		size *int32
+	}{
+		{name: "page zero", page: int32ptr(0)},
+		{name: "page too large", page: int32ptr(101)},
+		{name: "size zero", size: int32ptr(0)},
+		{name: "size too large", size: int32ptr(101)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := server.ListModels(referenceContext("tenant-a"), &modelv1.ListModelsRequest{Page: tc.page, PageSize: tc.size})
+			if kratoserrors.Code(err) != 400 {
+				t.Fatalf("err=%v, want invalid argument", err)
+			}
+		})
+	}
+	if len(catalog.options) != 0 {
+		t.Fatalf("store called for invalid page: %+v", catalog.options)
+	}
+}
+
+func TestListModelVersionsPageAndTotal(t *testing.T) {
 	versions := &paginationVersions{}
 	server := NewModelServiceWithDependencies(versions, versions, &catalogFake{}, nil, nil)
-	request := &modelv1.ListModelVersionsRequest{ModelId: referenceModelUUID, Page: &modelv1.CursorPageRequest{Limit: 2}}
-	first, err := server.ListModelVersions(referenceContext("tenant-a"), request)
-	if err != nil || len(first.GetVersions()) != 2 || !first.GetMeta().GetHasMore() || first.GetMeta().GetNextCursor() == "" {
-		t.Fatalf("first page=%v err=%v", first, err)
+	first, err := server.ListModelVersions(referenceContext("tenant-a"), &modelv1.ListModelVersionsRequest{ModelId: referenceModelUUID, Page: int32ptr(1), PageSize: int32ptr(2)})
+	if err != nil || len(first.GetItems()) != 2 || first.GetTotal() != 31 || first.Items[0].GetVersion() != "v31" {
+		t.Fatalf("page 1 = %v err=%v", first, err)
 	}
-	request.Page.Cursor = first.Meta.NextCursor
-	last, err := server.ListModelVersions(referenceContext("tenant-a"), request)
-	if err != nil || len(last.GetVersions()) != 1 || last.GetMeta().GetHasMore() || last.GetMeta().GetNextCursor() != "" || versions.options.BeforeID != first.Versions[1].Id {
-		t.Fatalf("last page=%v err=%v options=%+v", last, err, versions.options)
+	third, err := server.ListModelVersions(referenceContext("tenant-a"), &modelv1.ListModelVersionsRequest{ModelId: referenceModelUUID, Page: int32ptr(3), PageSize: int32ptr(2)})
+	if err != nil || len(third.GetItems()) != 2 || third.GetTotal() != first.GetTotal() || third.Items[0].GetVersion() != "v27" {
+		t.Fatalf("page 3 = %v err=%v", third, err)
 	}
-	request.ModelId = "22222222-2222-4222-8222-222222222222"
-	_, err = server.ListModelVersions(referenceContext("tenant-a"), request)
-	if kratoserrors.Code(err) != 400 || versions.calls != 2 {
-		t.Fatalf("cursor accepted for other model: %v calls=%d", err, versions.calls)
-	}
-	request.ModelId = referenceModelUUID
-	_, err = server.ListModelVersions(referenceContext("tenant-b"), request)
-	if kratoserrors.Code(err) != 400 || versions.calls != 2 {
-		t.Fatalf("cursor accepted for other tenant: %v calls=%d", err, versions.calls)
-	}
-}
-
-func TestEmptyListsReturnTerminalPage(t *testing.T) {
-	server := NewModelServiceWithDependencies(nil, &versionCatalogFake{}, &catalogFake{}, nil, nil)
-	models, err := server.ListModels(referenceContext("tenant-a"), &modelv1.ListModelsRequest{})
-	if err != nil || len(models.GetModels()) != 0 || models.Meta == nil || models.Meta.HasMore || models.Meta.NextCursor != "" {
-		t.Fatalf("empty models=%v err=%v", models, err)
-	}
-	versions, err := server.ListModelVersions(referenceContext("tenant-a"), &modelv1.ListModelVersionsRequest{ModelId: referenceModelUUID})
-	if err != nil || len(versions.GetVersions()) != 0 || versions.Meta == nil || versions.Meta.HasMore || versions.Meta.NextCursor != "" {
-		t.Fatalf("empty versions=%v err=%v", versions, err)
+	if got := versions.options[len(versions.options)-1]; got.Offset != 4 || got.Limit != 2 {
+		t.Fatalf("page options = %+v", got)
 	}
 }

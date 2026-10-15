@@ -81,7 +81,7 @@ func TestModelCRUDResolvesExternalID(t *testing.T) {
 				t.Fatalf("create=%v stored=%+v error=%v", created, versions.created, err)
 			}
 			listed, err := s.ListModelVersions(ctx, &modelv1.ListModelVersionsRequest{ModelId: selector})
-			if err != nil || versions.listedID != referenceModelUUID || len(listed.GetVersions()) != 1 || listed.GetVersions()[0].GetModelId() != "Qwen3-32B" {
+			if err != nil || versions.listedID != referenceModelUUID || len(listed.GetItems()) != 1 || listed.GetItems()[0].GetModelId() != "Qwen3-32B" {
 				t.Fatalf("list=%v internal_id=%s error=%v", listed, versions.listedID, err)
 			}
 		})

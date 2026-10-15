@@ -171,25 +171,30 @@ func (s *ModelService) ListModels(ctx context.Context, in *modelv1.ListModelsReq
 	if s.catalog == nil {
 		return nil, errors2.New(503, "MODEL_STORE_UNAVAILABLE", "model store is not configured")
 	}
-	scope := cursorScope(p.TenantID, "models", in.GetStatus(), in.GetKeyword(), in.GetSource(), in.GetCapability())
-	options, err := listPage(in.GetPage(), scope)
+	options, err := resolvePage(in.Page, in.PageSize)
 	if err != nil {
 		return nil, err
 	}
 	options.Status, options.Keyword, options.Source, options.Capability = in.GetStatus(), in.GetKeyword(), in.GetSource(), in.GetCapability()
-	rs, err := s.catalog.ListModels(ctx, p.TenantID, options)
+	var rs []model.Record
+	var total int64
+	if paged, ok := s.catalog.(model.PagedCatalog); ok {
+		rs, total, err = paged.ListModelsPage(ctx, p.TenantID, options)
+	} else {
+		rs, err = s.catalog.ListModels(ctx, p.TenantID, options)
+		if err == nil {
+			total, err = s.catalog.CountModels(ctx, p.TenantID, options)
+		}
+	}
 	if err != nil {
 		return nil, errors2.New(500, "MODEL_STORE_ERROR", err.Error())
 	}
-	meta := &modelv1.CursorPageMeta{HasMore: len(rs) > int(options.Limit-1)}
-	if meta.HasMore {
-		rs = rs[:options.Limit-1]
-		last := rs[len(rs)-1]
-		meta.NextCursor = nextCursor(scope, last.CreatedAt, last.ID)
+	if rs == nil {
+		rs = []model.Record{}
 	}
-	out := &modelv1.ListModelsResponse{Models: make([]*modelv1.Model, len(rs)), Meta: meta}
+	out := &modelv1.ListModelsResponse{Items: make([]*modelv1.Model, len(rs)), Total: total}
 	for i, r := range rs {
-		out.Models[i] = toProtoModel(r)
+		out.Items[i] = toProtoModel(r)
 	}
 	return out, nil
 }
@@ -202,45 +207,33 @@ func (s *ModelService) SearchExternalModels(ctx context.Context, in *modelv1.Sea
 	if s.searcher == nil {
 		return nil, errors2.New(503, "MODEL_PROVIDER_UNAVAILABLE", "external model search is not configured")
 	}
-	limit := int(in.GetPage().GetLimit())
-	if limit == 0 {
-		limit = 20
+	options, err := resolvePage(in.Page, in.PageSize)
+	if err != nil {
+		return nil, err
 	}
-	request := model.SearchRequest{
-		Source:  in.GetSource(),
-		Keyword: in.GetKeyword(),
-		Owner:   in.GetOwner(),
-		Task:    in.GetTask(),
-		Library: in.GetLibrary(),
-		Limit:   limit,
-		Cursor:  in.GetPage().GetCursor(),
-	}
+	page := int(options.Offset/int64(options.Limit)) + 1
+	pageSize := int(options.Limit)
+	request := model.SearchRequest{Source: in.GetSource(), Keyword: in.GetKeyword(), Owner: in.GetOwner(), Task: in.GetTask(), Library: in.GetLibrary(), Page: page, PageSize: pageSize, Limit: pageSize}
 	if err := request.Validate(); err != nil {
 		return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid external model search request")
 	}
-	page, err := s.searcher.Search(ctx, request)
+	result, err := s.searcher.Search(ctx, request)
 	if err != nil {
 		if stderrors.Is(err, model.ErrInvalidSearchRequest) {
 			return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid external model search request")
 		}
 		return nil, errors2.New(502, "MODEL_PROVIDER_UNAVAILABLE", "external model provider is unavailable")
 	}
-	response := &modelv1.SearchExternalModelsResponse{
-		Candidates: make([]*modelv1.ExternalModelCandidate, len(page.Items)),
-		Meta:       &modelv1.CursorPageMeta{NextCursor: page.NextCursor, HasMore: page.HasMore},
-	}
-	for i, item := range page.Items {
+	items := make([]*modelv1.ExternalModelCandidate, len(result.Items))
+	for i, item := range result.Items {
 		if item.Source != request.Source || strings.TrimSpace(item.RepoID) == "" || strings.TrimSpace(item.Name) == "" || strings.TrimSpace(item.Revision) == "" {
 			return nil, errors2.New(502, "MODEL_PROVIDER_INVALID_RESPONSE", "external model provider returned an invalid candidate")
 		}
-		response.Candidates[i] = &modelv1.ExternalModelCandidate{
-			Source: item.Source, RepoId: item.RepoID, Name: item.Name, DisplayName: item.DisplayName,
-			Description: item.Description, Revision: item.Revision, SizeBytes: item.SizeBytes,
-			Tags: append([]string(nil), item.Tags...), UpdatedAt: protoTime(item.UpdatedAt),
-		}
+		items[i] = &modelv1.ExternalModelCandidate{Source: item.Source, RepoId: item.RepoID, Name: item.Name, DisplayName: item.DisplayName, Description: item.Description, Revision: item.Revision, SizeBytes: item.SizeBytes, Tags: append([]string(nil), item.Tags...), UpdatedAt: protoTime(item.UpdatedAt)}
 	}
-	return response, nil
+	return &modelv1.SearchExternalModelsResponse{Items: items, Total: result.Total}, nil
 }
+
 func (s *ModelService) DeleteModel(ctx context.Context, in *modelv1.DeleteModelRequest) (*emptypb.Empty, error) {
 	p, err := identity.RequireTenant(ctx, in.GetTenantId())
 	if err != nil {
@@ -379,25 +372,30 @@ func (s *ModelService) ListModelVersions(ctx context.Context, in *modelv1.ListMo
 	if err != nil {
 		return nil, err
 	}
-	scope := cursorScope(p.TenantID, "versions", m.ID)
-	options, err := listPage(in.GetPage(), scope)
+	options, err := resolvePage(in.Page, in.PageSize)
 	if err != nil {
 		return nil, err
 	}
-	rs, err := s.versions.ListVersions(ctx, p.TenantID, m.ID, options)
+	var rs []model.Version
+	var total int64
+	if paged, ok := s.versions.(model.PagedVersionCatalog); ok {
+		rs, total, err = paged.ListVersionsPage(ctx, p.TenantID, m.ID, options)
+	} else {
+		rs, err = s.versions.ListVersions(ctx, p.TenantID, m.ID, options)
+		if err == nil {
+			total, err = s.versions.CountModelVersions(ctx, p.TenantID, m.ID)
+		}
+	}
 	if err != nil {
 		return nil, mapStore(err)
 	}
-	meta := &modelv1.CursorPageMeta{HasMore: len(rs) > int(options.Limit-1)}
-	if meta.HasMore {
-		rs = rs[:options.Limit-1]
-		last := rs[len(rs)-1]
-		meta.NextCursor = nextCursor(scope, last.CreatedAt, last.ID)
+	if rs == nil {
+		rs = []model.Version{}
 	}
-	out := &modelv1.ListModelVersionsResponse{Versions: make([]*modelv1.ModelVersion, len(rs)), Meta: meta}
+	out := &modelv1.ListModelVersionsResponse{Items: make([]*modelv1.ModelVersion, len(rs)), Total: total}
 	for i, v := range rs {
 		v.ExternalModelID = m.ExternalModelID
-		out.Versions[i] = toProtoVersion(v)
+		out.Items[i] = toProtoVersion(v)
 	}
 	return out, nil
 }

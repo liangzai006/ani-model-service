@@ -10,20 +10,33 @@ import (
 var ErrInvalidSearchRequest = errors.New("invalid search request")
 
 type SearchRequest struct {
-	Source  string
-	Keyword string
-	Owner   string
-	Task    string
-	Library string
-	Limit   int
-	Cursor  string
+	Source   string
+	Keyword  string
+	Owner    string
+	Task     string
+	Library  string
+	Page     int
+	PageSize int
+	Limit    int    // Deprecated compatibility alias for PageSize.
+	Cursor   string // Deprecated compatibility cursor.
 }
 
 func (r SearchRequest) Validate() error {
 	if r.Source != "modelscope" && r.Source != "huggingface" {
 		return ErrInvalidSearchRequest
 	}
-	if strings.TrimSpace(r.Keyword) == "" || r.Limit < 1 || r.Limit > 50 || len(r.Cursor) > 2048 {
+	size := r.PageSize
+	if size == 0 {
+		size = r.Limit
+	}
+	if size == 0 {
+		size = 20
+	}
+	page := r.Page
+	if page == 0 {
+		page = 1
+	}
+	if strings.TrimSpace(r.Keyword) == "" || page < 1 || page > 100 || size < 1 || size > 100 || len(r.Cursor) > 2048 {
 		return ErrInvalidSearchRequest
 	}
 	return nil
@@ -45,6 +58,7 @@ type SearchPage struct {
 	Items      []SearchResult
 	NextCursor string
 	HasMore    bool
+	Total      int64
 }
 
 type Searcher interface {

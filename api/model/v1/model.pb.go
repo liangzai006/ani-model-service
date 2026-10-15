@@ -923,10 +923,11 @@ type ListModelsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	Page          *CursorPageRequest     `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	Keyword       string                 `protobuf:"bytes,4,opt,name=keyword,proto3" json:"keyword,omitempty"`
 	Source        string                 `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
 	Capability    string                 `protobuf:"bytes,6,opt,name=capability,proto3" json:"capability,omitempty"`
+	Page          *int32                 `protobuf:"varint,7,opt,name=page,proto3,oneof" json:"page,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,8,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -975,13 +976,6 @@ func (x *ListModelsRequest) GetStatus() string {
 	return ""
 }
 
-func (x *ListModelsRequest) GetPage() *CursorPageRequest {
-	if x != nil {
-		return x.Page
-	}
-	return nil
-}
-
 func (x *ListModelsRequest) GetKeyword() string {
 	if x != nil {
 		return x.Keyword
@@ -1003,10 +997,24 @@ func (x *ListModelsRequest) GetCapability() string {
 	return ""
 }
 
+func (x *ListModelsRequest) GetPage() int32 {
+	if x != nil && x.Page != nil {
+		return *x.Page
+	}
+	return 0
+}
+
+func (x *ListModelsRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
+	}
+	return 0
+}
+
 type ListModelsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Models        []*Model               `protobuf:"bytes,1,rep,name=models,proto3" json:"models,omitempty"`
-	Meta          *CursorPageMeta        `protobuf:"bytes,2,opt,name=meta,proto3" json:"meta,omitempty"`
+	Items         []*Model               `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int64                  `protobuf:"varint,4,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1041,18 +1049,18 @@ func (*ListModelsResponse) Descriptor() ([]byte, []int) {
 	return file_model_v1_model_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *ListModelsResponse) GetModels() []*Model {
+func (x *ListModelsResponse) GetItems() []*Model {
 	if x != nil {
-		return x.Models
+		return x.Items
 	}
 	return nil
 }
 
-func (x *ListModelsResponse) GetMeta() *CursorPageMeta {
+func (x *ListModelsResponse) GetTotal() int64 {
 	if x != nil {
-		return x.Meta
+		return x.Total
 	}
-	return nil
+	return 0
 }
 
 type SearchExternalModelsRequest struct {
@@ -1063,7 +1071,8 @@ type SearchExternalModelsRequest struct {
 	Owner         string                 `protobuf:"bytes,4,opt,name=owner,proto3" json:"owner,omitempty"`
 	Task          string                 `protobuf:"bytes,5,opt,name=task,proto3" json:"task,omitempty"`
 	Library       string                 `protobuf:"bytes,6,opt,name=library,proto3" json:"library,omitempty"`
-	Page          *CursorPageRequest     `protobuf:"bytes,7,opt,name=page,proto3" json:"page,omitempty"`
+	Page          *int32                 `protobuf:"varint,8,opt,name=page,proto3,oneof" json:"page,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,9,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1140,11 +1149,18 @@ func (x *SearchExternalModelsRequest) GetLibrary() string {
 	return ""
 }
 
-func (x *SearchExternalModelsRequest) GetPage() *CursorPageRequest {
-	if x != nil {
-		return x.Page
+func (x *SearchExternalModelsRequest) GetPage() int32 {
+	if x != nil && x.Page != nil {
+		return *x.Page
 	}
-	return nil
+	return 0
+}
+
+func (x *SearchExternalModelsRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
+	}
+	return 0
 }
 
 type ExternalModelCandidate struct {
@@ -1257,8 +1273,8 @@ func (x *ExternalModelCandidate) GetUpdatedAt() *timestamppb.Timestamp {
 
 type SearchExternalModelsResponse struct {
 	state         protoimpl.MessageState    `protogen:"open.v1"`
-	Candidates    []*ExternalModelCandidate `protobuf:"bytes,1,rep,name=candidates,proto3" json:"candidates,omitempty"`
-	Meta          *CursorPageMeta           `protobuf:"bytes,2,opt,name=meta,proto3" json:"meta,omitempty"`
+	Items         []*ExternalModelCandidate `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int64                     `protobuf:"varint,4,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1293,25 +1309,26 @@ func (*SearchExternalModelsResponse) Descriptor() ([]byte, []int) {
 	return file_model_v1_model_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *SearchExternalModelsResponse) GetCandidates() []*ExternalModelCandidate {
+func (x *SearchExternalModelsResponse) GetItems() []*ExternalModelCandidate {
 	if x != nil {
-		return x.Candidates
+		return x.Items
 	}
 	return nil
 }
 
-func (x *SearchExternalModelsResponse) GetMeta() *CursorPageMeta {
+func (x *SearchExternalModelsResponse) GetTotal() int64 {
 	if x != nil {
-		return x.Meta
+		return x.Total
 	}
-	return nil
+	return 0
 }
 
 type ListModelVersionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	ModelId       string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	Page          *CursorPageRequest     `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
+	Page          *int32                 `protobuf:"varint,4,opt,name=page,proto3,oneof" json:"page,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1360,17 +1377,24 @@ func (x *ListModelVersionsRequest) GetModelId() string {
 	return ""
 }
 
-func (x *ListModelVersionsRequest) GetPage() *CursorPageRequest {
-	if x != nil {
-		return x.Page
+func (x *ListModelVersionsRequest) GetPage() int32 {
+	if x != nil && x.Page != nil {
+		return *x.Page
 	}
-	return nil
+	return 0
+}
+
+func (x *ListModelVersionsRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
+	}
+	return 0
 }
 
 type ListModelVersionsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Versions      []*ModelVersion        `protobuf:"bytes,1,rep,name=versions,proto3" json:"versions,omitempty"`
-	Meta          *CursorPageMeta        `protobuf:"bytes,2,opt,name=meta,proto3" json:"meta,omitempty"`
+	Items         []*ModelVersion        `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int64                  `protobuf:"varint,4,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1405,18 +1429,18 @@ func (*ListModelVersionsResponse) Descriptor() ([]byte, []int) {
 	return file_model_v1_model_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *ListModelVersionsResponse) GetVersions() []*ModelVersion {
+func (x *ListModelVersionsResponse) GetItems() []*ModelVersion {
 	if x != nil {
-		return x.Versions
+		return x.Items
 	}
 	return nil
 }
 
-func (x *ListModelVersionsResponse) GetMeta() *CursorPageMeta {
+func (x *ListModelVersionsResponse) GetTotal() int64 {
 	if x != nil {
-		return x.Meta
+		return x.Total
 	}
-	return nil
+	return 0
 }
 
 type CreateModelVersionRequest struct {
@@ -2388,27 +2412,35 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\x0eCursorPageMeta\x12\x1f\n" +
 	"\vnext_cursor\x18\x01 \x01(\tR\n" +
 	"nextCursor\x12\x19\n" +
-	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"\xcb\x01\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"\xf2\x01\n" +
 	"\x11ListModelsRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\x12/\n" +
-	"\x04page\x18\x03 \x01(\v2\x1b.model.v1.CursorPageRequestR\x04page\x12\x18\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x18\n" +
 	"\akeyword\x18\x04 \x01(\tR\akeyword\x12\x16\n" +
 	"\x06source\x18\x05 \x01(\tR\x06source\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x06 \x01(\tR\n" +
-	"capability\"k\n" +
-	"\x12ListModelsResponse\x12'\n" +
-	"\x06models\x18\x01 \x03(\v2\x0f.model.v1.ModelR\x06models\x12,\n" +
-	"\x04meta\x18\x02 \x01(\v2\x18.model.v1.CursorPageMetaR\x04meta\"\xe1\x01\n" +
+	"capability\x12\x17\n" +
+	"\x04page\x18\a \x01(\x05H\x00R\x04page\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\b \x01(\x05H\x01R\bpageSize\x88\x01\x01B\a\n" +
+	"\x05_pageB\f\n" +
+	"\n" +
+	"_page_sizeJ\x04\b\x03\x10\x04\"]\n" +
+	"\x12ListModelsResponse\x12%\n" +
+	"\x05items\x18\x03 \x03(\v2\x0f.model.v1.ModelR\x05items\x12\x14\n" +
+	"\x05total\x18\x04 \x01(\x03R\x05totalJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\x88\x02\n" +
 	"\x1bSearchExternalModelsRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x18\n" +
 	"\akeyword\x18\x03 \x01(\tR\akeyword\x12\x14\n" +
 	"\x05owner\x18\x04 \x01(\tR\x05owner\x12\x12\n" +
 	"\x04task\x18\x05 \x01(\tR\x04task\x12\x18\n" +
-	"\alibrary\x18\x06 \x01(\tR\alibrary\x12/\n" +
-	"\x04page\x18\a \x01(\v2\x1b.model.v1.CursorPageRequestR\x04page\"\xac\x02\n" +
+	"\alibrary\x18\x06 \x01(\tR\alibrary\x12\x17\n" +
+	"\x04page\x18\b \x01(\x05H\x00R\x04page\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\t \x01(\x05H\x01R\bpageSize\x88\x01\x01B\a\n" +
+	"\x05_pageB\f\n" +
+	"\n" +
+	"_page_sizeJ\x04\b\a\x10\b\"\xac\x02\n" +
 	"\x16ExternalModelCandidate\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x17\n" +
 	"\arepo_id\x18\x02 \x01(\tR\x06repoId\x12\x12\n" +
@@ -2420,19 +2452,21 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"size_bytes\x18\a \x01(\x03R\tsizeBytes\x12\x12\n" +
 	"\x04tags\x18\b \x03(\tR\x04tags\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x8e\x01\n" +
-	"\x1cSearchExternalModelsResponse\x12@\n" +
-	"\n" +
-	"candidates\x18\x01 \x03(\v2 .model.v1.ExternalModelCandidateR\n" +
-	"candidates\x12,\n" +
-	"\x04meta\x18\x02 \x01(\v2\x18.model.v1.CursorPageMetaR\x04meta\"\x83\x01\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"x\n" +
+	"\x1cSearchExternalModelsResponse\x126\n" +
+	"\x05items\x18\x03 \x03(\v2 .model.v1.ExternalModelCandidateR\x05items\x12\x14\n" +
+	"\x05total\x18\x04 \x01(\x03R\x05totalJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\xaa\x01\n" +
 	"\x18ListModelVersionsRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12/\n" +
-	"\x04page\x18\x03 \x01(\v2\x1b.model.v1.CursorPageRequestR\x04page\"}\n" +
-	"\x19ListModelVersionsResponse\x122\n" +
-	"\bversions\x18\x01 \x03(\v2\x16.model.v1.ModelVersionR\bversions\x12,\n" +
-	"\x04meta\x18\x02 \x01(\v2\x18.model.v1.CursorPageMetaR\x04meta\"\xf5\x03\n" +
+	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x17\n" +
+	"\x04page\x18\x04 \x01(\x05H\x00R\x04page\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x05 \x01(\x05H\x01R\bpageSize\x88\x01\x01B\a\n" +
+	"\x05_pageB\f\n" +
+	"\n" +
+	"_page_sizeJ\x04\b\x03\x10\x04\"k\n" +
+	"\x19ListModelVersionsResponse\x12,\n" +
+	"\x05items\x18\x03 \x03(\v2\x16.model.v1.ModelVersionR\x05items\x12\x14\n" +
+	"\x05total\x18\x04 \x01(\x03R\x05totalJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\xf5\x03\n" +
 	"\x19CreateModelVersionRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x18\n" +
@@ -2591,56 +2625,50 @@ var file_model_v1_model_proto_depIdxs = []int32{
 	31, // 3: model.v1.ModelVersion.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: model.v1.GetModelVersionResponse.model:type_name -> model.v1.Model
 	1,  // 5: model.v1.GetModelVersionResponse.version:type_name -> model.v1.ModelVersion
-	10, // 6: model.v1.ListModelsRequest.page:type_name -> model.v1.CursorPageRequest
-	0,  // 7: model.v1.ListModelsResponse.models:type_name -> model.v1.Model
-	11, // 8: model.v1.ListModelsResponse.meta:type_name -> model.v1.CursorPageMeta
-	10, // 9: model.v1.SearchExternalModelsRequest.page:type_name -> model.v1.CursorPageRequest
-	31, // 10: model.v1.ExternalModelCandidate.updated_at:type_name -> google.protobuf.Timestamp
-	15, // 11: model.v1.SearchExternalModelsResponse.candidates:type_name -> model.v1.ExternalModelCandidate
-	11, // 12: model.v1.SearchExternalModelsResponse.meta:type_name -> model.v1.CursorPageMeta
-	10, // 13: model.v1.ListModelVersionsRequest.page:type_name -> model.v1.CursorPageRequest
-	1,  // 14: model.v1.ListModelVersionsResponse.versions:type_name -> model.v1.ModelVersion
-	11, // 15: model.v1.ListModelVersionsResponse.meta:type_name -> model.v1.CursorPageMeta
-	31, // 16: model.v1.GetUploadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
-	30, // 17: model.v1.GetUploadURLResponse.upload_headers:type_name -> model.v1.GetUploadURLResponse.UploadHeadersEntry
-	31, // 18: model.v1.ImportTask.created_at:type_name -> google.protobuf.Timestamp
-	31, // 19: model.v1.ImportTask.completed_at:type_name -> google.protobuf.Timestamp
-	23, // 20: model.v1.GetImportTaskResponse.task:type_name -> model.v1.ImportTask
-	23, // 21: model.v1.RetryImportTaskResponse.task:type_name -> model.v1.ImportTask
-	31, // 22: model.v1.GetModelDownloadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
-	3,  // 23: model.v1.ModelService.CreateModel:input_type -> model.v1.CreateModelRequest
-	4,  // 24: model.v1.ModelService.GetModel:input_type -> model.v1.GetModelRequest
-	12, // 25: model.v1.ModelService.ListModels:input_type -> model.v1.ListModelsRequest
-	14, // 26: model.v1.ModelService.SearchExternalModels:input_type -> model.v1.SearchExternalModelsRequest
-	5,  // 27: model.v1.ModelService.DeleteModel:input_type -> model.v1.DeleteModelRequest
-	8,  // 28: model.v1.ModelService.GetModelVersion:input_type -> model.v1.GetModelVersionRequest
-	17, // 29: model.v1.ModelService.ListModelVersions:input_type -> model.v1.ListModelVersionsRequest
-	6,  // 30: model.v1.ModelService.DeleteModelVersion:input_type -> model.v1.DeleteModelVersionRequest
-	19, // 31: model.v1.ModelService.CreateModelVersion:input_type -> model.v1.CreateModelVersionRequest
-	20, // 32: model.v1.ModelService.GetUploadURL:input_type -> model.v1.GetUploadURLRequest
-	22, // 33: model.v1.ModelService.ImportModel:input_type -> model.v1.ImportModelRequest
-	24, // 34: model.v1.ModelService.GetImportTask:input_type -> model.v1.GetImportTaskRequest
-	25, // 35: model.v1.ModelService.RetryImportTask:input_type -> model.v1.RetryImportTaskRequest
-	28, // 36: model.v1.ModelService.GetModelDownloadURL:input_type -> model.v1.GetModelDownloadURLRequest
-	0,  // 37: model.v1.ModelService.CreateModel:output_type -> model.v1.Model
-	0,  // 38: model.v1.ModelService.GetModel:output_type -> model.v1.Model
-	13, // 39: model.v1.ModelService.ListModels:output_type -> model.v1.ListModelsResponse
-	16, // 40: model.v1.ModelService.SearchExternalModels:output_type -> model.v1.SearchExternalModelsResponse
-	32, // 41: model.v1.ModelService.DeleteModel:output_type -> google.protobuf.Empty
-	9,  // 42: model.v1.ModelService.GetModelVersion:output_type -> model.v1.GetModelVersionResponse
-	18, // 43: model.v1.ModelService.ListModelVersions:output_type -> model.v1.ListModelVersionsResponse
-	7,  // 44: model.v1.ModelService.DeleteModelVersion:output_type -> model.v1.DeleteModelVersionResponse
-	1,  // 45: model.v1.ModelService.CreateModelVersion:output_type -> model.v1.ModelVersion
-	21, // 46: model.v1.ModelService.GetUploadURL:output_type -> model.v1.GetUploadURLResponse
-	23, // 47: model.v1.ModelService.ImportModel:output_type -> model.v1.ImportTask
-	26, // 48: model.v1.ModelService.GetImportTask:output_type -> model.v1.GetImportTaskResponse
-	27, // 49: model.v1.ModelService.RetryImportTask:output_type -> model.v1.RetryImportTaskResponse
-	29, // 50: model.v1.ModelService.GetModelDownloadURL:output_type -> model.v1.GetModelDownloadURLResponse
-	37, // [37:51] is the sub-list for method output_type
-	23, // [23:37] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	0,  // 6: model.v1.ListModelsResponse.items:type_name -> model.v1.Model
+	31, // 7: model.v1.ExternalModelCandidate.updated_at:type_name -> google.protobuf.Timestamp
+	15, // 8: model.v1.SearchExternalModelsResponse.items:type_name -> model.v1.ExternalModelCandidate
+	1,  // 9: model.v1.ListModelVersionsResponse.items:type_name -> model.v1.ModelVersion
+	31, // 10: model.v1.GetUploadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
+	30, // 11: model.v1.GetUploadURLResponse.upload_headers:type_name -> model.v1.GetUploadURLResponse.UploadHeadersEntry
+	31, // 12: model.v1.ImportTask.created_at:type_name -> google.protobuf.Timestamp
+	31, // 13: model.v1.ImportTask.completed_at:type_name -> google.protobuf.Timestamp
+	23, // 14: model.v1.GetImportTaskResponse.task:type_name -> model.v1.ImportTask
+	23, // 15: model.v1.RetryImportTaskResponse.task:type_name -> model.v1.ImportTask
+	31, // 16: model.v1.GetModelDownloadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
+	3,  // 17: model.v1.ModelService.CreateModel:input_type -> model.v1.CreateModelRequest
+	4,  // 18: model.v1.ModelService.GetModel:input_type -> model.v1.GetModelRequest
+	12, // 19: model.v1.ModelService.ListModels:input_type -> model.v1.ListModelsRequest
+	14, // 20: model.v1.ModelService.SearchExternalModels:input_type -> model.v1.SearchExternalModelsRequest
+	5,  // 21: model.v1.ModelService.DeleteModel:input_type -> model.v1.DeleteModelRequest
+	8,  // 22: model.v1.ModelService.GetModelVersion:input_type -> model.v1.GetModelVersionRequest
+	17, // 23: model.v1.ModelService.ListModelVersions:input_type -> model.v1.ListModelVersionsRequest
+	6,  // 24: model.v1.ModelService.DeleteModelVersion:input_type -> model.v1.DeleteModelVersionRequest
+	19, // 25: model.v1.ModelService.CreateModelVersion:input_type -> model.v1.CreateModelVersionRequest
+	20, // 26: model.v1.ModelService.GetUploadURL:input_type -> model.v1.GetUploadURLRequest
+	22, // 27: model.v1.ModelService.ImportModel:input_type -> model.v1.ImportModelRequest
+	24, // 28: model.v1.ModelService.GetImportTask:input_type -> model.v1.GetImportTaskRequest
+	25, // 29: model.v1.ModelService.RetryImportTask:input_type -> model.v1.RetryImportTaskRequest
+	28, // 30: model.v1.ModelService.GetModelDownloadURL:input_type -> model.v1.GetModelDownloadURLRequest
+	0,  // 31: model.v1.ModelService.CreateModel:output_type -> model.v1.Model
+	0,  // 32: model.v1.ModelService.GetModel:output_type -> model.v1.Model
+	13, // 33: model.v1.ModelService.ListModels:output_type -> model.v1.ListModelsResponse
+	16, // 34: model.v1.ModelService.SearchExternalModels:output_type -> model.v1.SearchExternalModelsResponse
+	32, // 35: model.v1.ModelService.DeleteModel:output_type -> google.protobuf.Empty
+	9,  // 36: model.v1.ModelService.GetModelVersion:output_type -> model.v1.GetModelVersionResponse
+	18, // 37: model.v1.ModelService.ListModelVersions:output_type -> model.v1.ListModelVersionsResponse
+	7,  // 38: model.v1.ModelService.DeleteModelVersion:output_type -> model.v1.DeleteModelVersionResponse
+	1,  // 39: model.v1.ModelService.CreateModelVersion:output_type -> model.v1.ModelVersion
+	21, // 40: model.v1.ModelService.GetUploadURL:output_type -> model.v1.GetUploadURLResponse
+	23, // 41: model.v1.ModelService.ImportModel:output_type -> model.v1.ImportTask
+	26, // 42: model.v1.ModelService.GetImportTask:output_type -> model.v1.GetImportTaskResponse
+	27, // 43: model.v1.ModelService.RetryImportTask:output_type -> model.v1.RetryImportTaskResponse
+	29, // 44: model.v1.ModelService.GetModelDownloadURL:output_type -> model.v1.GetModelDownloadURLResponse
+	31, // [31:45] is the sub-list for method output_type
+	17, // [17:31] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_model_v1_model_proto_init() }
@@ -2648,6 +2676,9 @@ func file_model_v1_model_proto_init() {
 	if File_model_v1_model_proto != nil {
 		return
 	}
+	file_model_v1_model_proto_msgTypes[12].OneofWrappers = []any{}
+	file_model_v1_model_proto_msgTypes[14].OneofWrappers = []any{}
+	file_model_v1_model_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

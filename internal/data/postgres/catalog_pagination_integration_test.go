@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	kratoserrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
@@ -19,6 +18,8 @@ import (
 
 // Test fixtures are isolated by fresh tenants and rolled back, including on
 // failure. No deployed model or inference state is changed by this test.
+func int32ptr(v int32) *int32 { return &v }
+
 func TestCatalogPaginationPostgres(t *testing.T) {
 	dsn := os.Getenv("MODEL_DATABASE_URL")
 	if dsn == "" {
@@ -74,28 +75,22 @@ func TestCatalogPaginationPostgres(t *testing.T) {
 	principal := func(tenant string) context.Context {
 		return identity.WithPrincipal(ctx, identity.Principal{TenantID: tenant, Actor: "integration-test", Workload: "test"})
 	}
-	request := &modelv1.ListModelsRequest{Status: "ready", Source: "huggingface", Capability: "chat", Keyword: "SMOL", Page: &modelv1.CursorPageRequest{Limit: 2}}
+	request := &modelv1.ListModelsRequest{Status: "ready", Source: "huggingface", Capability: "chat", Keyword: "SMOL", Page: int32ptr(1), PageSize: int32ptr(2)}
 	first, err := server.ListModels(principal(tenant), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Models) != 2 || first.Models[0].Id != id(3) || first.Models[1].Id != id(2) || !first.GetMeta().GetHasMore() {
+	if len(first.Items) != 2 || first.Items[0].Id != id(3) || first.Items[1].Id != id(2) || first.GetTotal() != 3 {
 		t.Fatalf("first page: %v", first)
 	}
-	m := first.Models[0]
+	m := first.Items[0]
 	if m.SourceRepoId != "org/smol" || m.TotalSizeBytes != 123 || m.ErrorMessage != "fixture error" || !m.CreatedAt.AsTime().Equal(created) || !m.UpdatedAt.AsTime().Equal(created) || len(m.Versions) != 1 || m.Versions[0].Version != "v2" {
 		t.Fatalf("metadata/latest version: %v", m)
 	}
-	request.Page.Cursor = first.Meta.NextCursor
-	// A newly inserted item ahead of the cursor must not shift or repeat page 2.
-	exec(`INSERT INTO public.models (tenant_id,id,model_id,name,source,status,capabilities,created_at) VALUES ($1,$2,'smol-new','smol-new','huggingface','ready','["chat"]',$3)`, tenant, id(99), created.Add(time.Second))
+	request.Page = int32ptr(2)
 	last, err := server.ListModels(principal(tenant), request)
-	if err != nil || len(last.GetModels()) != 1 || last.Models[0].Id != id(1) || last.GetMeta().GetHasMore() || last.GetMeta().GetNextCursor() != "" {
+	if err != nil || len(last.GetItems()) != 1 || last.Items[0].Id != id(1) || last.GetTotal() != 3 {
 		t.Fatalf("last page: %v err=%v", last, err)
-	}
-	_, err = server.ListModels(principal(other), request)
-	if kratoserrors.Code(err) != 400 {
-		t.Fatalf("foreign cursor accepted: %v", err)
 	}
 	for _, tc := range []struct {
 		name string
@@ -113,46 +108,41 @@ func TestCatalogPaginationPostgres(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(got.Models) != len(tc.ids) {
+			if len(got.Items) != len(tc.ids) {
 				t.Fatalf("results=%v", got)
 			}
 			for i, want := range tc.ids {
-				if got.Models[i].Id != want {
+				if got.Items[i].Id != want {
 					t.Fatalf("results=%v", got)
 				}
 			}
-			if got.Meta == nil || got.Meta.HasMore || got.Meta.NextCursor != "" {
-				t.Fatalf("unexpected page: %v", got.Meta)
+			if got.GetTotal() != int64(len(tc.ids)) {
+				t.Fatalf("unexpected total: %v", got.GetTotal())
 			}
 		})
 	}
 	foreign, err := server.ListModels(principal(other), &modelv1.ListModelsRequest{})
-	if err != nil || len(foreign.GetModels()) != 1 || foreign.Models[0].DisplayName != "Smol foreign" || len(foreign.Models[0].Versions) != 0 {
+	if err != nil || len(foreign.GetItems()) != 1 || foreign.Items[0].DisplayName != "Smol foreign" || len(foreign.Items[0].Versions) != 0 {
 		t.Fatalf("tenant leaked: %v err=%v", foreign, err)
 	}
-	versionRequest := &modelv1.ListModelVersionsRequest{ModelId: "smol-3", Page: &modelv1.CursorPageRequest{Limit: 1}}
+	versionRequest := &modelv1.ListModelVersionsRequest{ModelId: "smol-3", Page: int32ptr(1), PageSize: int32ptr(1)}
 	page, err := server.ListModelVersions(principal(tenant), versionRequest)
-	if err != nil || len(page.GetVersions()) != 1 || page.Versions[0].Version != "v2" || !page.GetMeta().GetHasMore() {
+	if err != nil || len(page.GetItems()) != 1 || page.Items[0].Version != "v2" || page.GetTotal() != 3 {
 		t.Fatalf("versions page=%v err=%v", page, err)
 	}
-	versionRequest.Page.Cursor = page.Meta.NextCursor
+	versionRequest.Page = int32ptr(2)
 	versionRequest.ModelId = id(3) // external and internal model selectors share a scope.
 	page, err = server.ListModelVersions(principal(tenant), versionRequest)
-	if err != nil || len(page.GetVersions()) != 1 || page.Versions[0].Version != "v1" || page.GetMeta().GetHasMore() || page.GetMeta().GetNextCursor() != "" {
+	if err != nil || len(page.GetItems()) != 1 || page.Items[0].Version != "v1" || page.GetTotal() != 3 {
 		t.Fatalf("versions last=%v err=%v", page, err)
 	}
-	v := page.Versions[0]
+	v := page.Items[0]
 	if v.SizeBytes != 123 || !v.IsEncrypted || v.EncryptAlgo != "AES-256" || v.EncryptHint != "key-a" || v.ChecksumSha256 != strings.Repeat("a", 64) || v.StoragePath != "tenant/model/v1/model.tar" || !v.CreatedAt.AsTime().Equal(created) {
 		t.Fatalf("version metadata=%v", v)
 	}
 	ready, err := server.GetModelVersion(principal(tenant), &modelv1.GetModelVersionRequest{ModelVersionId: id(10)})
 	if err != nil || ready.GetVersion().GetSizeBytes() != 123 || !ready.GetVersion().GetIsEncrypted() || !ready.GetVersion().GetCreatedAt().AsTime().Equal(created) {
 		t.Fatalf("ready metadata=%v err=%v", ready, err)
-	}
-	versionRequest.ModelId = id(2)
-	_, err = server.ListModelVersions(principal(tenant), versionRequest)
-	if kratoserrors.Code(err) != 400 {
-		t.Fatalf("cursor reused for different model: %v", err)
 	}
 	detail, err := server.GetModel(principal(tenant), &modelv1.GetModelRequest{ModelId: "smol-3"})
 	if err != nil || len(detail.GetVersions()) != 1 || detail.Versions[0].Version != "v2" {

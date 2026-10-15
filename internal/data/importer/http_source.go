@@ -294,7 +294,10 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 	if request.Source != a.ManifestKind {
 		return modelbiz.SearchPage{}, fmt.Errorf("%w: source does not match adapter", ErrProvider)
 	}
-	page := 1
+	page := request.Page
+	if page < 1 {
+		page = 1
+	}
 	cursor := ""
 	var err error
 	if a.ManifestKind == "huggingface" {
@@ -328,7 +331,13 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 	var items []modelbiz.SearchResult
 	var totalCount *int
 	currentPage := page
-	pageSize := request.Limit
+	pageSize := request.PageSize
+	if pageSize < 1 {
+		pageSize = request.Limit
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
 	switch a.ManifestKind {
 	case "modelscope":
 		var payload modelScopeSearchResponse
@@ -380,6 +389,9 @@ func (a *HTTPSourceAdapter) Search(ctx context.Context, request modelbiz.SearchR
 		return modelbiz.SearchPage{}, fmt.Errorf("%w: unsupported search provider", ErrProvider)
 	}
 	result := modelbiz.SearchPage{Items: items}
+	if totalCount != nil && *totalCount >= 0 {
+		result.Total = int64(*totalCount)
+	}
 	if a.ManifestKind == "huggingface" {
 		token, err := huggingFaceNextCursor(resp, a.BaseURL)
 		if err != nil {
@@ -441,6 +453,16 @@ func huggingFaceNextCursor(resp *http.Response, baseURL string) (string, error) 
 	return "", nil
 }
 
+func searchPageSize(request modelbiz.SearchRequest) int {
+	if request.PageSize > 0 {
+		return request.PageSize
+	}
+	if request.Limit > 0 {
+		return request.Limit
+	}
+	return 20
+}
+
 func (a *HTTPSourceAdapter) searchURL(request modelbiz.SearchRequest, page int) (string, error) {
 	return a.searchURLWithCursor(request, page, "")
 }
@@ -463,7 +485,7 @@ func (a *HTTPSourceAdapter) searchURLWithCursor(request modelbiz.SearchRequest, 
 		if request.Library != "" {
 			values.Set("filter.library", request.Library)
 		}
-		values.Set("page_size", strconv.Itoa(request.Limit))
+		values.Set("page_size", strconv.Itoa(searchPageSize(request)))
 		if page > 1 {
 			values.Set("page_number", strconv.Itoa(page))
 		}
@@ -480,7 +502,7 @@ func (a *HTTPSourceAdapter) searchURLWithCursor(request modelbiz.SearchRequest, 
 			// does not define a `library` query parameter.
 			values.Set("filter", request.Library)
 		}
-		values.Set("limit", strconv.Itoa(request.Limit))
+		values.Set("limit", strconv.Itoa(searchPageSize(request)))
 		if cursor != "" {
 			values.Set("cursor", cursor)
 		}

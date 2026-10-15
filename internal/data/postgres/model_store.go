@@ -85,7 +85,74 @@ func (s *ModelStore) ListModels(ctx context.Context, tenantID string, options mo
 	if err != nil {
 		return nil, err
 	}
-	return New(s.pool).ListModels(ctx, ListModelsParams{TenantID: uuidType(tenant), StatusFilter: options.Status, SourceFilter: options.Source, Capability: options.Capability, Keyword: options.Keyword, PageLimit: options.Limit, BeforeCreatedAt: beforeTime, BeforeID: beforeID})
+	return New(s.pool).ListModels(ctx, ListModelsParams{TenantID: uuidType(tenant), StatusFilter: options.Status, SourceFilter: options.Source, Capability: options.Capability, Keyword: options.Keyword, PageOffset: int32(options.Offset), PageLimit: options.Limit, BeforeCreatedAt: beforeTime, BeforeID: beforeID})
+}
+
+func (s *ModelStore) CountModels(ctx context.Context, tenantID string, options modelbiz.ListOptions) (int64, error) {
+	tenant, err := uuid.Parse(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("tenant_id: %w", err)
+	}
+	return New(s.pool).CountModels(ctx, CountModelsParams{TenantID: uuidType(tenant), StatusFilter: options.Status, SourceFilter: options.Source, Capability: options.Capability, Keyword: options.Keyword})
+}
+
+// ListModelsPage executes count and page reads under one read transaction when
+// the configured DB handle supports transactions. A transaction handle passed
+// by tests or a caller is already scoped and is used directly.
+func (s *ModelStore) ListModelsPage(ctx context.Context, tenantID string, options modelbiz.ListOptions) ([]ListModelsRow, int64, error) {
+	if db, ok := s.pool.(interface {
+		BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+	}); ok {
+		tx, err := db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+		if err != nil {
+			return nil, 0, err
+		}
+		q := New(tx)
+		count, err := s.countModels(ctx, q, tenantID, options)
+		if err == nil {
+			var rows []ListModelsRow
+			rows, err = s.listModels(ctx, q, tenantID, options)
+			if err == nil {
+				err = tx.Commit(ctx)
+			}
+			if err == nil {
+				return rows, count, nil
+			}
+		}
+		_ = tx.Rollback(ctx)
+		return nil, 0, err
+	}
+	q := New(s.pool)
+	count, err := s.countModels(ctx, q, tenantID, options)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.listModels(ctx, q, tenantID, options)
+	return rows, count, err
+}
+
+func (s *ModelStore) countModels(ctx context.Context, q *Queries, tenantID string, options modelbiz.ListOptions) (int64, error) {
+	tenant, err := uuid.Parse(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("tenant_id: %w", err)
+	}
+	return q.CountModels(ctx, CountModelsParams{TenantID: uuidType(tenant), StatusFilter: options.Status, SourceFilter: options.Source, Capability: options.Capability, Keyword: options.Keyword})
+}
+
+func (s *ModelStore) listModels(ctx context.Context, q *Queries, tenantID string, options modelbiz.ListOptions) ([]ListModelsRow, error) {
+	tenant, err := uuid.Parse(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("tenant_id: %w", err)
+	}
+	beforeTime, beforeID, err := listBoundary(options)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.ListModels(ctx, ListModelsParams{TenantID: uuidType(tenant), StatusFilter: options.Status, SourceFilter: options.Source, Capability: options.Capability, Keyword: options.Keyword, PageOffset: int32(options.Offset), PageLimit: options.Limit, BeforeCreatedAt: beforeTime, BeforeID: beforeID})
+	if rows == nil && err == nil {
+		rows = []ListModelsRow{}
+	}
+	return rows, err
 }
 
 func listBoundary(options modelbiz.ListOptions) (pgtype.Timestamptz, pgtype.UUID, error) {

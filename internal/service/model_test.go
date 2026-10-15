@@ -26,6 +26,9 @@ func (c *catalogFake) GetModel(_ context.Context, tenant, id string) (model.Reco
 func (c *catalogFake) ListModels(context.Context, string, model.ListOptions) ([]model.Record, error) {
 	return nil, nil
 }
+func (c *catalogFake) CountModels(context.Context, string, model.ListOptions) (int64, error) {
+	return 0, nil
+}
 func (c *catalogFake) SoftDeleteModel(context.Context, string, string) error { return nil }
 
 type referenceCheckerFake struct {
@@ -135,6 +138,9 @@ func (f *versionCatalogFake) CreateVersion(_ context.Context, v model.Version) (
 func (f *versionCatalogFake) ListVersions(context.Context, string, string, model.ListOptions) ([]model.Version, error) {
 	return nil, nil
 }
+func (f *versionCatalogFake) CountModelVersions(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
 func (f *versionCatalogFake) MarkReady(context.Context, string, string) error {
 	f.ready = true
 	return nil
@@ -168,26 +174,26 @@ func TestSearchExternalModelsForwardsFiltersAndMapsCandidates(t *testing.T) {
 			Source: "huggingface", RepoID: "Qwen/Qwen3-8B", Name: "Qwen3-8B", DisplayName: "Qwen 3 8B",
 			Description: "text model", Revision: "main", SizeBytes: 123, Tags: []string{"text-generation"},
 			UpdatedAt: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC),
-		}}, NextCursor: "opaque", HasMore: true}}
+		}}, NextCursor: "opaque", HasMore: true, Total: 42}}
 	s := NewModelService(nil)
 	s.SetExternalModelSearcher(searcher)
 	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
 	got, err := s.SearchExternalModels(ctx, &modelv1.SearchExternalModelsRequest{
 		TenantId: "tenant-a", Source: "huggingface", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers",
-		Page: &modelv1.CursorPageRequest{Limit: 7, Cursor: "cursor-1"},
+		Page: int32ptr(1), PageSize: int32ptr(7),
 	})
 	if err != nil {
 		t.Fatalf("SearchExternalModels() error = %v", err)
 	}
-	want := model.SearchRequest{Source: "huggingface", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers", Limit: 7, Cursor: "cursor-1"}
+	want := model.SearchRequest{Source: "huggingface", Keyword: "Qwen", Owner: "Qwen", Task: "text-generation", Library: "transformers", Page: 1, PageSize: 7, Limit: 7}
 	if searcher.request != want {
 		t.Fatalf("search request = %+v, want %+v", searcher.request, want)
 	}
-	if len(got.GetCandidates()) != 1 || got.GetCandidates()[0].GetRepoId() != "Qwen/Qwen3-8B" || got.GetCandidates()[0].GetRevision() != "main" {
-		t.Fatalf("candidates = %+v", got.GetCandidates())
+	if len(got.GetItems()) != 1 || got.GetItems()[0].GetRepoId() != "Qwen/Qwen3-8B" || got.GetItems()[0].GetRevision() != "main" {
+		t.Fatalf("candidates = %+v", got.GetItems())
 	}
-	if got.GetCandidates()[0].GetUpdatedAt().AsTime() != searcher.page.Items[0].UpdatedAt || got.GetMeta().GetNextCursor() != "opaque" || !got.GetMeta().GetHasMore() {
-		t.Fatalf("response metadata = %+v", got.GetMeta())
+	if got.GetItems()[0].GetUpdatedAt().AsTime() != searcher.page.Items[0].UpdatedAt || got.GetTotal() != 42 {
+		t.Fatalf("response total = %+v", got.GetTotal())
 	}
 }
 
@@ -196,9 +202,11 @@ func TestSearchExternalModelsRejectsInvalidRequests(t *testing.T) {
 		name string
 		in   *modelv1.SearchExternalModelsRequest
 	}{
-		{name: "blank keyword", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Page: &modelv1.CursorPageRequest{Limit: 1}}},
-		{name: "unknown source", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "custom", Keyword: "q", Page: &modelv1.CursorPageRequest{Limit: 1}}},
-		{name: "invalid limit", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q", Page: &modelv1.CursorPageRequest{Limit: 51}}},
+		{name: "blank keyword", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", PageSize: int32ptr(1)}},
+		{name: "unknown source", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "custom", Keyword: "q", PageSize: int32ptr(1)}},
+		{name: "invalid page", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q", Page: int32ptr(0)}},
+		{name: "invalid page size", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q", PageSize: int32ptr(0)}},
+		{name: "invalid limit", in: &modelv1.SearchExternalModelsRequest{TenantId: "tenant-a", Source: "huggingface", Keyword: "q", PageSize: int32ptr(101)}},
 	}
 	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "gateway"})
 	for _, tt := range tests {
@@ -415,11 +423,11 @@ func TestListModelVersionsPreservesPerVersionEngineDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListModelVersions() error = %v", err)
 	}
-	if len(got.GetVersions()) != 2 {
-		t.Fatalf("versions = %d, want 2", len(got.GetVersions()))
+	if len(got.GetItems()) != 2 {
+		t.Fatalf("versions = %d, want 2", len(got.GetItems()))
 	}
 	want := [][3]string{{"vllm", "registry/vllm:latest", "exec vllm serve /models"}, {"sglang", "registry/sglang:latest", "exec python -m sglang.launch_server --model /models"}}
-	for i, version := range got.GetVersions() {
+	for i, version := range got.GetItems() {
 		if version.GetEngineType() != want[i][0] || version.GetEngineImage() != want[i][1] || version.GetStartupCommand() != want[i][2] {
 			t.Fatalf("version %d defaults = (%q, %q, %q)", i, version.GetEngineType(), version.GetEngineImage(), version.GetStartupCommand())
 		}

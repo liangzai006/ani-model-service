@@ -78,7 +78,21 @@ WHERE tenant_id = $1 AND status <> 'deleted'
   AND (sqlc.narg(before_created_at)::timestamptz IS NULL
        OR (created_at, id) < (sqlc.narg(before_created_at)::timestamptz, sqlc.narg(before_id)::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT sqlc.arg(page_limit);
+LIMIT sqlc.arg(page_limit)
+OFFSET sqlc.arg(page_offset);
+
+-- name: CountModels :one
+SELECT count(*)
+FROM public.models
+WHERE tenant_id = sqlc.arg(tenant_id)
+  AND status <> 'deleted'
+  AND (sqlc.arg(status_filter)::text = '' OR status = sqlc.arg(status_filter))
+  AND (sqlc.arg(source_filter)::text = '' OR source = sqlc.arg(source_filter))
+  AND (sqlc.arg(capability)::text = '' OR capabilities ? sqlc.arg(capability)::text)
+  AND (sqlc.arg(keyword)::text = ''
+       OR strpos(lower(name), lower(sqlc.arg(keyword))) > 0
+       OR strpos(lower(display_name), lower(sqlc.arg(keyword))) > 0
+       OR strpos(lower(model_id), lower(sqlc.arg(keyword))) > 0);
 
 -- name: SoftDeleteModel :execrows
 UPDATE public.models
@@ -159,7 +173,15 @@ WHERE v.tenant_id = $1 AND v.model_id = $2 AND v.status <> 'deleted' AND m.statu
   AND (sqlc.narg(before_created_at)::timestamptz IS NULL
        OR (v.created_at, v.id) < (sqlc.narg(before_created_at)::timestamptz, sqlc.narg(before_id)::uuid))
 ORDER BY v.created_at DESC, v.id DESC
-LIMIT sqlc.arg(page_limit);
+LIMIT sqlc.arg(page_limit)
+OFFSET sqlc.arg(page_offset);
+
+-- name: CountModelVersions :one
+SELECT count(*)
+FROM public.model_versions v
+JOIN public.models m ON m.tenant_id = v.tenant_id AND m.id = v.model_id
+WHERE v.tenant_id = sqlc.arg(tenant_id) AND v.model_id = sqlc.arg(model_id)
+  AND v.status <> 'deleted' AND m.status <> 'deleted';
 
 -- name: LatestModelVersions :many
 SELECT DISTINCT ON (v.model_id)
