@@ -14,13 +14,19 @@ import (
 	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
-type catalogFake struct{ created model.Record }
+type catalogFake struct {
+	created model.Record
+	model   model.Record
+}
 
 func (c *catalogFake) CreateModel(_ context.Context, tenant, id, name, display, desc, source string, caps []byte, idempotencyKey string) (model.Record, error) {
 	c.created = model.Record{TenantID: tenant, ID: id, Name: name}
 	return c.created, nil
 }
 func (c *catalogFake) GetModel(_ context.Context, tenant, id string) (model.Record, error) {
+	if c.model.ID != "" {
+		return c.model, nil
+	}
 	return model.Record{TenantID: tenant, ID: id}, nil
 }
 func (c *catalogFake) ListModels(context.Context, string, model.ListOptions) ([]model.Record, error) {
@@ -273,6 +279,33 @@ func TestGetModelVersionByExternalReference(t *testing.T) {
 	}
 	if got.GetModel().GetModelId() != "Qwen3-32B" || got.GetVersion().GetModelId() != "Qwen3-32B" || got.GetVersion().GetId() != "version-uuid" {
 		t.Fatalf("response = %+v", got)
+	}
+}
+
+func TestGetModelVersionReturnsModelMetadata(t *testing.T) {
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "w"})
+	catalog := &catalogFake{}
+	catalog.model = model.Record{
+		TenantID: "tenant-a", ID: "model-uuid", ExternalModelID: "Qwen/Qwen3-8B",
+		Name: "qwen3-8b", DisplayName: "Qwen 3 8B", Capabilities: []byte(`["chat","text-generation"]`),
+		Status: "ready", Source: "huggingface", SourceRepoID: "Qwen/Qwen3-8B",
+	}
+	s := NewModelCatalogService(versionReaderFunc(func(context.Context, string, string) (model.Version, error) {
+		return model.Version{TenantID: "tenant-a", ID: "version-uuid", ModelID: "model-uuid", Version: "v1", Format: "gguf", Status: "ready", ArtifactProvider: "minio", ArtifactReference: "tenant-a/qwen3-8b/v1/model.gguf", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, nil
+	}), catalog)
+
+	got, err := s.GetModelVersion(ctx, &modelv1.GetModelVersionRequest{TenantId: "tenant-a", ModelVersionId: "version-uuid"})
+	if err != nil {
+		t.Fatalf("GetModelVersion() error = %v", err)
+	}
+	if got.GetModel().GetName() != "qwen3-8b" || got.GetModel().GetDisplayName() != "Qwen 3 8B" {
+		t.Fatalf("model names = %q/%q", got.GetModel().GetName(), got.GetModel().GetDisplayName())
+	}
+	if got.GetModel().GetStatus() != "ready" || got.GetModel().GetSource() != "huggingface" || got.GetModel().GetSourceRepoId() != "Qwen/Qwen3-8B" {
+		t.Fatalf("model metadata = %+v", got.GetModel())
+	}
+	if want := []string{"chat", "text-generation"}; len(got.GetModel().GetCapabilities()) != len(want) || got.GetModel().GetCapabilities()[0] != want[0] || got.GetModel().GetCapabilities()[1] != want[1] {
+		t.Fatalf("capabilities = %v, want %v", got.GetModel().GetCapabilities(), want)
 	}
 }
 

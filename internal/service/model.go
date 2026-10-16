@@ -113,7 +113,15 @@ func (s *ModelService) GetModelVersion(ctx context.Context, in *modelv1.GetModel
 	if modelID == "" {
 		modelID = v.ModelID
 	}
-	return &modelv1.GetModelVersionResponse{Model: &modelv1.Model{TenantId: p.TenantID, Id: v.ModelID, ModelId: modelID}, Version: version}, nil
+	owner := &modelv1.Model{TenantId: p.TenantID, Id: v.ModelID, ModelId: modelID}
+	if s.catalog != nil {
+		r, err := s.catalog.GetModel(ctx, p.TenantID, v.ModelID)
+		if err != nil {
+			return nil, mapStore(err)
+		}
+		owner = toProtoModel(r)
+	}
+	return &modelv1.GetModelVersionResponse{Model: owner, Version: version}, nil
 }
 func (s *ModelService) CreateModel(ctx context.Context, in *modelv1.CreateModelRequest) (*modelv1.Model, error) {
 	p, err := identity.RequireTenant(ctx, in.GetTenantId())

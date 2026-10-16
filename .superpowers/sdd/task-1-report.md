@@ -1,16 +1,9 @@
 # Task 1 Report
 
-## Changes
-
-- Added `ImportJobClient.CreateSecret`, including nil-client handling, Secret identity validation, Kubernetes API creation, and wrapped errors matching the existing PVC methods.
-- Added `ImportJobClient.DeleteSecret`, including nil-client handling and wrapped Kubernetes API deletion errors.
-- Added `TestImportJobClientSecretLifecycle`, which creates a task-scoped upload Secret, verifies its data, deletes it, and verifies that it is gone.
-
-## Tests
-
-- `go test ./internal/data/kubernetes -run TestImportJobClientSecretLifecycle -count=1` (red before implementation: failed because the methods were undefined; green after implementation: passed)
-- `go test ./internal/data/kubernetes -count=1` (passed)
-
-## Questions
-
-- None.
+- 状态：已完成
+- 变更：`GetModelVersion` 在配置了 Model catalog 时加载所属 Model，并返回 `name`、`display_name`、`capabilities`、`status`、`source`、`source_repo_id` 等完整元数据；新增服务回归测试。
+- 提交 hash：4d33a236ea2026847e20b904735c218fd6d3b306
+- 测试命令/结果：
+  - `go test ./internal/service -run TestGetModelVersionReturnsModelMetadata -count=1`：通过
+  - `go test ./internal/service -count=1`：通过
+- 疑问：无
