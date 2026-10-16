@@ -44,10 +44,12 @@
 如果历史 ModelVersion 的三个字段为空，前端不能自动填充，必须在创建推理时提供
 完整值；Model 服务不会猜测引擎或启动命令。
 
+Model 和 ModelVersion 列表统一使用 `page`、`pageSize`，响应返回 `items`、`total`。
+
 ## 从 ModelScope/Hugging Face 导入模型
 
 外部模型搜索和本地模型目录是两个动作。前端通过 Gov 的
-`POST /api/v1/models:search-external`（Model 服务内部对应
+`GET /api/v1/models/search`（Model 服务内部对应
 `SearchExternalModels` gRPC）查询候选；Model 服务只允许 `modelscope` 和
 `huggingface` 两个 provider。请求字段如下：
 
@@ -58,9 +60,9 @@
 | `owner` | 可选的组织/作者过滤 |
 | `task` | 可选的任务过滤 |
 | `library` | 可选的框架/库过滤 |
-| `page.limit`、`page.cursor` | 分页参数；游标由服务返回并原样带回 |
+| `page`、`pageSize` | 页码分页；`page` 从 1 开始，`pageSize` 默认为 20，范围为 1～100 |
 
-搜索结果是临时候选，不会写入 Model 表、ModelVersion 表，也不会启动下载。候选
+搜索响应返回 `items` 和 `hasMore`，不承诺 `total`。搜索结果是临时候选，不会写入 Model 表、ModelVersion 表，也不会启动下载。候选
 至少包含 `source`、`repo_id`、`name`、`display_name`、`description`、`revision`、
 `size_bytes`、`tags` 和 `updated_at`。ModelScope 没有返回 revision 时使用 `master`，
 Hugging Face 没有返回 revision 时使用 `main`。

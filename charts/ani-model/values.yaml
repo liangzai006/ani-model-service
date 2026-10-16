@@ -22,7 +22,7 @@ migration:
       memory: 256Mi
 image:
   repository: docker.changqingyun.cn/ani/model-service
-  tag: model-search-20261014-r1
+  tag: master-acb24c2-20261016
   pullPolicy: IfNotPresent
   pullSecrets: []
 tls:
@@ -62,7 +62,7 @@ storage:
 import:
   jobImage:
     repository: docker.changqingyun.cn/ani/model-import-worker
-    tag: model-search-20261014-r1
+    tag: master-37fe220-20261015
   # Empty uses the cluster default StorageClass.
   storageClass: ""
   providerSecret: ""

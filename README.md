@@ -57,14 +57,16 @@ kubectl --context "$KUBE_CONTEXT" -n <import-namespace> logs job/<job-name> -c i
 `startup_command` 始终是一条完整字符串；服务不会把它拆成数组，也不会拼接启动
 参数。
 
+Model、ModelVersion 列表统一使用 `page`、`pageSize`，返回 `items` 和 `total`。
+
 ## 外部模型搜索与导入
 
-前端可以通过 Gov 的 `POST /api/v1/models:search-external` 按名称搜索
+前端可以通过 Gov 的 `GET /api/v1/models/search` 按名称搜索
 ModelScope 或 Hugging Face。Model 服务内部对应 `SearchExternalModels` gRPC，
 只接受固定的 `source`（`modelscope` 或 `huggingface`）、`keyword`，以及可选的
-`owner`、`task`、`library` 和分页游标。搜索结果只作为临时候选返回，不写入本地
+`owner`、`task`、`library`、`page` 和 `pageSize`。搜索结果只作为临时候选返回，不写入本地
 Model/ModelVersion，也不下载模型；ModelScope 默认 revision 是 `master`，Hugging
-Face 默认 revision 是 `main`。
+Face 默认 revision 是 `main`。搜索响应返回 `items` 和 `hasMore`，不承诺 `total`。
 
 用户确认候选后，前端按 `CreateModel` → `CreateModelVersion` → `ImportModel` 的
 顺序提交：
