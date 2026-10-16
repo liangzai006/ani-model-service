@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	kratoserrors "github.com/go-kratos/kratos/v3/errors"
+	"github.com/jackc/pgx/v5"
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
 	"github.com/liangzai006/ani-model-service/internal/biz/storage"
@@ -17,6 +19,22 @@ import (
 type catalogFake struct {
 	created model.Record
 	model   model.Record
+}
+
+type getModelCatalogFake struct {
+	catalogFake
+	err       error
+	gotTenant string
+	gotID     string
+}
+
+func (c *getModelCatalogFake) GetModel(ctx context.Context, tenant, id string) (model.Record, error) {
+	c.gotTenant = tenant
+	c.gotID = id
+	if c.err != nil {
+		return model.Record{}, c.err
+	}
+	return c.catalogFake.GetModel(ctx, tenant, id)
 }
 
 func (c *catalogFake) CreateModel(_ context.Context, tenant, id, name, display, desc, source string, caps []byte, idempotencyKey string) (model.Record, error) {
@@ -306,6 +324,45 @@ func TestGetModelVersionReturnsModelMetadata(t *testing.T) {
 	}
 	if want := []string{"chat", "text-generation"}; len(got.GetModel().GetCapabilities()) != len(want) || got.GetModel().GetCapabilities()[0] != want[0] || got.GetModel().GetCapabilities()[1] != want[1] {
 		t.Fatalf("capabilities = %v, want %v", got.GetModel().GetCapabilities(), want)
+	}
+}
+
+func TestGetModelVersionPassesPrincipalTenantAndOwningModelIDToCatalog(t *testing.T) {
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "w"})
+	catalog := &getModelCatalogFake{catalogFake: catalogFake{model: model.Record{TenantID: "tenant-a", ID: "model-uuid", Name: "qwen3-8b"}}}
+	s := NewModelCatalogService(versionReaderFunc(func(context.Context, string, string) (model.Version, error) {
+		return model.Version{TenantID: "tenant-a", ID: "version-uuid", ModelID: "model-uuid", Version: "v1", Format: "gguf", Status: "ready", ArtifactProvider: "minio", ArtifactReference: "tenant-a/model/v1/model.gguf", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, nil
+	}), catalog)
+
+	if _, err := s.GetModelVersion(ctx, &modelv1.GetModelVersionRequest{TenantId: "tenant-a", ModelVersionId: "version-uuid"}); err != nil {
+		t.Fatalf("GetModelVersion() error = %v", err)
+	}
+	if catalog.gotTenant != "tenant-a" || catalog.gotID != "model-uuid" {
+		t.Fatalf("catalog GetModel arguments = tenant %q, id %q; want tenant %q, id %q", catalog.gotTenant, catalog.gotID, "tenant-a", "model-uuid")
+	}
+}
+
+func TestGetModelVersionMapsCatalogErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		code int
+		kind string
+	}{
+		{name: "missing", err: pgx.ErrNoRows, code: 404, kind: "MODEL_NOT_FOUND"},
+		{name: "store failure", err: errors.New("catalog unavailable"), code: 500, kind: "MODEL_STORE_ERROR"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "a", Workload: "w"})
+			catalog := &getModelCatalogFake{catalogFake: catalogFake{model: model.Record{TenantID: "tenant-a", ID: "model-uuid"}}, err: tt.err}
+			s := NewModelCatalogService(versionReaderFunc(func(context.Context, string, string) (model.Version, error) {
+				return model.Version{TenantID: "tenant-a", ID: "version-uuid", ModelID: "model-uuid", Version: "v1", Format: "gguf", Status: "ready", ArtifactProvider: "minio", ArtifactReference: "tenant-a/model/v1/model.gguf", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, nil
+			}), catalog)
+			_, err := s.GetModelVersion(ctx, &modelv1.GetModelVersionRequest{TenantId: "tenant-a", ModelVersionId: "version-uuid"})
+			if kratoserrors.Code(err) != tt.code || kratoserrors.Reason(err) != tt.kind {
+				t.Fatalf("error = %v (code %d, reason %q), want code %d reason %q", err, kratoserrors.Code(err), kratoserrors.Reason(err), tt.code, tt.kind)
+			}
+		})
 	}
 }
 
