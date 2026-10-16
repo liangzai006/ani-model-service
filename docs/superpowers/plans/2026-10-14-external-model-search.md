@@ -16,6 +16,9 @@
 - ModelVersion 的 `engine_type`、`engine_image`、`startup_command` 仍由调用方提交，搜索结果不得推断或拼接启动命令。
 - 不增加环境变量，复用 `ANI_MODELSCOPE_BASE_URL` 和 `ANI_HUGGINGFACE_BASE_URL`。
 - Governance 只转发字段，不复制 Provider 逻辑；Governance 仓库不推送。
+- Gov 的所有新增 API 必须先修改 `.proto`，再使用 Governance 固定生成链
+  `GOWORK=off make api`（内部执行本地 `tools/bin/gow api`）生成 Go、gRPC、HTTP
+  和错误代码；禁止手写或直接编辑 `api/gen/go`。
 - 不修改旧环境资源、Storage、Import Job 或 Inference 运行时。
 
 ---
@@ -145,10 +148,10 @@ limited to provider, repo ID, names, description, revision, size, tags, and upda
 
 - [ ] **Step 2: Regenerate the pinned output**
 
-Run: `GOWORK=off make config`
+Run: `GOWORK=off make api`
 
-Expected: Buf lint/build/generate succeeds and only the expected Model API generated files
-change.
+Expected: Gov's pinned Buf/protoc chain succeeds and only the expected catalog/admin
+generated files change.
 
 - [ ] **Step 3: Write the failing service test**
 
@@ -228,6 +231,44 @@ push or merge this repository.
 Keep the Governance changes unpushed and report their commit or patch location separately;
 the Model repository remains the only repository committed by default.
 
+### Task 4a: Complete the Model management surface
+
+The Model service contract already provides these operations, but the Gov BFF does not
+expose them. Add each operation to the catalog proto, `ModelService` proto, generated
+registration, `ModelOwnerClient`, mTLS client adapter and service mapping:
+
+- `SearchExternalModels`
+- `DeleteModel`
+- `DeleteModelVersion`
+- `GetUploadURL`
+- `GetModelDownloadURL`
+
+Every request must derive tenant and actor from the authenticated Gov principal. Public
+requests must not accept a caller-supplied tenant ID or downstream endpoint. Model deletion
+must preserve the downstream reference check and error mapping.
+
+Regenerate with `GOWORK=off make api`, then run Gov's focused service/client tests and
+verify the generated HTTP registration contains each expected path.
+
+### Task 4b: Complete the Inference management surface
+
+The downstream Inference contract also has lifecycle methods that are not represented in
+Gov. Add BFF proto messages, generated routes, trusted mTLS client calls, authorization
+permission entries and service mappings for:
+
+- `UpdateInferenceService`
+- `StartInferenceService`
+- `StopInferenceService`
+- `RestartInferenceService`
+- `ListOperations`
+
+Keep create/delete quota ownership and asynchronous operation semantics unchanged. Each
+operation must carry the authenticated tenant and actor metadata to Inference and must not
+allow public callers to forge those fields.
+
+Regenerate with `GOWORK=off make api`; do not hand-edit generated Go output. Add focused
+authorization, mapping and HTTP registration tests before any image rebuild.
+
 ### Task 5: End-to-end contract tests and documentation
 
 **Files:**
@@ -276,4 +317,3 @@ instead of claiming live provider or database validation.
 git add README.md docs/model-inference-fields.md docs/execution/records/2026-10-14-external-model-search.md
 git commit -m "docs: record external model search flow"
 ```
-

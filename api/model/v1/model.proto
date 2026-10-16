@@ -142,9 +142,9 @@ message ExternalModelCandidate {
 }
 
 message SearchExternalModelsResponse {
-  reserved 1, 2;
+  reserved 1, 2, 4;
   repeated ExternalModelCandidate items = 3;
-  bool has_more = 4;
+  bool has_more = 5;
 }
 
 message ListModelVersionsRequest {

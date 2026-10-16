@@ -273,6 +273,26 @@ Explicit kubeconfig targets 192.168.102.68; all three nodes Ready, Inference cle
 - Deleted the test model/version and both temporary tenants through Governance HTTP. Higress limiter returned only the pre-existing `smollm2-135m` key at QPS 10, remained enabled, and the baseline `smollm2-135m` route still returned HTTP 200.
 - This is a real CPU 0.5B single-replica lifecycle result. GPU, multi-node distributed model inference, large-model capacity, and failure-injection tests remain unverified because the new cluster reports no GPU and has limited CPU/memory. Evidence is retained under `/tmp/ani-http-accept-20261003` with secrets redacted; no source commit or push was made.
 
+## 2026-10-15 default-branch revalidation
+
+- Confirmed Model `master` and Inference `main` are the remote default heads
+  containing the merged PRs; Governance was left untouched.
+- Built and pushed fresh tag-only images from clean default-branch worktrees,
+  then upgraded only the `ani-model` and `ani-inference` Helm releases in the
+  new context. Both deployments are Ready. The first Inference hook exposed a
+  chart value type mismatch after `--reuse-values`; the hook Job was removed
+  and the release succeeded on retry with an explicit migration image string.
+- Full default-branch Go tests passed in both repositories before deployment.
+- Real public-chain attempt stopped at HTTP 403 on Model creation after Gov
+  platform/tenant login. The temporary tenant was deleted via Gov cleanup;
+  no downstream resources were created. Current blockers are the deployed Gov
+  permission grant/route-version mismatch and the unmerged Inference blank
+  StorageClass behavior. Evidence: `/tmp/ani-main-real-chain-20261015-111144`.
+- Final verification passed after the run: full `go test ./... -count=1` in
+  both clean default-branch worktrees, Helm lint for both clean charts, both
+  new images present on Ready deployments, no temporary runtime resources, and
+  no `real-main-*` tenant remaining.
+
 ## 2026-10-08 Higress inference API key protection
 
 - Confirmed the current gap: Higress `/v1/completions` accepted requests without
@@ -296,3 +316,88 @@ Explicit kubeconfig targets 192.168.102.68; all three nodes Ready, Inference cle
 ## 2026-10-08 Resource Storage preparation
 
 Read-only source investigation started. Main and remote branch identities checked; independent Model/Inference consumer audit delegated. No cluster calls, builds, product code edits or commits. Initial Git inspection hit checkout ownership protection; retried with a command-scoped safe.directory for the previously created temporary review clone (no global setting change). Research notes use the existing planning files; formal design awaits the user's prototype and requirements.
+
+## 2026-10-15 Governance `main` BFF route verification
+
+- Rebuilt and deployed Governance from `main` commit `f851d88` as
+  `docker.changqingyun.cn/ani/governance:main-f851d88-20261015`; the deployment
+  is Ready in the new cluster. No Governance source was committed or pushed.
+- Added an uncommitted Governance Chart HTTPRoute template for the BFF and
+  enabled it by default. The route covers `/api/v1/auth`, `/api/v1/admin`,
+  `/api/v1/models`, `/api/v1/model-versions` and `/api/v1/inference`, points to
+  `ani-governance:7788`, and is owned by the Helm release.
+- Higress accepted the route with `Accepted=True` and `ResolvedRefs=True`.
+  External checks through NodePort 30090 returned 401 without `x-api-key`,
+  401 for invalid credentials, and 200 for a valid Gov platform login. Model
+  and Inference BFF calls reached Gov and returned the expected 403 when using
+  a platform token without tenant permissions.
+- Model/Inference gRPC services remain internal ClusterIP services by design;
+  management traffic is exposed through the Gov BFF route and inference data
+  traffic remains `/v1/completions` through the existing Higress model router.
+- StorageClass absence/default annotation remains intentionally out of scope;
+  no chart or cluster change was made for it in this verification.
+
+## 2026-10-15 new-cluster route and cleanup recheck
+
+- Confirmed the active context is `kubernetes-admin@kubekey` and the new
+  cluster has no temporary test Jobs, PVCs or Pods left; only the two
+  Governance hook Jobs are `Complete` and Model/Inference/Governance Pods are
+  Ready.
+- The Governance BFF route is accepted by Higress and is Helm-owned. It now
+  includes the exact `/api/v1/models:import` match in addition to the Model,
+  ModelVersion and Inference path prefixes. This was needed because Gateway
+  API `PathPrefix /api/v1/models` does not match the colon action path.
+- Route checks through Higress NodePort 30090: no API key -> 401; platform
+  login -> 200; Model list, Model import and Inference list with only the
+  platform token -> 403 from Governance permission checks. These responses
+  prove the requests reach the BFF rather than failing at the gateway route.
+  `/v1/completions` with an unknown model reached the model router and returned
+  500, as expected for a request with no published backend.
+- The latest public-chain attempt reached platform/tenant auth, Model,
+  ModelVersion and ModelScope ImportModel through Higress. The first importer
+  Job attempt hit `BackoffLimitExceeded`; the Model service retried it and its
+  logs record the second attempt completing successfully and the version
+  becoming ready. The runner stopped on the transient first-attempt status,
+  so Inference creation and a real completion were not reached in that run.
+- The temporary tenant was deleted. The temporary Model and ModelVersion were
+  deleted through the Model mTLS gRPC API and a follow-up GetModel returned
+  `NotFound`; no test resource remains. No claim of a complete latest-chain
+  pass is made until the poller is rerun through Inference creation and
+  completion.
+
+## 2026-10-15 complete public chain
+
+- Re-ran the public chain on `kubernetes-admin@kubekey` using Governance
+  `main-f851d88-20261015`, Model `master-37fe220-20261015`, and Inference
+  `main-ceacc40-20261015`.
+- Through Higress, the run created a temporary tenant, imported the complete
+  ModelScope `Qwen/Qwen2-0.5B-Instruct` repository, observed ModelVersion
+  `ready`, created an Inference service, waited through transient provider
+  retries until the operation reached `succeeded/complete`, and received a
+  real HTTP 200 completion from `/v1/completions`.
+- The inference record showed `publication_phase=published` and the exact
+  caller-provided command, including `--served-model-name`; no engine flags
+  were generated by the service. Deletion reached `succeeded/complete`, then
+  the tenant, model/version, KServe objects, importer Job, PVC and download
+  Secrets were cleaned up.
+- The successful CPU command explicitly supplied
+  `VLLM_CPU_KVCACHE_SPACE=4`; a prior 8Gi run without that caller setting
+  OOMed in vLLM's default KV-cache allocation. This is a runtime sizing
+  finding, not a gateway or command-rewriting defect.
+- The BFF management routes and the separate `/v1/completions` data route are
+  now verified on the new cluster. GPU, LWS and distributed inference remain
+  pending until GPU nodes are available. StorageClass default absence remains
+  intentionally non-blocking.
+
+## 2026-10-15 Governance API registration audit
+
+- Re-read the latest Governance `main` proto, generated HTTP registration and
+  BFF implementation instead of relying only on HTTPRoute status.
+- Confirmed the core create/import/read Model APIs and all currently exposed
+  Inference APIs are registered; live requests with a platform token reached
+  Gov authorization and returned 403, proving they are not gateway-only
+  placeholders.
+- Found the remaining management-surface gap: Model search, Model deletion,
+  ModelVersion deletion, upload URL and download URL are absent from Gov; so
+  are Inference update/start/stop/restart and operation-list methods. No code
+  was changed in this audit.

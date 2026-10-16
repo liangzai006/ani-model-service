@@ -2,6 +2,11 @@
 
 日期：2026-09-24
 
+> 历史记录：下文描述当日实现。2026-10-14 的当前契约已改为完整命令字符串，
+> 独立的 `engine.args` 已移除。ModelVersion 保存引擎类型、镜像和完整
+> `startup_command` 供前端回填；推理请求仍提交最终值，允许临时修改。
+> 当前字段映射见 [Model 与 Inference 字段联动](../../model-inference-fields.md)。
+
 本次调整冻结了 Model 与 Inference 的启动命令边界：
 
 - Model 的 `ModelVersion.engine_type`、`startup_command`、`startup_args` 只为兼容旧契约保留，Model client 查询 ready 版本时只读取制品引用、摘要和大小。

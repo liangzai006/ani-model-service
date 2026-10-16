@@ -59,9 +59,7 @@ check-gitleaks: $(GITLEAKS)
 	test "$$(go version -m $(GITLEAKS) | awk '$$1 == "mod" {print $$2 "@" $$3; exit}')" = "$(GITLEAKS_MODULE)"
 
 config: $(BUF)
-	$(BUF) lint
-	$(BUF) build
-	$(BUF) generate --template buf.gen.yaml
+	BUF="$(BUF)" ./scripts/generate-api.sh generate
 
 generate: config
 	$(GO) generate ./...

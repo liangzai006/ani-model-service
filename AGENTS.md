@@ -18,3 +18,11 @@ Prefer framework capabilities over local replacements. Do not introduce a
 shared ANI runtime module, generalized YAML exception registry, or technology
 switches unrelated to a real slice. Generate protobuf output through the pinned
 workflow and run `make verify` before committing.
+
+## Gateway boundary
+
+Higress is reserved for OpenAI-compatible inference calls such as
+`/v1/completions`. Model and inference management APIs under `/api/v1/...`
+must be served through the Governance BFF and must not be routed through
+Higress. When changing routes, proxies, HTTPRoutes, or deployment values,
+preserve this boundary and test the two entrances separately.

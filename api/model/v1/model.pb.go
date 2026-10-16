@@ -1274,7 +1274,7 @@ func (x *ExternalModelCandidate) GetUpdatedAt() *timestamppb.Timestamp {
 type SearchExternalModelsResponse struct {
 	state         protoimpl.MessageState    `protogen:"open.v1"`
 	Items         []*ExternalModelCandidate `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
-	HasMore       bool                      `protobuf:"varint,4,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	HasMore       bool                      `protobuf:"varint,5,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2452,10 +2452,10 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"size_bytes\x18\a \x01(\x03R\tsizeBytes\x12\x12\n" +
 	"\x04tags\x18\b \x03(\tR\x04tags\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"}\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x83\x01\n" +
 	"\x1cSearchExternalModelsResponse\x126\n" +
 	"\x05items\x18\x03 \x03(\v2 .model.v1.ExternalModelCandidateR\x05items\x12\x19\n" +
-	"\bhas_more\x18\x04 \x01(\bR\ahasMoreJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\xaa\x01\n" +
+	"\bhas_more\x18\x05 \x01(\bR\ahasMoreJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x04\x10\x05\"\xaa\x01\n" +
 	"\x18ListModelVersionsRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x17\n" +

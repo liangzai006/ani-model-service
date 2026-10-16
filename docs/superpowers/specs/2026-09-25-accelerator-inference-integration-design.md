@@ -77,8 +77,9 @@ phase must not add a plaintext fallback.
 ## KServe rendering
 
 The KServe adapter consumes only the persisted resolved plan and the existing
-caller-owned engine fields. It must preserve `engine.command` and
-`engine.args` byte-for-byte and must never synthesize engine flags.
+caller-owned engine fields. 按 2026-10-14 的当前契约，`engine.command` 是完整命令
+字符串，必须逐字保留；业务接口不再接收独立的 `engine.args`。Kubernetes 适配器
+只使用固定的 `/bin/sh -c` 包装，不生成任何引擎参数。
 
 The plan runtime fragment is applied to every GPU-bearing KServe template:
 

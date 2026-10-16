@@ -5,7 +5,9 @@ replicaCount: 1
 # Applied files are recorded in public.schema_migrations and skipped later.
 migration:
   enabled: true
-  image: docker.changqingyun.cn/library/postgres:16-alpine@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551
+  image:
+    repository: docker.changqingyun.cn/library/postgres
+    tag: 16-alpine
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   backoffLimit: 1
@@ -20,8 +22,7 @@ migration:
       memory: 256Mi
 image:
   repository: docker.changqingyun.cn/ani/model-service
-  tag: ani-model-new-20261008-storage-r3
-  digest: sha256:71e9b7ecde91d33a248ce99c8f35bedac4c3592e3b8fd68266bc24df92c5a274
+  tag: model-search-20261014-r1
   pullPolicy: IfNotPresent
   pullSecrets: []
 tls:
@@ -61,8 +62,7 @@ storage:
 import:
   jobImage:
     repository: docker.changqingyun.cn/ani/model-import-worker
-    tag: ani-model-new-20261008-storage-r1
-    digest: sha256:f93eda5753b010eab241ede0e9bb1b2d6cee9b045b3db79aacf3ed8371d0b64f
+    tag: model-search-20261014-r1
   # Empty uses the cluster default StorageClass.
   storageClass: ""
   providerSecret: ""

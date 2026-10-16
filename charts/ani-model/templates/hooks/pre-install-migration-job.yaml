@@ -28,7 +28,7 @@ spec:
       {{- end }}
       containers:
         - name: migrate
-          image: {{ .Values.migration.image | quote }}
+          image: {{ include "ani-model.migrationImage" . | quote }}
           imagePullPolicy: {{ .Values.migration.imagePullPolicy }}
           env:
             - name: DATABASE_DSN

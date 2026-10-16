@@ -283,3 +283,122 @@ Prior fresh 1.5B and LWS runs used /tmp/ani-fresh-api.py against Governance Node
 - The `codex/install-ceph` branch (f198a1e) contains Ceph deployment/runbook assets, not a Resource Storage domain/API implementation.
 - Current Model storage is an external-object contract: signed upload/download URLs, object existence and SHA256 verification. `ani-model-service` can dial a Storage gRPC address or direct MinIO, but Kubernetes import still requires direct MinIO configuration; this must be resolved before making Resource Storage the sole backend.
 - Current Inference owns generation-scoped RWX model PVC, download Job/Secret, ownership labels, readiness verification and cleanup. A Resource Storage volume API must not silently take over these objects; the prototype must choose whether Storage only supplies object/volume primitives or also owns materialization.
+
+## 2026-10-15 contract audit before real-chain run
+
+- Model README and `docs/model-inference-fields.md` require the sequence SearchExternalModels (optional) -> CreateModel -> CreateModelVersion -> ImportModel. Search does not persist or download; import is the whole provider repository. ModelVersion carries `engine_type`, `engine_image`, and one complete `startup_command` string; no service may split, append, or infer engine arguments.
+- Model Helm requires `ani-system`, external cert-manager/`ClusterIssuer/ani-internal`, pre-existing PostgreSQL/S3/Secrets, and default StorageClass when `import.storageClass` is empty. Its service certificate is `ani-model.ani.internal`; Governance client certificate must have exactly one DNS SAN `ani-governance`.
+- Inference Helm requires the same `ani-system`, external cert-manager/issuer, Model gRPC Service, default StorageClass for model PVCs, KServe 0.16/LLMI, LWS, Gateway API, Higress and API-key protection. Governance ordinary gRPC must use TLS 1.3/mTLS, client DNS SAN exactly `ani-governance`, and `x-ani-tenant-id` plus `x-ani-actor` metadata with the registered format.
+- Governance current main owns public HTTP BFF APIs and forwards to Model/Inference over mTLS. Gov's canonical integration register requires exact caller-provided command and no engine argument synthesis; `model_version_id` is required for inference creation, while engine/image/command are still supplied by the final create request.
+- Governance Helm defaults downstream Model/Inference clients and certificate issuance off; a real deployment must explicitly enable them and provide addresses/server names/CA. This is a likely deployment preflight item, not a code assumption.
+- Current `.clusterenv` names the new hosts 192.168.102.68/72/73. The local kubectl context is `kubernetes-admin@kubekey`; its API server must be checked before any write, and all commands must pass the verified current context by relying on the current kubeconfig as documented.
+
+## 2026-10-15 branch correction
+
+- The remote `feat/gov-model-inference-flow-20261012` branches in Model and Inference are strict ancestors of `origin/master`/`origin/main`; they are not newer than the default branches. Model default now includes the feature branch plus PR #2; Inference default includes the feature branch plus PR #4.
+- Local Model and Inference worktrees are now on `master`/`main` respectively and fast-forwarded to those remote heads. Existing uncommitted local changes were preserved and not pushed.
+- Governance is out of scope for this validation as requested.
+
+## 2026-10-15 default-branch deployment and real-chain result
+
+- Clean worktrees at Model `origin/master` `37fe220768328173a70a0b1f47dbf5139e7fab22`
+  and Inference `origin/main` `ceacc40637424d75c4ae0291873f7e8da475fc7b` passed
+  their full `go test ./... -count=1` suites. Fresh images were pushed with
+  tag-only references: Model `master-37fe220-20261015`, importer with the same
+  tag, and Inference `main-ceacc40-20261015`.
+- Helm upgrades on the new context `kubernetes-admin@kubekey`
+  (`https://192.168.102.68:6443`) completed. Model and Inference pods are Ready
+  with those images. The Inference migration first rendered an old reused map
+  value as `InvalidImageName`; the failed hook was deleted and a second Helm
+  upgrade explicitly supplied the migration image string. No application
+  resource was created by that failed hook.
+- The new cluster has only `local-path`, with no
+  `storageclass.kubernetes.io/is-default-class` annotation. This run passed
+  `model.storageClass=local-path` and `import.storageClass=local-path`
+  explicitly. The checked-in Inference `origin/main` still maps an empty
+  `ANI_MODEL_STORAGE_CLASS` to `cephfs`, which does not exist in this cluster;
+  the blank-means-default fix is present only in uncommitted local changes and
+  is not part of the default branch image.
+- A public API run logged in to Gov, created tenant `real-main-20261015-111144`,
+  and logged in as its administrator. Model creation then returned HTTP 403
+  `FORBIDDEN`. Read-only platform inspection showed the deployed Gov image
+  exposes tenant management under `/admin/v1/*` (not the checked-in proto's
+  `/api/v1/admin/*`), and plan 1 has MODEL/INFERENCE module rows but no matching
+  role permission grant for the new tenant. Per scope, Gov was not modified.
+- The temporary tenant was cleaned and deleted via the platform API. No Model,
+  import task, PVC/Job, InferenceService, LWS, HTTPRoute or Higress completion
+  was created in this attempt. GPU remains unverified because the cluster has
+  no GPU devices.
+
+## 2026-10-15 Governance BFF route correction
+
+- The previous 403 result was from the deployed Gov permission state and did
+  not prove a missing network route. Governance `main` now runs from
+  `f851d88`, and the BFF HTTPRoute is attached to `higress-system/ani-higress`
+  with resolved backend `ani-governance:7788`.
+- The route is Helm-owned and covers management paths under `/api/v1/auth`,
+  `/api/v1/admin`, `/api/v1/models`, `/api/v1/model-versions` and
+  `/api/v1/inference`. The inference data plane remains a separate
+  `/v1/completions` model-router route.
+- Platform credentials intentionally do not authorize tenant Model/Inference
+  operations; those calls require a tenant token with the Model/Inference
+  role permissions. A temporary role grant and tenant API read test passed and
+  was fully cleaned up.
+- The local Governance Chart change is intentionally uncommitted and was not
+  pushed. No old cluster was touched.
+- The public management entry points are present in the new cluster: Gov owns
+  `/api/v1/auth`, `/api/v1/admin`, `/api/v1/models`,
+  `/api/v1/model-versions` and `/api/v1/inference`; Inference owns the
+  separate `/v1/completions` data-plane route. Model and Inference gRPC
+  Services remain ClusterIP and are called by Gov over mTLS, so they are not
+  separately exposed at the gateway.
+- The exact action path `/api/v1/models:import` must be listed explicitly in
+  the Gov HTTPRoute. A prefix match for `/api/v1/models` is insufficient.
+
+## 2026-10-15 public route and lifecycle verification
+
+- The public management chain is reachable through the Helm-owned Governance
+  BFF HTTPRoute: `/api/v1/auth`, `/api/v1/admin`, `/api/v1/models`,
+  `/api/v1/model-versions`, exact `/api/v1/models:import`, and
+  `/api/v1/inference`. Model and Inference gRPC remain internal ClusterIP
+  services and are reached by Governance over mTLS.
+- The separate Higress data-plane route `/v1/completions` served a real
+  completion after the ModelScope import and Inference publication completed.
+  API deletion completed publication withdrawal, runtime deletion and quota
+  release before test cleanup.
+- The ModelVersion's complete startup command was preserved byte-for-byte in
+  the created Inference record. The successful CPU run passed the vLLM KV-cache
+  environment setting in that request command; application code did not add
+  startup arguments.
+- A transient importer `BackoffLimitExceeded` while the import was still
+  retryable did not prevent the Model worker retry from producing a ready
+  version. The run therefore polls the task state rather than treating one
+  failed Job attempt as final failure.
+- Current new-cluster verification is CPU-only. The cluster has no GPU
+  devices, so GPU scheduling and multi-node/LWS behavior remain unverified.
+
+## 2026-10-15 Governance API registration audit
+
+- The Helm HTTPRoute is not the complete API contract. It only forwards the
+  `/api/v1/*` paths; the generated Governance BFF registration determines
+  which operations actually exist.
+- Governance `main` currently registers the core Model flow:
+  `CreateModel`, `GetModel`, `ListModels`, `CreateModelVersion`,
+  `GetModelVersion`, `ListModelVersions`, `ImportModel`, `GetImportTask` and
+  `RetryImportTask`. The corresponding public paths are present and a
+  platform-token request reaches the Gov authorization layer with HTTP 403,
+  rather than a route or backend 404.
+- The Model Service contract also contains `SearchExternalModels`,
+  `DeleteModel`, `DeleteModelVersion`, `GetUploadURL` and
+  `GetModelDownloadURL`. None of these are present in Gov's
+  `admin/service/v1/i_model.proto`, generated HTTP registration, or
+  `ModelOwnerClient`; they are not currently available through the management
+  entry.
+- The downstream Inference contract contains update, start, stop, restart and
+  operation-list methods. Gov currently registers only create, delete, get,
+  list-services and get-operation. Those lifecycle/list-operation APIs are
+  also absent from the management entry.
+- Therefore the public CPU create/import/infer/delete chain is valid, but the
+  complete Model and Inference API surface is not yet wired through Gov. The
+  next implementation slice must extend the Gov proto, generated code and
+  BFF adapters before claiming full management API coverage.

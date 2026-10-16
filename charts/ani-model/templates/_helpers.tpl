@@ -11,10 +11,11 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | quote }}
 {{- end -}}
 {{- define "ani-model.image" -}}
-{{- $base := printf "%s:%s" .Values.image.repository .Values.image.tag -}}
-{{- if .Values.image.digest }}{{ printf "%s@%s" $base .Values.image.digest }}{{ else }}{{ $base }}{{ end -}}
+{{- printf "%s:%s" .Values.image.repository .Values.image.tag -}}
 {{- end -}}
 {{- define "ani-model.importImage" -}}
-{{- $base := printf "%s:%s" .Values.import.jobImage.repository .Values.import.jobImage.tag -}}
-{{- if .Values.import.jobImage.digest }}{{ printf "%s@%s" $base .Values.import.jobImage.digest }}{{ else }}{{ $base }}{{ end -}}
+{{- printf "%s:%s" .Values.import.jobImage.repository .Values.import.jobImage.tag -}}
+{{- end -}}
+{{- define "ani-model.migrationImage" -}}
+{{- printf "%s:%s" .Values.migration.image.repository .Values.migration.image.tag -}}
 {{- end -}}

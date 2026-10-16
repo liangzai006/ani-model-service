@@ -26,9 +26,9 @@ Model 的 RPC 白名单和可信租户/actor 分支均使用这一精确身份�
 `ani-governance.ani.internal` 不再授权。上线本变更时须同步 Governance 的客户端
 证书与配置。Inference 调用 Model 的现有登记身份仍为 `ani-inference.ani.internal`。
 
-如果同时部署 Inference，请先按 Inference 仓库部署文档中的 Helm 命令安装或复用
-cert-manager 和其他平台依赖，再执行这里的 Model 安装命令。Model Chart 本身不会
-安装共享的 cert-manager 或创建 `ClusterIssuer`，也不会触碰旧集群。
+如果同时部署 Inference，请先确认平台基础设施已经安装并就绪，包括 cert-manager、
+`ClusterIssuer/ani-internal` 和其他公共依赖，再执行这里的 Model 安装命令。Model
+Chart 本身不会安装共享的 cert-manager、创建 `ClusterIssuer` 或接管已有资源，也不会触碰旧集群。
 
 `/healthz` 和 `/readyz` 仍是普通 HTTP，给 kubelet 探针用，不要求客户端证书。
 
@@ -40,7 +40,6 @@ Chart 不创建 Namespace、数据库、bucket 或 Secret。地址、镜像和�
 ```bash
 export KUBE_CONTEXT="${KUBE_CONTEXT:?填写新集群 context}"
 export S3_ENDPOINT="${S3_ENDPOINT:?填写新环境 S3 endpoint}"
-export STORAGE_CLASS="${STORAGE_CLASS:-local-path}"
 test "$(kubectl config current-context)" = "$KUBE_CONTEXT" || {
   echo "当前 kubeconfig context 不是目标新集群" >&2
   exit 1
@@ -52,7 +51,6 @@ kubectl -n ani-system \
 helm upgrade --install ani-model charts/ani-model \
   --namespace ani-system \
   --set-string storage.direct.endpoint="$S3_ENDPOINT" \
-  --set-string import.storageClass="$STORAGE_CLASS" \
   --wait --timeout 15m
 ```
 

@@ -42,6 +42,17 @@ push, legacy ANI edits, or adoption/deletion of unrelated cluster resources.
   ani.kubercloud.com, confirmed by source and cluster listing.
 - recycling contains Model tables only. Verify existing ani_inference database
   before choosing DSNs; do not create/alter tables speculatively.
+- The new cluster has no default StorageClass; only `local-path` exists. The
+  real run used an explicit Helm override, and the default Inference source
+  still falls back to absent `cephfs` when the value is blank.
+- The clean Inference chart reused a previously stored map-shaped
+  `migration.image` value while the default template expects a string, causing
+  one `InvalidImageName` hook. The failed hook was deleted and the next Helm
+  upgrade supplied the string explicitly.
+- Governance platform login and tenant creation succeeded, but the temporary
+  tenant received HTTP 403 for Model creation. The deployed route prefix and
+  role permission grants do not match the checked-in Governance contract;
+  Governance was intentionally not changed.
 
 ## New cluster audit (2026-09-21)
 
@@ -203,3 +214,81 @@ Scope: user confirms Storage belongs inside ani-resource-service. Prototype and 
 - [ ] Trace current Model/Inference storage consumers.
 - [ ] Summarize verified baseline and provisional design inputs.
 - Deferred by user: requirements clarification, alternative evaluation, formal design, review, implementation plan and code. No visual question at this stage.
+
+## 2026-10-15 contract-driven real-chain revalidation
+
+- [x] Read the current Model, Inference, Governance and deployment contracts;
+  record exact identities, API fields, namespaces, images and gateway rules.
+- [x] Preflight only the new `.clusterenv` context and current deployed objects;
+  do not touch the old environment.
+- [x] Run the complete public chain: Governance model import, model readiness,
+  inference creation, operation readiness, Higress completion and API deletion.
+- [x] Exercise cleanup and report every blocker separately; do not claim GPU or
+  distributed inference without GPU capacity.
+
+### Current run result (2026-10-15)
+
+- Model `origin/master` (`37fe220`) and Inference `origin/main` (`ceacc40`)
+  were built as fresh tag-only images and deployed to the new cluster.
+- The cluster has only `local-path` and no default StorageClass. This run
+  passed `local-path` explicitly to Helm; the default Inference source still
+  falls back to `cephfs`, so that source/chart contract remains unmerged.
+- Governance `main` was rebuilt and deployed as
+  `main-f851d88-20261015`; its Model/Inference BFF HTTPRoute is now Helm-owned,
+  enabled by default in the local uncommitted chart, and accepted by Higress.
+- The BFF route was verified through Higress: no `x-api-key` returns 401,
+  valid key plus valid platform credentials returns 200, and Model/Inference
+  requests with a platform token reach Gov and return the expected tenant
+  permission 403. A temporary tenant role grant chain was also verified
+  internally and cleaned up.
+- The complete public import/create/completion chain passed against this latest
+  Gov image. GPU and distributed inference remain unverified because the
+  cluster has no GPU capacity. StorageClass default absence is intentionally
+  not a blocker for this plan.
+
+### Route recheck and latest chain evidence (2026-10-15)
+
+- [x] Verify the new cluster context and remove/confirm absence of temporary
+  test Jobs, PVCs, Pods, Model and ModelVersion data.
+- [x] Verify the Helm-owned Governance BFF HTTPRoute, including the exact
+  `/api/v1/models:import` action path, through Higress.
+- [x] Verify the separate `/v1/completions` model-router route responds at the
+  gateway; an unknown model is rejected by the router.
+- [x] Reach ModelScope import through the public route; the importer retried
+  after one failed Job attempt and the Model service recorded the version as
+  ready.
+- [x] Rerun the poller so a transient `BackoffLimitExceeded` while the task is
+  still `importing` is treated as retryable, then execute Inference create,
+  real Higress completion and API deletion.
+
+### Final public-chain evidence (2026-10-15)
+
+- Tenant authentication, Model creation, ModelVersion creation and ModelScope
+  whole-repository import all passed through the Governance BFF. The 0.5B
+  artifact reached `ready` with 999,602,688 bytes and a recorded SHA256.
+- Inference creation returned 202 and eventually reached `succeeded/complete`;
+  the service became `ready` and `published` with the caller-provided complete
+  command preserved exactly. The CPU run used 4 CPU and 8Gi memory.
+- Higress `POST /v1/completions` returned HTTP 200 with a non-empty completion.
+  API deletion reached `succeeded/complete`, including publication withdrawal,
+  runtime deletion and quota release. The temporary tenant, Model,
+  ModelVersion, KServe objects, importer Job, PVC and download Secrets were
+  then removed.
+- The first 8Gi CPU attempt exposed vLLM's default KV-cache sizing and OOMed;
+  the successful run supplied `VLLM_CPU_KVCACHE_SPACE=4` in the caller's
+  command. No service code appended or synthesized that engine argument.
+- This validates the CPU single-instance public path only. GPU, LWS and
+  distributed inference remain unverified because the new cluster reports no
+  GPU capacity.
+
+### Governance management API coverage audit (2026-10-15)
+
+- [x] Compare Model/Inference downstream proto methods with Governance's
+  public proto, generated HTTP registration and BFF adapters.
+- [ ] Add the missing Model management operations: external ModelScope/Hugging
+  Face search, Model deletion, ModelVersion deletion, upload URL and download
+  URL.
+- [ ] Add the missing Inference lifecycle and operation-list operations:
+  update, start, stop, restart and list operations.
+- [ ] Regenerate Governance protobuf/HTTP code, add permissions and verify each
+  new public path through Higress without changing the old environment.
