@@ -1,6 +1,6 @@
 # Task 1 Report
 
-- 状态：已完成
+- 状态：已完成（review 修复）
 - 修改文件：
   - `api/model/v1/model.proto`
   - `api/model/v1/model.pb.go`（`make config` 生成）
@@ -9,12 +9,12 @@
   - `internal/biz/model/model_test.go`
   - `internal/service/model.go`
   - `internal/service/model_test.go`
-- 实现：新增 `ModelService.ImportModelBundle` 及请求/响应消息；新增 `BundleImport`、`BundleImportResult`、`BundleImporter` 和输入校验。服务从认证主体读取 tenant_id，忽略请求中的 tenant_id，并原样保留完整启动命令；聚合响应包含 model、version、task。
-- 提交 hash：`a18e8c4`
+- 实现：新增 `ModelService.ImportModelBundle` 及请求/响应消息；新增 `BundleImport`、`BundleImportResult`、`BundleImporter` 和输入校验。服务使用 `identity.RequireTenant` 做 fail-closed 租户校验；成功导入后按审计成功、再通知 worker 的顺序处理，任一步失败都不通知；数据库连接/事务不可用错误映射为 503。
+- 原始提交 hash：`a18e8c4`
+- 本次修复提交 hash：`88dc23e`
 - 运行的命令/结果：
-  - `make config`：通过，Buf 1.60.0 生成成功。
-  - `go test ./internal/biz/model ./internal/service -run 'Bundle|ImportModel' -count=1`：通过。
-  - `go test ./internal/biz/model ./internal/service -count=1`：通过。
+  - `go test ./internal/service -run 'ImportModelBundle|MapStore' -count=1`：通过。
+  - `go test ./internal/service -count=1`：通过。
   - `make verify`：通过（全量测试、vet、build、mod verify、diff check）。
   - `git diff --check`：无输出。
 - 保留的现有用户改动：`internal/data/postgres/artifact_integration_test.go`、`internal/data/postgres/model.sql.go`、`queries/model.sql` 未纳入提交。
