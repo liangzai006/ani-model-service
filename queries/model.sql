@@ -115,22 +115,56 @@ SELECT sqlc.arg(tenant_id), sqlc.arg(id), parent.id, sqlc.arg(version), sqlc.arg
 RETURNING *;
 
 -- name: MarkModelVersionReady :execrows
-UPDATE public.model_versions v
-SET status = 'ready', updated_at = clock_timestamp(), error_message = ''
-WHERE v.tenant_id = $1 AND v.id = $2 AND v.status IN ('pending', 'importing')
-  AND EXISTS (
-    SELECT 1 FROM public.model_artifacts a
-    WHERE a.tenant_id = v.tenant_id
-      AND a.model_version_id = v.id
-      AND a.reference <> ''
-      AND a.sha256 = v.checksum_sha256
-      AND a.sha256 <> ''
-  );
+WITH ready_version AS (
+  UPDATE public.model_versions v
+  SET status = 'ready', updated_at = clock_timestamp(), error_message = ''
+  WHERE v.tenant_id = $1 AND v.id = $2 AND v.status IN ('pending', 'importing')
+    AND EXISTS (
+      SELECT 1 FROM public.model_artifacts a
+      WHERE a.tenant_id = v.tenant_id
+        AND a.model_version_id = v.id
+        AND a.reference <> ''
+        AND a.sha256 = v.checksum_sha256
+        AND a.sha256 <> ''
+    )
+    AND EXISTS (
+      SELECT 1 FROM public.models m
+      WHERE m.tenant_id = v.tenant_id AND m.id = v.model_id AND m.status <> 'deleted'
+    )
+  RETURNING tenant_id, model_id
+)
+UPDATE public.models m
+SET status = 'ready', error_message = '', updated_at = clock_timestamp()
+FROM ready_version v
+WHERE m.tenant_id = v.tenant_id AND m.id = v.model_id;
 
 -- name: MarkModelVersionError :execrows
 UPDATE public.model_versions
 SET status = 'error', error_message = $3, updated_at = clock_timestamp()
 WHERE tenant_id = $1 AND id = $2 AND status IN ('pending', 'importing');
+
+-- name: MarkModelVersionErrorAndMaybeModel :one
+WITH errored_version AS (
+  UPDATE public.model_versions v
+  SET status = 'error', error_message = $3, updated_at = clock_timestamp()
+  WHERE v.tenant_id = $1 AND v.id = $2 AND v.status IN ('pending', 'importing')
+  RETURNING v.tenant_id, v.model_id
+), model_error AS (
+  UPDATE public.models m
+  SET status = 'error', error_message = $3, updated_at = clock_timestamp()
+  FROM errored_version v
+  WHERE m.tenant_id = v.tenant_id AND m.id = v.model_id AND m.status <> 'deleted'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.model_versions ready
+      WHERE ready.tenant_id = v.tenant_id
+        AND ready.model_id = v.model_id
+        AND ready.status = 'ready'
+    )
+  RETURNING m.id
+)
+SELECT EXISTS (SELECT 1 FROM errored_version) AS version_updated,
+       EXISTS (SELECT 1 FROM model_error) AS model_updated;
 
 -- name: SetModelVersionChecksum :execrows
 UPDATE public.model_versions
@@ -295,6 +329,26 @@ RETURNING tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
           revision, idempotency_key, request_fingerprint, status, attempt_count,
           progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
           error_message, created_at, updated_at, completed_at;
+
+-- name: RetryFailedImportTaskAndResetVersion :one
+WITH failed_task AS (
+  SELECT t0.tenant_id, t0.id, t0.model_version_id
+  FROM public.model_import_tasks t0
+  WHERE t0.tenant_id = sqlc.arg(tenant_id) AND t0.id = sqlc.arg(id) AND t0.status = 'failed'
+  FOR UPDATE
+), reset_version AS (
+  UPDATE public.model_versions v
+  SET status = 'pending', error_message = '', updated_at = clock_timestamp()
+  FROM failed_task t
+  WHERE v.tenant_id = t.tenant_id AND v.id = t.model_version_id AND v.status = 'error'
+)
+UPDATE public.model_import_tasks t
+SET status = 'pending', attempt_count = 0, progress_pct = 0, lease_owner = '',
+    lease_until = NULL, next_attempt_at = clock_timestamp(), error_message = '',
+    completed_at = NULL, updated_at = clock_timestamp()
+FROM failed_task
+WHERE t.tenant_id = failed_task.tenant_id AND t.id = failed_task.id
+RETURNING t.*;
 
 -- name: RenewImportTaskLease :execrows
 UPDATE public.model_import_tasks

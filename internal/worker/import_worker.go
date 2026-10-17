@@ -43,6 +43,14 @@ type VersionFinalizer interface {
 	MarkReady(context.Context, string, string) error
 }
 
+// VersionErrorFinalizer is implemented by stores that synchronize a
+// terminal import failure with its bound version and model aggregate.
+// Keeping it separate preserves compatibility with older finalizers that
+// only support the successful MarkReady path.
+type VersionErrorFinalizer interface {
+	MarkErrorAndMaybeModel(context.Context, string, string, string) error
+}
+
 // Notifier wakes a running worker after a task is committed. It is only an
 // optimization; the worker's PostgreSQL due scan remains authoritative.
 type Notifier interface {
@@ -255,6 +263,17 @@ func (w *Worker) listDue(ctx context.Context) ([]workbiz.Task, error) {
 func (w *Worker) retryOrFail(ctx context.Context, task workbiz.Task, err error, after time.Duration) error {
 	if w.MaxAttempts > 0 && task.AttemptCount >= w.MaxAttempts {
 		w.log(ctx, "import task failed", task, slog.String("error_class", errorClass(err)), slog.String("terminal", "true"))
+		if task.VersionID != "" {
+			if finalizer, ok := w.Finalizer.(VersionErrorFinalizer); ok {
+				if versionErr := finalizer.MarkErrorAndMaybeModel(ctx, task.TenantID, task.VersionID, err.Error()); versionErr != nil {
+					// Keep the executor error on the task even when a stale lease,
+					// ready version, or database error prevents version sync.
+					w.log(ctx, "import version error transition failed", task,
+						slog.String("error_class", errorClass(versionErr)),
+						slog.String("terminal_error", err.Error()))
+				}
+			}
+		}
 		return w.Store.Fail(ctx, task.TenantID, task.ID, w.Owner, task.LeaseEpoch, err.Error())
 	}
 	w.log(ctx, "import task retry scheduled", task, slog.String("error_class", errorClass(err)), slog.Duration("retry_after", after))

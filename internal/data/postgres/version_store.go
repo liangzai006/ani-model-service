@@ -215,6 +215,27 @@ func (s *VersionStore) MarkError(ctx context.Context, tenant, version, message s
 	return nil
 }
 
+// MarkErrorAndMaybeModel records a terminal import failure on the bound
+// version and, when no other ready version remains for the model, marks the
+// model itself as errored. The aggregate SQL keeps tenant and version scope
+// together so a stale or cross-tenant worker cannot update another record.
+func (s *VersionStore) MarkErrorAndMaybeModel(ctx context.Context, tenant, version, message string) error {
+	t, id, err := parseModelIDs(tenant, version)
+	if err != nil {
+		return err
+	}
+	r, err := New(s.pool).MarkModelVersionErrorAndMaybeModel(ctx, MarkModelVersionErrorAndMaybeModelParams{
+		TenantID: uuidType(t), ID: uuidType(id), ErrorMessage: message,
+	})
+	if err != nil {
+		return err
+	}
+	if !r.VersionUpdated {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 func (s *VersionStore) SetChecksum(ctx context.Context, tenant, version, checksum string, size int64) error {
 	t, id, err := parseModelIDs(tenant, version)
 	if err != nil {

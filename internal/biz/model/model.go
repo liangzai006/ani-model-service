@@ -15,6 +15,17 @@ var (
 	ErrModelNotReady       = errors.New("model version is not ready")
 )
 
+// Version statuses are domain state values shared by import workers and
+// persistence adapters. Keeping the terminal values here avoids adapters
+// inventing a second vocabulary for aggregate state transitions.
+const (
+	VersionPending   = "pending"
+	VersionImporting = "importing"
+	VersionReady     = "ready"
+	VersionError     = "error"
+	VersionDeleted   = "deleted"
+)
+
 var checksumPattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 
 type Version struct {
@@ -76,7 +87,7 @@ func (v Version) DeploymentInput() error {
 	if err := v.Validate(); err != nil {
 		return err
 	}
-	if v.Status != "ready" || v.ArtifactProvider == "" || v.ArtifactReference == "" || !checksumPattern.MatchString(v.ArtifactSHA256) {
+	if v.Status != VersionReady || v.ArtifactProvider == "" || v.ArtifactReference == "" || !checksumPattern.MatchString(v.ArtifactSHA256) {
 		return ErrModelNotReady
 	}
 	return nil
