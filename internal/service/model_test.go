@@ -111,6 +111,77 @@ type importNotifierFake struct{ calls int }
 
 func (f *importNotifierFake) Notify() { f.calls++ }
 
+type bundleImporterFake struct {
+	input  model.BundleImport
+	result model.BundleImportResult
+	err    error
+}
+
+func (f *bundleImporterFake) ImportBundle(_ context.Context, input model.BundleImport) (model.BundleImportResult, error) {
+	f.input = input
+	return f.result, f.err
+}
+
+func TestImportModelBundleRequestCarriesCompleteRuntimeInput(t *testing.T) {
+	in := &modelv1.ImportModelBundleRequest{
+		TenantId:       "tenant-from-auth",
+		IdempotencyKey: "bundle-1",
+		Model: &modelv1.ImportModelBundleModelData{
+			Name:            "qwen3.5-0.8b",
+			Capabilities:    []string{"text-generation"},
+			ExternalModelId: "Qwen/Qwen3.5-0.8B",
+		},
+		Version: &modelv1.ImportModelBundleVersionData{
+			Version:        "master",
+			Format:         "safetensors",
+			EngineType:     "vllm",
+			EngineImage:    "registry/vllm:tag",
+			StartupCommand: "vllm serve /models --served-model-name qwen3.5-0.8b",
+		},
+		Source: &modelv1.ImportModelBundleSourceData{
+			Provider: "modelscope",
+			RepoId:   "Qwen/Qwen3.5-0.8B",
+			Revision: "master",
+		},
+	}
+	if in.GetVersion().GetStartupCommand() != "vllm serve /models --served-model-name qwen3.5-0.8b" {
+		t.Fatal("full startup command was not retained")
+	}
+	if in.GetSource().GetRepoId() != "Qwen/Qwen3.5-0.8B" || in.GetSource().GetRevision() != "master" || in.GetVersion().GetEngineType() != "vllm" || in.GetVersion().GetEngineImage() != "registry/vllm:tag" {
+		t.Fatalf("request runtime input was not retained: %+v", in)
+	}
+}
+
+func TestImportModelBundleUsesAuthenticatedTenantAndReturnsAggregate(t *testing.T) {
+	importer := &bundleImporterFake{result: model.BundleImportResult{
+		Model:   model.Record{TenantID: "tenant-auth", ID: "model-1", Name: "qwen3.5-0.8b", ExternalModelID: "Qwen/Qwen3.5-0.8B", Capabilities: []byte(`["text-generation"]`)},
+		Version: model.Version{TenantID: "tenant-auth", ID: "version-1", ModelID: "model-1", Version: "master", Format: "safetensors", EngineType: "vllm", EngineImage: "registry/vllm:tag", StartupCommand: "vllm serve /models"},
+		TaskID:  "task-1", TaskType: "model-import", TaskStatus: "pending",
+	}}
+	s := NewModelService(nil)
+	s.SetBundleImporter(importer)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-auth", Actor: "actor", Workload: "internal"})
+	got, err := s.ImportModelBundle(ctx, &modelv1.ImportModelBundleRequest{
+		TenantId:       "tenant-from-request",
+		IdempotencyKey: "bundle-1",
+		Model:          &modelv1.ImportModelBundleModelData{Name: "qwen3.5-0.8b", Capabilities: []string{"text-generation"}, ExternalModelId: "Qwen/Qwen3.5-0.8B"},
+		Version:        &modelv1.ImportModelBundleVersionData{Version: "master", Format: "safetensors", EngineType: "vllm", EngineImage: "registry/vllm:tag", StartupCommand: "vllm serve /models"},
+		Source:         &modelv1.ImportModelBundleSourceData{Provider: "modelscope", RepoId: "Qwen/Qwen3.5-0.8B", Revision: "master"},
+	})
+	if err != nil {
+		t.Fatalf("ImportModelBundle() error = %v", err)
+	}
+	if importer.input.TenantID != "tenant-auth" {
+		t.Fatalf("tenant passed to importer = %q, want authenticated tenant", importer.input.TenantID)
+	}
+	if importer.input.StartupCommand != "vllm serve /models" || importer.input.RepoID != "Qwen/Qwen3.5-0.8B" {
+		t.Fatalf("runtime input = %+v", importer.input)
+	}
+	if got.GetModel().GetId() == "" || got.GetVersion().GetId() == "" || got.GetTask().GetTaskId() == "" {
+		t.Fatalf("aggregate response has empty members: %+v", got)
+	}
+}
+
 type externalModelSearcherFake struct {
 	request model.SearchRequest
 	page    model.SearchPage

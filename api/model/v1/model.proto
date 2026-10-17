@@ -26,6 +26,7 @@ service ModelService {
   rpc GetUploadURL(GetUploadURLRequest) returns (GetUploadURLResponse);
   // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ImportTask directly.
   rpc ImportModel(ImportModelRequest) returns (ImportTask);
+  rpc ImportModelBundle(ImportModelBundleRequest) returns (ImportModelBundleResponse);
   rpc GetImportTask(GetImportTaskRequest) returns (GetImportTaskResponse);
   rpc GetImportTaskLogs(GetImportTaskLogsRequest) returns (GetImportTaskLogsResponse);
   rpc RetryImportTask(RetryImportTaskRequest) returns (RetryImportTaskResponse);
@@ -209,6 +210,43 @@ message ImportModelRequest {
   string model_id = 7;
   string model_version_id = 8;
 }
+
+message ImportModelBundleModelData {
+  string name = 1;
+  string display_name = 2;
+  string description = 3;
+  repeated string capabilities = 4;
+  string external_model_id = 5;
+}
+
+message ImportModelBundleVersionData {
+  string version = 1;
+  string format = 2;
+  string engine_type = 3;
+  string engine_image = 4;
+  string startup_command = 5;
+}
+
+message ImportModelBundleSourceData {
+  string provider = 1;
+  string repo_id = 2;
+  string revision = 3;
+}
+
+message ImportModelBundleRequest {
+  string tenant_id = 1;
+  string idempotency_key = 2;
+  ImportModelBundleModelData model = 3;
+  ImportModelBundleVersionData version = 4;
+  ImportModelBundleSourceData source = 5;
+}
+
+message ImportModelBundleResponse {
+  Model model = 1;
+  ModelVersion version = 2;
+  ImportTask task = 3;
+}
+
 message ImportTask {
   string task_id = 1;
   string task_type = 2;

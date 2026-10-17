@@ -25,20 +25,21 @@ import (
 
 type ModelService struct {
 	modelv1.UnimplementedModelServiceServer
-	reader       model.VersionReader
-	versions     model.VersionCatalog
-	catalog      model.Catalog
-	storage      storage.Port
-	artifacts    model.ArtifactStore
-	work         workbiz.Creator
-	taskReader   workbiz.Reader
-	taskLogs     ImportTaskLogReader
-	logNamespace string
-	taskRetry    workbiz.Retrier
-	audit        auditbiz.Store
-	references   InferenceReferenceChecker
-	notifier     ImportNotifier
-	searcher     model.Searcher
+	reader         model.VersionReader
+	versions       model.VersionCatalog
+	catalog        model.Catalog
+	storage        storage.Port
+	artifacts      model.ArtifactStore
+	work           workbiz.Creator
+	taskReader     workbiz.Reader
+	taskLogs       ImportTaskLogReader
+	logNamespace   string
+	taskRetry      workbiz.Retrier
+	audit          auditbiz.Store
+	references     InferenceReferenceChecker
+	notifier       ImportNotifier
+	searcher       model.Searcher
+	bundleImporter model.BundleImporter
 }
 
 // ImportNotifier wakes the durable import worker after a task is committed.
@@ -69,6 +70,7 @@ func (s *ModelService) SetImportTaskLogReader(r ImportTaskLogReader, namespace s
 }
 func (s *ModelService) SetImportTaskRetrier(r workbiz.Retrier)           { s.taskRetry = r }
 func (s *ModelService) SetExternalModelSearcher(searcher model.Searcher) { s.searcher = searcher }
+func (s *ModelService) SetBundleImporter(importer model.BundleImporter)  { s.bundleImporter = importer }
 
 func NewModelService(r model.VersionReader) *ModelService { return &ModelService{reader: r} }
 func NewModelServiceWithDependencies(r model.VersionReader, v model.VersionCatalog, c model.Catalog, st storage.Port, w workbiz.Creator) *ModelService {
@@ -84,6 +86,9 @@ func NewModelDownloadService(v model.VersionReader, st storage.Port) *ModelServi
 	return &ModelService{reader: v, storage: st}
 }
 func NewModelImportService(w workbiz.Creator) *ModelService { return &ModelService{work: w} }
+func NewModelBundleImportService(i model.BundleImporter) *ModelService {
+	return &ModelService{bundleImporter: i}
+}
 
 func (s *ModelService) GetModelVersion(ctx context.Context, in *modelv1.GetModelVersionRequest) (*modelv1.GetModelVersionResponse, error) {
 	p, err := identity.RequireTenant(ctx, in.GetTenantId())
@@ -551,6 +556,40 @@ func (s *ModelService) ImportModel(ctx context.Context, in *modelv1.ImportModelR
 		s.notifier.Notify()
 	}
 	return &modelv1.ImportTask{TaskId: created.ID, TaskType: in.GetSource(), Status: created.Status, ModelId: created.ModelID, ModelVersionId: created.VersionID, AttemptCount: int32(created.AttemptCount)}, nil
+}
+
+func (s *ModelService) ImportModelBundle(ctx context.Context, in *modelv1.ImportModelBundleRequest) (*modelv1.ImportModelBundleResponse, error) {
+	p, err := identity.FromContext(ctx)
+	if err != nil {
+		return nil, mapIdentity(err)
+	}
+	if s.bundleImporter == nil {
+		return nil, errors2.New(503, "MODEL_BUNDLE_IMPORT_UNAVAILABLE", "model bundle importer is not configured")
+	}
+	modelData, versionData, sourceData := in.GetModel(), in.GetVersion(), in.GetSource()
+	bundle := model.BundleImport{TenantID: p.TenantID, IdempotencyKey: in.GetIdempotencyKey()}
+	if modelData != nil {
+		bundle.Name, bundle.DisplayName, bundle.Description, bundle.ExternalModelID = modelData.GetName(), modelData.GetDisplayName(), modelData.GetDescription(), modelData.GetExternalModelId()
+		bundle.Capabilities = append([]string(nil), modelData.GetCapabilities()...)
+	}
+	if versionData != nil {
+		bundle.Version, bundle.Format, bundle.EngineType, bundle.EngineImage, bundle.StartupCommand = versionData.GetVersion(), versionData.GetFormat(), versionData.GetEngineType(), versionData.GetEngineImage(), versionData.GetStartupCommand()
+	}
+	if sourceData != nil {
+		bundle.Provider, bundle.RepoID, bundle.Revision = sourceData.GetProvider(), sourceData.GetRepoId(), sourceData.GetRevision()
+	}
+	if err := bundle.Validate(); err != nil {
+		return nil, errors2.New(400, "INVALID_ARGUMENT", err.Error())
+	}
+	result, err := s.bundleImporter.ImportBundle(ctx, bundle)
+	if err != nil {
+		return nil, mapStore(err)
+	}
+	return &modelv1.ImportModelBundleResponse{
+		Model:   toProtoModel(result.Model),
+		Version: toProtoVersion(result.Version),
+		Task:    &modelv1.ImportTask{TaskId: result.TaskID, TaskType: result.TaskType, Status: result.TaskStatus, ModelId: result.Model.ID, ModelVersionId: result.Version.ID},
+	}, nil
 }
 
 func (s *ModelService) GetImportTask(ctx context.Context, in *modelv1.GetImportTaskRequest) (*modelv1.GetImportTaskResponse, error) {
