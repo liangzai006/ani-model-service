@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,6 +15,18 @@ import (
 type importTaskReaderFake struct {
 	task workbiz.Task
 	err  error
+}
+
+type importTaskLogReaderFake struct {
+	logs      string
+	err       error
+	namespace string
+	jobName   string
+}
+
+func (f *importTaskLogReaderFake) Logs(_ context.Context, namespace, jobName string) (string, error) {
+	f.namespace, f.jobName = namespace, jobName
+	return f.logs, f.err
 }
 
 func (f importTaskReaderFake) Get(context.Context, string, string) (workbiz.Task, error) {
@@ -62,6 +75,38 @@ func TestCompletedImportTaskDoesNotExposeStaleError(t *testing.T) {
 	}
 	if got.GetTask().GetStatus() != workbiz.Completed || got.GetTask().GetErrorMessage() != "" {
 		t.Fatalf("completed task response = %+v; want no error", got.GetTask())
+	}
+}
+
+func TestGetImportTaskLogsReturnsCurrentAttemptTailAndStatus(t *testing.T) {
+	reader := &importTaskLogReaderFake{logs: "downloaded 42%\n"}
+	s := NewModelImportService(nil)
+	s.SetImportTaskReader(importTaskReaderFake{task: workbiz.Task{
+		TenantID: "tenant-a", ID: "11111111-1111-1111-1111-111111111111", Status: workbiz.Importing,
+		AttemptCount: 3,
+	}})
+	s.SetImportTaskLogReader(reader, "ani-model")
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "actor", Workload: "gateway"})
+	got, err := s.GetImportTaskLogs(ctx, &modelv1.GetImportTaskLogsRequest{TenantId: "tenant-a", TaskId: "11111111-1111-1111-1111-111111111111"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetTaskId() != "11111111-1111-1111-1111-111111111111" || got.GetStatus() != workbiz.Importing || got.GetLogs() != "downloaded 42%\n" || !got.GetAvailable() {
+		t.Fatalf("logs response = %+v", got)
+	}
+	if reader.namespace != "ani-model" || reader.jobName != "ani-import-11111111111111111111111111111111-a3" {
+		t.Fatalf("log target = %s/%s", reader.namespace, reader.jobName)
+	}
+}
+
+func TestGetImportTaskLogsReturnsUnavailableWhenJobWasCleanedUp(t *testing.T) {
+	s := NewModelImportService(nil)
+	s.SetImportTaskReader(importTaskReaderFake{task: workbiz.Task{TenantID: "tenant-a", ID: "11111111-1111-1111-1111-111111111111", Status: workbiz.Completed, AttemptCount: 1}})
+	s.SetImportTaskLogReader(&importTaskLogReaderFake{err: errors.New("import job has no pod")}, "ani-model")
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-a", Actor: "actor", Workload: "gateway"})
+	_, err := s.GetImportTaskLogs(ctx, &modelv1.GetImportTaskLogsRequest{TenantId: "tenant-a", TaskId: "11111111-1111-1111-1111-111111111111"})
+	if kratoserrors.Code(err) != 409 || kratoserrors.Reason(err) != "IMPORT_LOGS_UNAVAILABLE" {
+		t.Fatalf("error = %v, code=%d reason=%q", err, kratoserrors.Code(err), kratoserrors.Reason(err))
 	}
 }
 

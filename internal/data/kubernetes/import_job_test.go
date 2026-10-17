@@ -55,6 +55,12 @@ func TestBuildImportJob(t *testing.T) {
 	}
 }
 
+func TestImportJobNameUsesTaskAndAttempt(t *testing.T) {
+	if got, want := ImportJobName("11111111-1111-1111-1111-111111111111", 3), "ani-import-11111111111111111111111111111111-a3"; got != want {
+		t.Fatalf("ImportJobName() = %q, want %q", got, want)
+	}
+}
+
 func TestImportJobClientSecretLifecycle(t *testing.T) {
 	client := NewImportJobClient(k8sfake.NewSimpleClientset())
 	secret := &corev1.Secret{

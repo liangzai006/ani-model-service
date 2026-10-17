@@ -209,6 +209,7 @@ func run(logger *slog.Logger) error {
 				return fmt.Errorf("create Kubernetes import client: %w", clientErr)
 			}
 			executor.Jobs = kubedata.NewImportJobClient(kubeClient)
+			modelService.SetImportTaskLogReader(executor.Jobs, executor.Namespace)
 			executor.Artifacts = artifactStore
 			executor.Checksums = versionStore
 			executor.Providers = providers

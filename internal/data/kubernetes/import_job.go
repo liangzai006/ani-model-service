@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
 	"io"
 	"strings"
 	"time"
@@ -254,6 +255,11 @@ func (c *ImportJobClient) Logs(ctx context.Context, namespace, name string) (str
 		return "", fmt.Errorf("read import job logs %s/%s: %w", namespace, name, err)
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+// ImportJobName returns the deterministic Job name used for an import attempt.
+func ImportJobName(taskID string, attempt int) string {
+	return workbiz.ImportJobName(taskID, attempt)
 }
 
 type JobPhase string

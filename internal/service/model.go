@@ -25,24 +25,30 @@ import (
 
 type ModelService struct {
 	modelv1.UnimplementedModelServiceServer
-	reader     model.VersionReader
-	versions   model.VersionCatalog
-	catalog    model.Catalog
-	storage    storage.Port
-	artifacts  model.ArtifactStore
-	work       workbiz.Creator
-	taskReader workbiz.Reader
-	taskRetry  workbiz.Retrier
-	audit      auditbiz.Store
-	references InferenceReferenceChecker
-	notifier   ImportNotifier
-	searcher   model.Searcher
+	reader       model.VersionReader
+	versions     model.VersionCatalog
+	catalog      model.Catalog
+	storage      storage.Port
+	artifacts    model.ArtifactStore
+	work         workbiz.Creator
+	taskReader   workbiz.Reader
+	taskLogs     ImportTaskLogReader
+	logNamespace string
+	taskRetry    workbiz.Retrier
+	audit        auditbiz.Store
+	references   InferenceReferenceChecker
+	notifier     ImportNotifier
+	searcher     model.Searcher
 }
 
 // ImportNotifier wakes the durable import worker after a task is committed.
 // PostgreSQL remains the source of truth when a notification is lost.
 type ImportNotifier interface {
 	Notify()
+}
+
+type ImportTaskLogReader interface {
+	Logs(context.Context, string, string) (string, error)
 }
 
 // InferenceReferenceChecker is a versioned external contract. Model never
@@ -58,8 +64,11 @@ func (s *ModelService) SetInferenceReferenceChecker(c InferenceReferenceChecker)
 func (s *ModelService) SetArtifactStore(store model.ArtifactStore)               { s.artifacts = store }
 func (s *ModelService) SetImportNotifier(n ImportNotifier)                       { s.notifier = n }
 func (s *ModelService) SetImportTaskReader(r workbiz.Reader)                     { s.taskReader = r }
-func (s *ModelService) SetImportTaskRetrier(r workbiz.Retrier)                   { s.taskRetry = r }
-func (s *ModelService) SetExternalModelSearcher(searcher model.Searcher)         { s.searcher = searcher }
+func (s *ModelService) SetImportTaskLogReader(r ImportTaskLogReader, namespace string) {
+	s.taskLogs, s.logNamespace = r, namespace
+}
+func (s *ModelService) SetImportTaskRetrier(r workbiz.Retrier)           { s.taskRetry = r }
+func (s *ModelService) SetExternalModelSearcher(searcher model.Searcher) { s.searcher = searcher }
 
 func NewModelService(r model.VersionReader) *ModelService { return &ModelService{reader: r} }
 func NewModelServiceWithDependencies(r model.VersionReader, v model.VersionCatalog, c model.Catalog, st storage.Port, w workbiz.Creator) *ModelService {
@@ -569,6 +578,40 @@ func (s *ModelService) GetImportTask(ctx context.Context, in *modelv1.GetImportT
 		return nil, mapIdentity(identity.ErrTenantMismatch)
 	}
 	return &modelv1.GetImportTaskResponse{Task: toProtoImportTask(task)}, nil
+}
+
+func (s *ModelService) GetImportTaskLogs(ctx context.Context, in *modelv1.GetImportTaskLogsRequest) (*modelv1.GetImportTaskLogsResponse, error) {
+	p, err := identity.RequireTenant(ctx, in.GetTenantId())
+	if err != nil {
+		return nil, mapIdentity(err)
+	}
+	if _, err := uuid.Parse(in.GetTaskId()); err != nil {
+		return nil, errors2.BadRequest("INVALID_ARGUMENT", "invalid task_id")
+	}
+	reader := s.taskReader
+	if reader == nil {
+		if candidate, ok := s.work.(workbiz.Reader); ok {
+			reader = candidate
+		}
+	}
+	if reader == nil {
+		return nil, errors2.New(503, "WORKER_UNAVAILABLE", "import task reader is not configured")
+	}
+	if s.taskLogs == nil || strings.TrimSpace(s.logNamespace) == "" {
+		return nil, errors2.New(503, "IMPORT_LOGS_UNAVAILABLE", "import task log reader is not configured")
+	}
+	task, err := reader.Get(ctx, p.TenantID, in.GetTaskId())
+	if err != nil {
+		return nil, mapStore(err)
+	}
+	if task.TenantID != "" && task.TenantID != p.TenantID {
+		return nil, mapIdentity(identity.ErrTenantMismatch)
+	}
+	logs, err := s.taskLogs.Logs(ctx, s.logNamespace, workbiz.ImportJobName(task.ID, task.AttemptCount))
+	if err != nil {
+		return nil, errors2.New(409, "IMPORT_LOGS_UNAVAILABLE", "import task logs are no longer available")
+	}
+	return &modelv1.GetImportTaskLogsResponse{TaskId: task.ID, Status: task.Status, Logs: logs, Available: true}, nil
 }
 
 func (s *ModelService) RetryImportTask(ctx context.Context, in *modelv1.RetryImportTaskRequest) (*modelv1.RetryImportTaskResponse, error) {

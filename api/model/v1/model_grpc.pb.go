@@ -32,6 +32,7 @@ const (
 	ModelService_GetUploadURL_FullMethodName         = "/model.v1.ModelService/GetUploadURL"
 	ModelService_ImportModel_FullMethodName          = "/model.v1.ModelService/ImportModel"
 	ModelService_GetImportTask_FullMethodName        = "/model.v1.ModelService/GetImportTask"
+	ModelService_GetImportTaskLogs_FullMethodName    = "/model.v1.ModelService/GetImportTaskLogs"
 	ModelService_RetryImportTask_FullMethodName      = "/model.v1.ModelService/RetryImportTask"
 	ModelService_GetModelDownloadURL_FullMethodName  = "/model.v1.ModelService/GetModelDownloadURL"
 )
@@ -59,6 +60,7 @@ type ModelServiceClient interface {
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ImportTask directly.
 	ImportModel(ctx context.Context, in *ImportModelRequest, opts ...grpc.CallOption) (*ImportTask, error)
 	GetImportTask(ctx context.Context, in *GetImportTaskRequest, opts ...grpc.CallOption) (*GetImportTaskResponse, error)
+	GetImportTaskLogs(ctx context.Context, in *GetImportTaskLogsRequest, opts ...grpc.CallOption) (*GetImportTaskLogsResponse, error)
 	RetryImportTask(ctx context.Context, in *RetryImportTaskRequest, opts ...grpc.CallOption) (*RetryImportTaskResponse, error)
 	GetModelDownloadURL(ctx context.Context, in *GetModelDownloadURLRequest, opts ...grpc.CallOption) (*GetModelDownloadURLResponse, error)
 }
@@ -191,6 +193,16 @@ func (c *modelServiceClient) GetImportTask(ctx context.Context, in *GetImportTas
 	return out, nil
 }
 
+func (c *modelServiceClient) GetImportTaskLogs(ctx context.Context, in *GetImportTaskLogsRequest, opts ...grpc.CallOption) (*GetImportTaskLogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetImportTaskLogsResponse)
+	err := c.cc.Invoke(ctx, ModelService_GetImportTaskLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *modelServiceClient) RetryImportTask(ctx context.Context, in *RetryImportTaskRequest, opts ...grpc.CallOption) (*RetryImportTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RetryImportTaskResponse)
@@ -234,6 +246,7 @@ type ModelServiceServer interface {
 	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ImportTask directly.
 	ImportModel(context.Context, *ImportModelRequest) (*ImportTask, error)
 	GetImportTask(context.Context, *GetImportTaskRequest) (*GetImportTaskResponse, error)
+	GetImportTaskLogs(context.Context, *GetImportTaskLogsRequest) (*GetImportTaskLogsResponse, error)
 	RetryImportTask(context.Context, *RetryImportTaskRequest) (*RetryImportTaskResponse, error)
 	GetModelDownloadURL(context.Context, *GetModelDownloadURLRequest) (*GetModelDownloadURLResponse, error)
 	mustEmbedUnimplementedModelServiceServer()
@@ -281,6 +294,9 @@ func (UnimplementedModelServiceServer) ImportModel(context.Context, *ImportModel
 }
 func (UnimplementedModelServiceServer) GetImportTask(context.Context, *GetImportTaskRequest) (*GetImportTaskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetImportTask not implemented")
+}
+func (UnimplementedModelServiceServer) GetImportTaskLogs(context.Context, *GetImportTaskLogsRequest) (*GetImportTaskLogsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetImportTaskLogs not implemented")
 }
 func (UnimplementedModelServiceServer) RetryImportTask(context.Context, *RetryImportTaskRequest) (*RetryImportTaskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RetryImportTask not implemented")
@@ -525,6 +541,24 @@ func _ModelService_GetImportTask_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ModelService_GetImportTaskLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetImportTaskLogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).GetImportTaskLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_GetImportTaskLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).GetImportTaskLogs(ctx, req.(*GetImportTaskLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ModelService_RetryImportTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RetryImportTaskRequest)
 	if err := dec(in); err != nil {
@@ -615,6 +649,10 @@ var ModelService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetImportTask",
 			Handler:    _ModelService_GetImportTask_Handler,
+		},
+		{
+			MethodName: "GetImportTaskLogs",
+			Handler:    _ModelService_GetImportTaskLogs_Handler,
 		},
 		{
 			MethodName: "RetryImportTask",
