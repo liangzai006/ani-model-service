@@ -219,21 +219,52 @@ func (s *VersionStore) MarkError(ctx context.Context, tenant, version, message s
 // version and, when no other ready version remains for the model, marks the
 // model itself as errored. The aggregate SQL keeps tenant and version scope
 // together so a stale or cross-tenant worker cannot update another record.
-func (s *VersionStore) MarkErrorAndMaybeModel(ctx context.Context, tenant, version, message string) error {
+func (s *VersionStore) MarkErrorAndMaybeModel(ctx context.Context, tenant, taskID, version, owner string, epoch int64, message string) error {
 	t, id, err := parseModelIDs(tenant, version)
 	if err != nil {
 		return err
 	}
-	r, err := New(s.pool).MarkModelVersionErrorAndMaybeModel(ctx, MarkModelVersionErrorAndMaybeModelParams{
-		TenantID: uuidType(t), ID: uuidType(id), ErrorMessage: message,
-	})
+	task, err := uuid.Parse(taskID)
 	if err != nil {
-		return err
+		return fmt.Errorf("task_id: %w", err)
 	}
-	if !r.VersionUpdated {
-		return pgx.ErrNoRows
+	params := MarkModelVersionErrorForTaskParams{TenantID: uuidType(t), ID: uuidType(task), ModelVersionID: uuidType(id), LeaseOwner: owner, LeaseEpoch: epoch, ErrorMessage: message}
+	apply := func(q *Queries) error {
+		r, queryErr := q.MarkModelVersionErrorForTask(ctx, params)
+		if queryErr != nil {
+			return queryErr
+		}
+		// Locking the model is a separate statement so the ready check gets a
+		// fresh READ COMMITTED snapshot after any concurrent MarkReady commits.
+		if _, queryErr = q.LockModelForVersionError(ctx, LockModelForVersionErrorParams{TenantID: uuidType(t), ID: r.ModelID}); queryErr != nil {
+			if errors.Is(queryErr, pgx.ErrNoRows) {
+				return nil // the version update is still valid if its parent was removed
+			}
+			return queryErr
+		}
+		_, queryErr = q.MarkModelErrorIfNoReady(ctx, MarkModelErrorIfNoReadyParams{TenantID: uuidType(t), ID: r.ModelID, ErrorMessage: message})
+		return queryErr
 	}
-	return nil
+
+	if db, ok := s.pool.(interface {
+		BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+	}); ok {
+		tx, beginErr := db.BeginTx(ctx, pgx.TxOptions{})
+		if beginErr != nil {
+			return beginErr
+		}
+		if queryErr := apply(New(tx)); queryErr != nil {
+			_ = tx.Rollback(ctx)
+			if errors.Is(queryErr, pgx.ErrNoRows) {
+				return pgx.ErrNoRows
+			}
+			return queryErr
+		}
+		return tx.Commit(ctx)
+	}
+	// DBTX implementations without transactions are test-only adapters; keep
+	// the lease-checked path usable for them.
+	return apply(New(s.pool))
 }
 
 func (s *VersionStore) SetChecksum(ctx context.Context, tenant, version, checksum string, size int64) error {

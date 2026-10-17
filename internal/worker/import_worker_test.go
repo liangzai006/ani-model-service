@@ -148,7 +148,10 @@ type finalizerFake struct {
 	tenant       string
 	version      string
 	errorTenant  string
+	errorTask    string
 	errorVersion string
+	errorOwner   string
+	errorEpoch   int64
 	errorMessage string
 }
 
@@ -157,8 +160,8 @@ func (f *finalizerFake) MarkReady(_ context.Context, tenant, version string) err
 	return f.err
 }
 
-func (f *finalizerFake) MarkErrorAndMaybeModel(_ context.Context, tenant, version, message string) error {
-	f.errorTenant, f.errorVersion, f.errorMessage = tenant, version, message
+func (f *finalizerFake) MarkErrorAndMaybeModel(_ context.Context, tenant, task, version, owner string, epoch int64, message string) error {
+	f.errorTenant, f.errorTask, f.errorVersion, f.errorOwner, f.errorEpoch, f.errorMessage = tenant, task, version, owner, epoch, message
 	return f.errorErr
 }
 
@@ -235,8 +238,8 @@ func TestWorkerFailsTaskAfterMaxAttempts(t *testing.T) {
 	if !store.failed || store.retried || store.completed {
 		t.Fatalf("terminal failure not recorded: failed=%v retried=%v completed=%v", store.failed, store.retried, store.completed)
 	}
-	if finalizer.errorTenant != "tenant" || finalizer.errorVersion != "version" || finalizer.errorMessage != "checksum mismatch" {
-		t.Fatalf("terminal version error not recorded: tenant=%q version=%q message=%q", finalizer.errorTenant, finalizer.errorVersion, finalizer.errorMessage)
+	if finalizer.errorTenant != "tenant" || finalizer.errorTask != "task" || finalizer.errorVersion != "version" || finalizer.errorOwner != "worker" || finalizer.errorEpoch != 1 || finalizer.errorMessage != "checksum mismatch" {
+		t.Fatalf("terminal version error not recorded: tenant=%q task=%q version=%q owner=%q epoch=%d message=%q", finalizer.errorTenant, finalizer.errorTask, finalizer.errorVersion, finalizer.errorOwner, finalizer.errorEpoch, finalizer.errorMessage)
 	}
 	if store.failedMessage != "checksum mismatch" {
 		t.Fatalf("task error changed after version error transition: %q", store.failedMessage)

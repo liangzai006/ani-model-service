@@ -41,3 +41,18 @@ Final validation:
 ### 未验证项
 
 - 当前环境没有 `MODEL_DATABASE_URL`，因此 PostgreSQL 事务、跨租户和状态保护集成用例未连接真实数据库执行。
+
+## Task 3 修复轮次：租约 CAS 与并发聚合状态
+
+### Changes
+
+- 终态版本错误更新现在在同一默认隔离级别事务内执行：先用 task ID、version ID、lease owner、lease epoch 和有效 lease 校验并更新版本，再锁定绑定 model 行，最后以新快照检查 ready 版本并按允许状态更新 model；移除 Serializable，避免无谓的 serialization failure。
+- 将聚合错误 SQL 拆成租约校验版本更新、model 行锁、无 ready 时的 model 更新三个查询，和 `MarkReady` 保持 version→model 锁序；ready、deleted model/version 不会被错误状态覆盖。
+- 扩展 stale owner/过期 lease、ready model 无 ready version、以及并发 ready/error 的 PostgreSQL 集成覆盖；保留 `VersionStore.MarkError` 兼容入口和任务原始错误。
+
+### Tests
+
+- `go test ./internal/worker ./internal/data/postgres -run 'Import|Retry|Version.*Error' -count=1`（通过；未设置 `MODEL_DATABASE_URL` 时集成测试 skip）
+- `go test ./... -count=1`（通过）
+- `go vet ./...`（通过）
+- `sqlc generate`、`git diff --check`（通过）

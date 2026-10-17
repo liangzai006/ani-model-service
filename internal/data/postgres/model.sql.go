@@ -1868,6 +1868,57 @@ func (q *Queries) ListModels(ctx context.Context, arg ListModelsParams) ([]ListM
 	return items, nil
 }
 
+const lockModelForVersionError = `-- name: LockModelForVersionError :one
+SELECT m.tenant_id, m.id
+FROM public.models m
+WHERE m.tenant_id = $1 AND m.id = $2
+FOR UPDATE
+`
+
+type LockModelForVersionErrorParams struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+type LockModelForVersionErrorRow struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) LockModelForVersionError(ctx context.Context, arg LockModelForVersionErrorParams) (LockModelForVersionErrorRow, error) {
+	row := q.db.QueryRow(ctx, lockModelForVersionError, arg.TenantID, arg.ID)
+	var i LockModelForVersionErrorRow
+	err := row.Scan(&i.TenantID, &i.ID)
+	return i, err
+}
+
+const markModelErrorIfNoReady = `-- name: MarkModelErrorIfNoReady :execrows
+UPDATE public.models m
+SET status = 'error', error_message = $3, updated_at = clock_timestamp()
+WHERE m.tenant_id = $1 AND m.id = $2 AND m.status IN ('pending', 'downloading', 'error')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.model_versions ready
+    WHERE ready.tenant_id = m.tenant_id
+      AND ready.model_id = m.id
+      AND ready.status = 'ready'
+  )
+`
+
+type MarkModelErrorIfNoReadyParams struct {
+	TenantID     pgtype.UUID `json:"tenant_id"`
+	ID           pgtype.UUID `json:"id"`
+	ErrorMessage string      `json:"error_message"`
+}
+
+func (q *Queries) MarkModelErrorIfNoReady(ctx context.Context, arg MarkModelErrorIfNoReadyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markModelErrorIfNoReady, arg.TenantID, arg.ID, arg.ErrorMessage)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markModelVersionError = `-- name: MarkModelVersionError :execrows
 UPDATE public.model_versions
 SET status = 'error', error_message = $3, updated_at = clock_timestamp()
@@ -1888,45 +1939,48 @@ func (q *Queries) MarkModelVersionError(ctx context.Context, arg MarkModelVersio
 	return result.RowsAffected(), nil
 }
 
-const markModelVersionErrorAndMaybeModel = `-- name: MarkModelVersionErrorAndMaybeModel :one
-WITH errored_version AS (
-  UPDATE public.model_versions v
-  SET status = 'error', error_message = $3, updated_at = clock_timestamp()
-  WHERE v.tenant_id = $1 AND v.id = $2 AND v.status IN ('pending', 'importing')
-  RETURNING v.tenant_id, v.model_id
-), model_error AS (
-  UPDATE public.models m
-  SET status = 'error', error_message = $3, updated_at = clock_timestamp()
-  FROM errored_version v
-  WHERE m.tenant_id = v.tenant_id AND m.id = v.model_id AND m.status <> 'deleted'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM public.model_versions ready
-      WHERE ready.tenant_id = v.tenant_id
-        AND ready.model_id = v.model_id
-        AND ready.status = 'ready'
-    )
-  RETURNING m.id
+const markModelVersionErrorForTask = `-- name: MarkModelVersionErrorForTask :one
+WITH leased_task AS (
+  SELECT t.tenant_id, t.model_id, t.model_version_id
+  FROM public.model_import_tasks t
+  WHERE t.tenant_id = $1 AND t.id = $2 AND t.model_version_id = $3
+    AND t.status = 'importing' AND t.lease_owner = $4 AND t.lease_epoch = $5
+    AND t.lease_until > clock_timestamp()
+  FOR UPDATE
 )
-SELECT EXISTS (SELECT 1 FROM errored_version) AS version_updated,
-       EXISTS (SELECT 1 FROM model_error) AS model_updated
+UPDATE public.model_versions v
+SET status = 'error', error_message = $6, updated_at = clock_timestamp()
+FROM leased_task t
+WHERE v.tenant_id = t.tenant_id AND v.id = t.model_version_id
+  AND v.status IN ('pending', 'importing')
+RETURNING v.tenant_id, v.model_id
 `
 
-type MarkModelVersionErrorAndMaybeModelParams struct {
-	TenantID     pgtype.UUID `json:"tenant_id"`
-	ID           pgtype.UUID `json:"id"`
-	ErrorMessage string      `json:"error_message"`
+type MarkModelVersionErrorForTaskParams struct {
+	TenantID       pgtype.UUID `json:"tenant_id"`
+	ID             pgtype.UUID `json:"id"`
+	ModelVersionID pgtype.UUID `json:"model_version_id"`
+	LeaseOwner     string      `json:"lease_owner"`
+	LeaseEpoch     int64       `json:"lease_epoch"`
+	ErrorMessage   string      `json:"error_message"`
 }
 
-type MarkModelVersionErrorAndMaybeModelRow struct {
-	VersionUpdated bool `json:"version_updated"`
-	ModelUpdated   bool `json:"model_updated"`
+type MarkModelVersionErrorForTaskRow struct {
+	TenantID pgtype.UUID `json:"tenant_id"`
+	ModelID  pgtype.UUID `json:"model_id"`
 }
 
-func (q *Queries) MarkModelVersionErrorAndMaybeModel(ctx context.Context, arg MarkModelVersionErrorAndMaybeModelParams) (MarkModelVersionErrorAndMaybeModelRow, error) {
-	row := q.db.QueryRow(ctx, markModelVersionErrorAndMaybeModel, arg.TenantID, arg.ID, arg.ErrorMessage)
-	var i MarkModelVersionErrorAndMaybeModelRow
-	err := row.Scan(&i.VersionUpdated, &i.ModelUpdated)
+func (q *Queries) MarkModelVersionErrorForTask(ctx context.Context, arg MarkModelVersionErrorForTaskParams) (MarkModelVersionErrorForTaskRow, error) {
+	row := q.db.QueryRow(ctx, markModelVersionErrorForTask,
+		arg.TenantID,
+		arg.ID,
+		arg.ModelVersionID,
+		arg.LeaseOwner,
+		arg.LeaseEpoch,
+		arg.ErrorMessage,
+	)
+	var i MarkModelVersionErrorForTaskRow
+	err := row.Scan(&i.TenantID, &i.ModelID)
 	return i, err
 }
 

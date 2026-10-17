@@ -48,7 +48,7 @@ type VersionFinalizer interface {
 // Keeping it separate preserves compatibility with older finalizers that
 // only support the successful MarkReady path.
 type VersionErrorFinalizer interface {
-	MarkErrorAndMaybeModel(context.Context, string, string, string) error
+	MarkErrorAndMaybeModel(context.Context, string, string, string, string, int64, string) error
 }
 
 // Notifier wakes a running worker after a task is committed. It is only an
@@ -265,7 +265,7 @@ func (w *Worker) retryOrFail(ctx context.Context, task workbiz.Task, err error, 
 		w.log(ctx, "import task failed", task, slog.String("error_class", errorClass(err)), slog.String("terminal", "true"))
 		if task.VersionID != "" {
 			if finalizer, ok := w.Finalizer.(VersionErrorFinalizer); ok {
-				if versionErr := finalizer.MarkErrorAndMaybeModel(ctx, task.TenantID, task.VersionID, err.Error()); versionErr != nil {
+				if versionErr := finalizer.MarkErrorAndMaybeModel(ctx, task.TenantID, task.ID, task.VersionID, w.Owner, task.LeaseEpoch, err.Error()); versionErr != nil {
 					// Keep the executor error on the task even when a stale lease,
 					// ready version, or database error prevents version sync.
 					w.log(ctx, "import version error transition failed", task,
