@@ -178,6 +178,197 @@ func (q *Queries) CountModels(ctx context.Context, arg CountModelsParams) (int64
 	return count, err
 }
 
+const createBundleModel = `-- name: CreateBundleModel :one
+INSERT INTO public.models
+ (tenant_id, id, model_id, name, display_name, description, source, source_repo_id,
+  capabilities, status, idempotency_key, request_fingerprint)
+VALUES ($1, $2, $3, $4,
+        $5, $6, $7,
+        $8, $9, 'pending',
+        $10, $11)
+RETURNING tenant_id, id, name, display_name, description, source, source_repo_id, capabilities, status, error_message, total_size_bytes, created_at, updated_at, deleted_at, idempotency_key, request_fingerprint, model_id
+`
+
+type CreateBundleModelParams struct {
+	TenantID           pgtype.UUID `json:"tenant_id"`
+	ID                 pgtype.UUID `json:"id"`
+	ModelID            string      `json:"model_id"`
+	Name               string      `json:"name"`
+	DisplayName        string      `json:"display_name"`
+	Description        string      `json:"description"`
+	Source             string      `json:"source"`
+	SourceRepoID       string      `json:"source_repo_id"`
+	Capabilities       []byte      `json:"capabilities"`
+	IdempotencyKey     string      `json:"idempotency_key"`
+	RequestFingerprint string      `json:"request_fingerprint"`
+}
+
+func (q *Queries) CreateBundleModel(ctx context.Context, arg CreateBundleModelParams) (Model, error) {
+	row := q.db.QueryRow(ctx, createBundleModel,
+		arg.TenantID,
+		arg.ID,
+		arg.ModelID,
+		arg.Name,
+		arg.DisplayName,
+		arg.Description,
+		arg.Source,
+		arg.SourceRepoID,
+		arg.Capabilities,
+		arg.IdempotencyKey,
+		arg.RequestFingerprint,
+	)
+	var i Model
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.Name,
+		&i.DisplayName,
+		&i.Description,
+		&i.Source,
+		&i.SourceRepoID,
+		&i.Capabilities,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.TotalSizeBytes,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.ModelID,
+	)
+	return i, err
+}
+
+const createBundleTask = `-- name: CreateBundleTask :one
+INSERT INTO public.model_import_tasks
+ (tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+  revision, idempotency_key, request_fingerprint, status)
+VALUES ($1, $2, $3, $4,
+        $5, $6, $7, $8,
+        $9, $10, 'pending')
+RETURNING tenant_id, id, model_id, model_version_id, task_type, source, repo_id, revision, idempotency_key, status, attempt_count, progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at, error_message, created_at, updated_at, completed_at, request_fingerprint
+`
+
+type CreateBundleTaskParams struct {
+	TenantID           pgtype.UUID `json:"tenant_id"`
+	ID                 pgtype.UUID `json:"id"`
+	ModelID            pgtype.UUID `json:"model_id"`
+	ModelVersionID     pgtype.UUID `json:"model_version_id"`
+	TaskType           string      `json:"task_type"`
+	Source             string      `json:"source"`
+	RepoID             string      `json:"repo_id"`
+	Revision           string      `json:"revision"`
+	IdempotencyKey     string      `json:"idempotency_key"`
+	RequestFingerprint string      `json:"request_fingerprint"`
+}
+
+func (q *Queries) CreateBundleTask(ctx context.Context, arg CreateBundleTaskParams) (ModelImportTask, error) {
+	row := q.db.QueryRow(ctx, createBundleTask,
+		arg.TenantID,
+		arg.ID,
+		arg.ModelID,
+		arg.ModelVersionID,
+		arg.TaskType,
+		arg.Source,
+		arg.RepoID,
+		arg.Revision,
+		arg.IdempotencyKey,
+		arg.RequestFingerprint,
+	)
+	var i ModelImportTask
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.ModelID,
+		&i.ModelVersionID,
+		&i.TaskType,
+		&i.Source,
+		&i.RepoID,
+		&i.Revision,
+		&i.IdempotencyKey,
+		&i.Status,
+		&i.AttemptCount,
+		&i.ProgressPct,
+		&i.LeaseOwner,
+		&i.LeaseEpoch,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.RequestFingerprint,
+	)
+	return i, err
+}
+
+const createBundleVersion = `-- name: CreateBundleVersion :one
+INSERT INTO public.model_versions
+ (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
+  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image,
+  startup_command, startup_args, idempotency_key, request_fingerprint)
+VALUES ($1, $2, $3, $4,
+        $5, 'pending', false, '', '', 0, '', $6,
+        $7, $8, $9,
+        $10, $11)
+RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image
+`
+
+type CreateBundleVersionParams struct {
+	TenantID           pgtype.UUID `json:"tenant_id"`
+	ID                 pgtype.UUID `json:"id"`
+	ModelID            pgtype.UUID `json:"model_id"`
+	Version            string      `json:"version"`
+	Format             string      `json:"format"`
+	EngineType         string      `json:"engine_type"`
+	EngineImage        string      `json:"engine_image"`
+	StartupCommand     string      `json:"startup_command"`
+	StartupArgs        []byte      `json:"startup_args"`
+	IdempotencyKey     string      `json:"idempotency_key"`
+	RequestFingerprint string      `json:"request_fingerprint"`
+}
+
+func (q *Queries) CreateBundleVersion(ctx context.Context, arg CreateBundleVersionParams) (ModelVersion, error) {
+	row := q.db.QueryRow(ctx, createBundleVersion,
+		arg.TenantID,
+		arg.ID,
+		arg.ModelID,
+		arg.Version,
+		arg.Format,
+		arg.EngineType,
+		arg.EngineImage,
+		arg.StartupCommand,
+		arg.StartupArgs,
+		arg.IdempotencyKey,
+		arg.RequestFingerprint,
+	)
+	var i ModelVersion
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.ModelID,
+		&i.Version,
+		&i.Format,
+		&i.Status,
+		&i.IsEncrypted,
+		&i.EncryptAlgo,
+		&i.EncryptHint,
+		&i.SizeBytes,
+		&i.ChecksumSha256,
+		&i.EngineType,
+		&i.StartupCommand,
+		&i.StartupArgs,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.EngineImage,
+	)
+	return i, err
+}
+
 const createImportTask = `-- name: CreateImportTask :one
 INSERT INTO public.model_import_tasks
  (tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
@@ -454,6 +645,146 @@ func (q *Queries) FailImportTask(ctx context.Context, arg FailImportTaskParams) 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getBundleModelByIdempotency = `-- name: GetBundleModelByIdempotency :one
+SELECT tenant_id, id, name, display_name, description, source, source_repo_id, capabilities, status, error_message, total_size_bytes, created_at, updated_at, deleted_at, idempotency_key, request_fingerprint, model_id FROM public.models
+WHERE tenant_id = $1 AND idempotency_key = $2
+`
+
+type GetBundleModelByIdempotencyParams struct {
+	TenantID       pgtype.UUID `json:"tenant_id"`
+	IdempotencyKey string      `json:"idempotency_key"`
+}
+
+func (q *Queries) GetBundleModelByIdempotency(ctx context.Context, arg GetBundleModelByIdempotencyParams) (Model, error) {
+	row := q.db.QueryRow(ctx, getBundleModelByIdempotency, arg.TenantID, arg.IdempotencyKey)
+	var i Model
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.Name,
+		&i.DisplayName,
+		&i.Description,
+		&i.Source,
+		&i.SourceRepoID,
+		&i.Capabilities,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.TotalSizeBytes,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.ModelID,
+	)
+	return i, err
+}
+
+const getBundleTaskByIdempotency = `-- name: GetBundleTaskByIdempotency :one
+SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+       revision, idempotency_key, request_fingerprint, status, attempt_count,
+       progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
+       error_message, created_at, updated_at, completed_at
+FROM public.model_import_tasks
+WHERE tenant_id = $1 AND idempotency_key = $2
+`
+
+type GetBundleTaskByIdempotencyParams struct {
+	TenantID       pgtype.UUID `json:"tenant_id"`
+	IdempotencyKey string      `json:"idempotency_key"`
+}
+
+type GetBundleTaskByIdempotencyRow struct {
+	TenantID           pgtype.UUID        `json:"tenant_id"`
+	ID                 pgtype.UUID        `json:"id"`
+	ModelID            pgtype.UUID        `json:"model_id"`
+	ModelVersionID     pgtype.UUID        `json:"model_version_id"`
+	TaskType           string             `json:"task_type"`
+	Source             string             `json:"source"`
+	RepoID             string             `json:"repo_id"`
+	Revision           string             `json:"revision"`
+	IdempotencyKey     string             `json:"idempotency_key"`
+	RequestFingerprint string             `json:"request_fingerprint"`
+	Status             string             `json:"status"`
+	AttemptCount       int32              `json:"attempt_count"`
+	ProgressPct        int32              `json:"progress_pct"`
+	LeaseOwner         string             `json:"lease_owner"`
+	LeaseEpoch         int64              `json:"lease_epoch"`
+	LeaseUntil         pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt      pgtype.Timestamptz `json:"next_attempt_at"`
+	ErrorMessage       string             `json:"error_message"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+}
+
+func (q *Queries) GetBundleTaskByIdempotency(ctx context.Context, arg GetBundleTaskByIdempotencyParams) (GetBundleTaskByIdempotencyRow, error) {
+	row := q.db.QueryRow(ctx, getBundleTaskByIdempotency, arg.TenantID, arg.IdempotencyKey)
+	var i GetBundleTaskByIdempotencyRow
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.ModelID,
+		&i.ModelVersionID,
+		&i.TaskType,
+		&i.Source,
+		&i.RepoID,
+		&i.Revision,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.Status,
+		&i.AttemptCount,
+		&i.ProgressPct,
+		&i.LeaseOwner,
+		&i.LeaseEpoch,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const getBundleVersionByIdempotency = `-- name: GetBundleVersionByIdempotency :one
+SELECT tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image FROM public.model_versions
+WHERE tenant_id = $1 AND idempotency_key = $2
+`
+
+type GetBundleVersionByIdempotencyParams struct {
+	TenantID       pgtype.UUID `json:"tenant_id"`
+	IdempotencyKey string      `json:"idempotency_key"`
+}
+
+func (q *Queries) GetBundleVersionByIdempotency(ctx context.Context, arg GetBundleVersionByIdempotencyParams) (ModelVersion, error) {
+	row := q.db.QueryRow(ctx, getBundleVersionByIdempotency, arg.TenantID, arg.IdempotencyKey)
+	var i ModelVersion
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.ModelID,
+		&i.Version,
+		&i.Format,
+		&i.Status,
+		&i.IsEncrypted,
+		&i.EncryptAlgo,
+		&i.EncryptHint,
+		&i.SizeBytes,
+		&i.ChecksumSha256,
+		&i.EngineType,
+		&i.StartupCommand,
+		&i.StartupArgs,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.EngineImage,
+	)
+	return i, err
 }
 
 const getImportTask = `-- name: GetImportTask :one

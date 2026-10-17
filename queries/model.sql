@@ -315,3 +315,49 @@ SELECT tenant_id, id, model_version_id, provider, reference, format, size_bytes,
        sha256, is_encrypted, encrypt_algo, created_at
 FROM public.model_artifacts
 WHERE tenant_id = $1 AND model_version_id = $2;
+
+-- name: GetBundleModelByIdempotency :one
+SELECT * FROM public.models
+WHERE tenant_id = sqlc.arg(tenant_id) AND idempotency_key = sqlc.arg(idempotency_key);
+
+-- name: GetBundleVersionByIdempotency :one
+SELECT * FROM public.model_versions
+WHERE tenant_id = sqlc.arg(tenant_id) AND idempotency_key = sqlc.arg(idempotency_key);
+
+-- name: GetBundleTaskByIdempotency :one
+SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+       revision, idempotency_key, request_fingerprint, status, attempt_count,
+       progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
+       error_message, created_at, updated_at, completed_at
+FROM public.model_import_tasks
+WHERE tenant_id = sqlc.arg(tenant_id) AND idempotency_key = sqlc.arg(idempotency_key);
+
+-- name: CreateBundleModel :one
+INSERT INTO public.models
+ (tenant_id, id, model_id, name, display_name, description, source, source_repo_id,
+  capabilities, status, idempotency_key, request_fingerprint)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(id), sqlc.arg(model_id), sqlc.arg(name),
+        sqlc.arg(display_name), sqlc.arg(description), sqlc.arg(source),
+        sqlc.arg(source_repo_id), sqlc.arg(capabilities), 'pending',
+        sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint))
+RETURNING *;
+
+-- name: CreateBundleVersion :one
+INSERT INTO public.model_versions
+ (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
+  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image,
+  startup_command, startup_args, idempotency_key, request_fingerprint)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(id), sqlc.arg(model_id), sqlc.arg(version),
+        sqlc.arg(format), 'pending', false, '', '', 0, '', sqlc.arg(engine_type),
+        sqlc.arg(engine_image), sqlc.arg(startup_command), sqlc.arg(startup_args),
+        sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint))
+RETURNING *;
+
+-- name: CreateBundleTask :one
+INSERT INTO public.model_import_tasks
+ (tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+  revision, idempotency_key, request_fingerprint, status)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(id), sqlc.arg(model_id), sqlc.arg(model_version_id),
+        sqlc.arg(task_type), sqlc.arg(source), sqlc.arg(repo_id), sqlc.arg(revision),
+        sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint), 'pending')
+RETURNING *;

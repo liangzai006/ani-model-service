@@ -189,6 +189,7 @@ func run(logger *slog.Logger) error {
 		modelService.SetImportTaskRetrier(workStore)
 		modelService.SetArtifactStore(postgres.NewArtifactStore(pool))
 		modelService.SetAuditStore(postgres.NewAuditStore(pool))
+		modelService.SetBundleImporter(postgres.NewBundleImportStore(pool))
 		if storagePort != nil {
 			owner := strings.TrimSpace(os.Getenv("ANI_IMPORT_WORKER_OWNER"))
 			if owner == "" {
