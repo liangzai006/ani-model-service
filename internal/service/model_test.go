@@ -232,6 +232,15 @@ func TestImportModelBundleEmptyTenantUsesAuthenticatedTenant(t *testing.T) {
 	}
 }
 
+func TestImportModelBundleReturns503WhenImporterIsUnavailable(t *testing.T) {
+	s := NewModelService(nil)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-auth", Actor: "actor", Workload: "internal"})
+	_, err := s.ImportModelBundle(ctx, bundleImportRequest("tenant-auth"))
+	if kratoserrors.Code(err) != 503 {
+		t.Fatalf("code=%d err=%v, want 503", kratoserrors.Code(err), err)
+	}
+}
+
 func TestImportModelBundleDoesNotNotifyWhenAuditFails(t *testing.T) {
 	importer := &bundleImporterFake{result: model.BundleImportResult{
 		Model: model.Record{ID: "model-1", Name: "qwen3.5-0.8b"}, Version: model.Version{ID: "version-1", ModelID: "model-1"}, TaskID: "task-1", TaskType: "model-import", TaskStatus: "pending",
