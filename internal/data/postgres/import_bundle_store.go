@@ -20,6 +20,8 @@ import (
 // adapter; they only observe the durable task after commit.
 type BundleImportStore struct{ pool *pgxpool.Pool }
 
+var errBundleAggregateMissing = errors.New("model bundle aggregate is not present")
+
 func NewBundleImportStore(pool *pgxpool.Pool) *BundleImportStore {
 	return &BundleImportStore{pool: pool}
 }
@@ -37,6 +39,13 @@ func (s *BundleImportStore) ImportBundle(ctx context.Context, in modelbiz.Bundle
 		return modelbiz.BundleImportResult{}, err
 	}
 	ids := bundleIDs{tenant: tenant, model: uuid.New(), version: uuid.New(), task: uuid.New()}
+	// A completed aggregate is a pure replay. Check it in a read-only
+	// transaction before opening the write transaction used for first import.
+	if replay, replayErr := s.replayBundle(ctx, in, fingerprint); replayErr == nil {
+		return replay, nil
+	} else if !errors.Is(replayErr, errBundleAggregateMissing) {
+		return modelbiz.BundleImportResult{}, replayErr
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return modelbiz.BundleImportResult{}, err
@@ -132,7 +141,10 @@ func (s *BundleImportStore) replayBundle(ctx context.Context, in modelbiz.Bundle
 		if taskErr != nil && !errors.Is(taskErr, pgx.ErrNoRows) {
 			return modelbiz.BundleImportResult{}, taskErr
 		}
-		return modelbiz.BundleImportResult{}, bundleConflict()
+		if modelErr == nil || versionErr == nil || taskErr == nil {
+			return modelbiz.BundleImportResult{}, bundleConflict()
+		}
+		return modelbiz.BundleImportResult{}, errBundleAggregateMissing
 	}
 	if modelRow.RequestFingerprint != fingerprint || versionRow.RequestFingerprint != fingerprint || taskRow.RequestFingerprint != fingerprint {
 		_ = tx.Rollback(ctx)
