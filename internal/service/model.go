@@ -559,7 +559,7 @@ func (s *ModelService) ImportModel(ctx context.Context, in *modelv1.ImportModelR
 }
 
 func (s *ModelService) ImportModelBundle(ctx context.Context, in *modelv1.ImportModelBundleRequest) (*modelv1.ImportModelBundleResponse, error) {
-	p, err := identity.FromContext(ctx)
+	p, err := identity.RequireTenant(ctx, in.GetTenantId())
 	if err != nil {
 		return nil, mapIdentity(err)
 	}
@@ -584,6 +584,12 @@ func (s *ModelService) ImportModelBundle(ctx context.Context, in *modelv1.Import
 	result, err := s.bundleImporter.ImportBundle(ctx, bundle)
 	if err != nil {
 		return nil, mapStore(err)
+	}
+	if err := s.recordAudit(ctx, p, "model_import_bundle.create", "", result.TaskStatus, result.TaskID); err != nil {
+		return nil, err
+	}
+	if s.notifier != nil {
+		s.notifier.Notify()
 	}
 	return &modelv1.ImportModelBundleResponse{
 		Model:   toProtoModel(result.Model),
@@ -742,9 +748,24 @@ func mapStore(err error) error {
 	if stderrors.Is(err, pgx.ErrNoRows) {
 		return errors2.NotFound("MODEL_NOT_FOUND", "resource not found")
 	}
+	if storeUnavailable(err) {
+		return errors2.New(503, "MODEL_STORE_UNAVAILABLE", "model store is unavailable")
+	}
 	var pe *pgconn.PgError
 	if stderrors.As(err, &pe) && pe.Code == "23505" {
 		return errors2.New(409, "CONFLICT", "resource already exists")
 	}
 	return errors2.New(500, "MODEL_STORE_ERROR", err.Error())
+}
+
+func storeUnavailable(err error) bool {
+	if stderrors.Is(err, pgx.ErrTxClosed) {
+		return true
+	}
+	var pe *pgconn.PgError
+	if stderrors.As(err, &pe) {
+		return strings.HasPrefix(pe.Code, "08") || pe.Code == "57P01" || pe.Code == "57P02" || pe.Code == "57P03" || pe.Code == "53300" || pe.Code == "55006"
+	}
+	var ce *pgconn.ConnectError
+	return stderrors.As(err, &ce)
 }
