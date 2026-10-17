@@ -1,9 +1,21 @@
 # Task 1 Report
 
 - 状态：已完成
-- 变更：`GetModelVersion` 在配置了 Model catalog 时加载所属 Model，并返回 `name`、`display_name`、`capabilities`、`status`、`source`、`source_repo_id` 等完整元数据；新增服务回归测试。
-- 提交 hash：9cde52ab41c0104134e5c0d601801b082c3a2e6f
-- 测试命令/结果：
-  - `go test ./internal/service -run TestGetModelVersionReturnsModelMetadata -count=1`：通过
-  - `go test ./internal/service -count=1`：通过
+- 修改文件：
+  - `api/model/v1/model.proto`
+  - `api/model/v1/model.pb.go`（`make config` 生成）
+  - `api/model/v1/model_grpc.pb.go`（`make config` 生成）
+  - `internal/biz/model/model.go`
+  - `internal/biz/model/model_test.go`
+  - `internal/service/model.go`
+  - `internal/service/model_test.go`
+- 实现：新增 `ModelService.ImportModelBundle` 及请求/响应消息；新增 `BundleImport`、`BundleImportResult`、`BundleImporter` 和输入校验。服务从认证主体读取 tenant_id，忽略请求中的 tenant_id，并原样保留完整启动命令；聚合响应包含 model、version、task。
+- 提交 hash：`a18e8c4`
+- 运行的命令/结果：
+  - `make config`：通过，Buf 1.60.0 生成成功。
+  - `go test ./internal/biz/model ./internal/service -run 'Bundle|ImportModel' -count=1`：通过。
+  - `go test ./internal/biz/model ./internal/service -count=1`：通过。
+  - `make verify`：通过（全量测试、vet、build、mod verify、diff check）。
+  - `git diff --check`：无输出。
+- 保留的现有用户改动：`internal/data/postgres/artifact_integration_test.go`、`internal/data/postgres/model.sql.go`、`queries/model.sql` 未纳入提交。
 - 疑问：无
