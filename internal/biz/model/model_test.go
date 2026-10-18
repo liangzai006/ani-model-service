@@ -45,3 +45,38 @@ func TestArtifactValidateRequiresChecksumAndReference(t *testing.T) {
 		t.Fatalf("invalid checksum got %v", err)
 	}
 }
+
+func validBundleImport() BundleImport {
+	return BundleImport{
+		TenantID: "tenant-a", IdempotencyKey: "bundle-1", Name: "qwen3.5-0.8b",
+		Capabilities: []string{"text-generation"}, Version: "master", Format: "safetensors",
+		EngineType: "vllm", EngineImage: "registry/vllm:tag", StartupCommand: "vllm serve /models",
+		Provider: "modelscope", RepoID: "Qwen/Qwen3.5-0.8B", Revision: "master",
+	}
+}
+
+func TestBundleImportValidatesCompleteRuntimeInput(t *testing.T) {
+	if err := validBundleImport().Validate(); err != nil {
+		t.Fatalf("valid bundle rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*BundleImport){
+		"model name":      func(b *BundleImport) { b.Name = "Qwen 3" },
+		"provider":        func(b *BundleImport) { b.Provider = "unknown" },
+		"capabilities":    func(b *BundleImport) { b.Capabilities = nil },
+		"version":         func(b *BundleImport) { b.Version = "" },
+		"format":          func(b *BundleImport) { b.Format = "" },
+		"engine":          func(b *BundleImport) { b.EngineType = "" },
+		"image":           func(b *BundleImport) { b.EngineImage = "" },
+		"startup command": func(b *BundleImport) { b.StartupCommand = "vllm serve\n/models" },
+		"idempotency":     func(b *BundleImport) { b.IdempotencyKey = "" },
+		"repo":            func(b *BundleImport) { b.RepoID = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bundle := validBundleImport()
+			mutate(&bundle)
+			if err := bundle.Validate(); err != ErrInvalidBundleImport {
+				t.Fatalf("Validate() = %v, want ErrInvalidBundleImport", err)
+			}
+		})
+	}
+}

@@ -16,9 +16,12 @@ import (
 
 var ErrLeaseLost = errors.New("import task lease lost")
 
-type WorkStore struct{ q *Queries }
+type WorkStore struct {
+	db DBTX
+	q  *Queries
+}
 
-func NewWorkStore(db DBTX) *WorkStore { return &WorkStore{q: New(db)} }
+func NewWorkStore(db DBTX) *WorkStore { return &WorkStore{db: db, q: New(db)} }
 
 func (s *WorkStore) Create(ctx context.Context, t workbiz.Task) (workbiz.Task, error) {
 	tenant, id, err := parseIDs(t.TenantID, t.ID)
@@ -88,7 +91,34 @@ func (s *WorkStore) RetryFailed(ctx context.Context, tenantID, taskID string) (w
 	if err != nil {
 		return workbiz.Task{}, err
 	}
-	r, err := s.q.RetryFailedImportTask(ctx, RetryFailedImportTaskParams{TenantID: uuidType(tenant), ID: uuidType(id)})
+	params := RetryFailedImportTaskAndResetVersionParams{TenantID: uuidType(tenant), ID: uuidType(id)}
+	// Keep task and bound-version recovery in one database transaction. The
+	// generated query is also atomic as a statement, but the explicit
+	// transaction gives callers the required commit boundary and allows this
+	// operation to grow without splitting the state transition.
+	if db, ok := s.db.(interface {
+		BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+	}); ok {
+		tx, beginErr := db.BeginTx(ctx, pgx.TxOptions{})
+		if beginErr != nil {
+			return workbiz.Task{}, beginErr
+		}
+		r, queryErr := New(tx).RetryFailedImportTaskAndResetVersion(ctx, params)
+		if queryErr != nil {
+			_ = tx.Rollback(ctx)
+			err = queryErr
+		} else if commitErr := tx.Commit(ctx); commitErr != nil {
+			err = commitErr
+		} else {
+			return taskFromModelImportTask(r), nil
+		}
+	} else {
+		var r ModelImportTask
+		r, err = s.q.RetryFailedImportTaskAndResetVersion(ctx, params)
+		if err == nil {
+			return taskFromModelImportTask(r), nil
+		}
+	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			current, getErr := s.Get(ctx, tenantID, taskID)
@@ -98,7 +128,11 @@ func (s *WorkStore) RetryFailed(ctx context.Context, tenantID, taskID string) (w
 		}
 		return workbiz.Task{}, err
 	}
-	return taskFromFields(r.TenantID, r.ID, r.ModelID, r.ModelVersionID, r.TaskType, r.Source, r.RepoID, r.Revision, r.IdempotencyKey, r.Status, r.AttemptCount, r.ProgressPct, r.LeaseOwner, r.LeaseEpoch, r.LeaseUntil, r.ErrorMessage, r.CreatedAt, r.CompletedAt), nil
+	return workbiz.Task{}, err
+}
+
+func taskFromModelImportTask(r ModelImportTask) workbiz.Task {
+	return taskFromFields(r.TenantID, r.ID, r.ModelID, r.ModelVersionID, r.TaskType, r.Source, r.RepoID, r.Revision, r.IdempotencyKey, r.Status, r.AttemptCount, r.ProgressPct, r.LeaseOwner, r.LeaseEpoch, r.LeaseUntil, r.ErrorMessage, r.CreatedAt, r.CompletedAt)
 }
 
 func (s *WorkStore) Claim(ctx context.Context, tenantID, taskID, owner string, lease time.Duration) (workbiz.Task, error) {

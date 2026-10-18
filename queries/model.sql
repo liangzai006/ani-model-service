@@ -115,22 +115,67 @@ SELECT sqlc.arg(tenant_id), sqlc.arg(id), parent.id, sqlc.arg(version), sqlc.arg
 RETURNING *;
 
 -- name: MarkModelVersionReady :execrows
-UPDATE public.model_versions v
-SET status = 'ready', updated_at = clock_timestamp(), error_message = ''
-WHERE v.tenant_id = $1 AND v.id = $2 AND v.status IN ('pending', 'importing')
-  AND EXISTS (
-    SELECT 1 FROM public.model_artifacts a
-    WHERE a.tenant_id = v.tenant_id
-      AND a.model_version_id = v.id
-      AND a.reference <> ''
-      AND a.sha256 = v.checksum_sha256
-      AND a.sha256 <> ''
-  );
+WITH ready_version AS (
+  UPDATE public.model_versions v
+  SET status = 'ready', updated_at = clock_timestamp(), error_message = ''
+  WHERE v.tenant_id = $1 AND v.id = $2 AND v.status IN ('pending', 'importing')
+    AND EXISTS (
+      SELECT 1 FROM public.model_artifacts a
+      WHERE a.tenant_id = v.tenant_id
+        AND a.model_version_id = v.id
+        AND a.reference <> ''
+        AND a.sha256 = v.checksum_sha256
+        AND a.sha256 <> ''
+    )
+    AND EXISTS (
+      SELECT 1 FROM public.models m
+      WHERE m.tenant_id = v.tenant_id AND m.id = v.model_id AND m.status <> 'deleted'
+    )
+  RETURNING tenant_id, model_id
+)
+UPDATE public.models m
+SET status = 'ready', error_message = '', updated_at = clock_timestamp()
+FROM ready_version v
+WHERE m.tenant_id = v.tenant_id AND m.id = v.model_id;
 
 -- name: MarkModelVersionError :execrows
 UPDATE public.model_versions
 SET status = 'error', error_message = $3, updated_at = clock_timestamp()
 WHERE tenant_id = $1 AND id = $2 AND status IN ('pending', 'importing');
+
+-- name: MarkModelVersionErrorForTask :one
+WITH leased_task AS (
+  SELECT t.tenant_id, t.model_id, t.model_version_id
+  FROM public.model_import_tasks t
+  WHERE t.tenant_id = $1 AND t.id = $2 AND t.model_version_id = $3
+    AND t.status = 'importing' AND t.lease_owner = $4 AND t.lease_epoch = $5
+    AND t.lease_until > clock_timestamp()
+  FOR UPDATE
+)
+UPDATE public.model_versions v
+SET status = 'error', error_message = $6, updated_at = clock_timestamp()
+FROM leased_task t
+WHERE v.tenant_id = t.tenant_id AND v.id = t.model_version_id
+  AND v.status IN ('pending', 'importing')
+RETURNING v.tenant_id, v.model_id;
+
+-- name: LockModelForVersionError :one
+SELECT m.tenant_id, m.id
+FROM public.models m
+WHERE m.tenant_id = $1 AND m.id = $2
+FOR UPDATE;
+
+-- name: MarkModelErrorIfNoReady :execrows
+UPDATE public.models m
+SET status = 'error', error_message = $3, updated_at = clock_timestamp()
+WHERE m.tenant_id = $1 AND m.id = $2 AND m.status IN ('pending', 'downloading', 'error')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.model_versions ready
+    WHERE ready.tenant_id = m.tenant_id
+      AND ready.model_id = m.id
+      AND ready.status = 'ready'
+  );
 
 -- name: SetModelVersionChecksum :execrows
 UPDATE public.model_versions
@@ -296,6 +341,26 @@ RETURNING tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
           progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
           error_message, created_at, updated_at, completed_at;
 
+-- name: RetryFailedImportTaskAndResetVersion :one
+WITH failed_task AS (
+  SELECT t0.tenant_id, t0.id, t0.model_version_id
+  FROM public.model_import_tasks t0
+  WHERE t0.tenant_id = sqlc.arg(tenant_id) AND t0.id = sqlc.arg(id) AND t0.status = 'failed'
+  FOR UPDATE
+), reset_version AS (
+  UPDATE public.model_versions v
+  SET status = 'pending', error_message = '', updated_at = clock_timestamp()
+  FROM failed_task t
+  WHERE v.tenant_id = t.tenant_id AND v.id = t.model_version_id AND v.status = 'error'
+)
+UPDATE public.model_import_tasks t
+SET status = 'pending', attempt_count = 0, progress_pct = 0, lease_owner = '',
+    lease_until = NULL, next_attempt_at = clock_timestamp(), error_message = '',
+    completed_at = NULL, updated_at = clock_timestamp()
+FROM failed_task
+WHERE t.tenant_id = failed_task.tenant_id AND t.id = failed_task.id
+RETURNING t.*;
+
 -- name: RenewImportTaskLease :execrows
 UPDATE public.model_import_tasks
 SET lease_until = clock_timestamp() + ($5::bigint * interval '1 microsecond'),
@@ -315,3 +380,49 @@ SELECT tenant_id, id, model_version_id, provider, reference, format, size_bytes,
        sha256, is_encrypted, encrypt_algo, created_at
 FROM public.model_artifacts
 WHERE tenant_id = $1 AND model_version_id = $2;
+
+-- name: GetBundleModelByIdempotency :one
+SELECT * FROM public.models
+WHERE tenant_id = sqlc.arg(tenant_id) AND idempotency_key = sqlc.arg(idempotency_key);
+
+-- name: GetBundleVersionByIdempotency :one
+SELECT * FROM public.model_versions
+WHERE tenant_id = sqlc.arg(tenant_id) AND idempotency_key = sqlc.arg(idempotency_key);
+
+-- name: GetBundleTaskByIdempotency :one
+SELECT tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+       revision, idempotency_key, request_fingerprint, status, attempt_count,
+       progress_pct, lease_owner, lease_epoch, lease_until, next_attempt_at,
+       error_message, created_at, updated_at, completed_at
+FROM public.model_import_tasks
+WHERE tenant_id = sqlc.arg(tenant_id) AND idempotency_key = sqlc.arg(idempotency_key);
+
+-- name: CreateBundleModel :one
+INSERT INTO public.models
+ (tenant_id, id, model_id, name, display_name, description, source, source_repo_id,
+  capabilities, status, idempotency_key, request_fingerprint)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(id), sqlc.arg(model_id), sqlc.arg(name),
+        sqlc.arg(display_name), sqlc.arg(description), sqlc.arg(source),
+        sqlc.arg(source_repo_id), sqlc.arg(capabilities), 'pending',
+        sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint))
+RETURNING *;
+
+-- name: CreateBundleVersion :one
+INSERT INTO public.model_versions
+ (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
+  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image,
+  startup_command, startup_args, idempotency_key, request_fingerprint)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(id), sqlc.arg(model_id), sqlc.arg(version),
+        sqlc.arg(format), 'pending', false, '', '', 0, '', sqlc.arg(engine_type),
+        sqlc.arg(engine_image), sqlc.arg(startup_command), sqlc.arg(startup_args),
+        sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint))
+RETURNING *;
+
+-- name: CreateBundleTask :one
+INSERT INTO public.model_import_tasks
+ (tenant_id, id, model_id, model_version_id, task_type, source, repo_id,
+  revision, idempotency_key, request_fingerprint, status)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(id), sqlc.arg(model_id), sqlc.arg(model_version_id),
+        sqlc.arg(task_type), sqlc.arg(source), sqlc.arg(repo_id), sqlc.arg(revision),
+        sqlc.arg(idempotency_key), sqlc.arg(request_fingerprint), 'pending')
+RETURNING *;

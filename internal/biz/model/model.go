@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"strings"
@@ -10,7 +11,19 @@ import (
 var (
 	ErrInvalidModel        = errors.New("invalid model")
 	ErrInvalidModelVersion = errors.New("invalid model version")
+	ErrInvalidBundleImport = errors.New("invalid model bundle import")
 	ErrModelNotReady       = errors.New("model version is not ready")
+)
+
+// Version statuses are domain state values shared by import workers and
+// persistence adapters. Keeping the terminal values here avoids adapters
+// inventing a second vocabulary for aggregate state transitions.
+const (
+	VersionPending   = "pending"
+	VersionImporting = "importing"
+	VersionReady     = "ready"
+	VersionError     = "error"
+	VersionDeleted   = "deleted"
 )
 
 var checksumPattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
@@ -74,7 +87,7 @@ func (v Version) DeploymentInput() error {
 	if err := v.Validate(); err != nil {
 		return err
 	}
-	if v.Status != "ready" || v.ArtifactProvider == "" || v.ArtifactReference == "" || !checksumPattern.MatchString(v.ArtifactSHA256) {
+	if v.Status != VersionReady || v.ArtifactProvider == "" || v.ArtifactReference == "" || !checksumPattern.MatchString(v.ArtifactSHA256) {
 		return ErrModelNotReady
 	}
 	return nil
@@ -98,4 +111,46 @@ func ValidateEngineDefaults(engine, image, command string) error {
 		return ErrInvalidModelVersion
 	}
 	return nil
+}
+
+// BundleImport is the complete model, version, and source input for one
+// aggregate import. TenantID is supplied by the trusted caller context.
+type BundleImport struct {
+	TenantID, IdempotencyKey                        string
+	Name, DisplayName, Description, ExternalModelID string
+	Capabilities                                    []string
+	Version, Format, EngineType, EngineImage        string
+	StartupCommand                                  string
+	Provider, RepoID, Revision                      string
+}
+
+func (b BundleImport) Validate() error {
+	if b.TenantID == "" || b.IdempotencyKey == "" || b.RepoID == "" || ValidateModelName(b.Name) != nil {
+		return ErrInvalidBundleImport
+	}
+	if b.Provider != "huggingface" && b.Provider != "modelscope" {
+		return ErrInvalidBundleImport
+	}
+	if len(b.Capabilities) == 0 {
+		return ErrInvalidBundleImport
+	}
+	for _, capability := range b.Capabilities {
+		if strings.TrimSpace(capability) == "" {
+			return ErrInvalidBundleImport
+		}
+	}
+	if strings.TrimSpace(b.Version) == "" || strings.TrimSpace(b.Format) == "" || ValidateEngineDefaults(b.EngineType, b.EngineImage, b.StartupCommand) != nil {
+		return ErrInvalidBundleImport
+	}
+	return nil
+}
+
+type BundleImportResult struct {
+	Model                        Record
+	Version                      Version
+	TaskID, TaskType, TaskStatus string
+}
+
+type BundleImporter interface {
+	ImportBundle(context.Context, BundleImport) (BundleImportResult, error)
 }

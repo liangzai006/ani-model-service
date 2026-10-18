@@ -8,7 +8,9 @@ import (
 
 	kratoserrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
+	auditbiz "github.com/liangzai006/ani-model-service/internal/biz/audit"
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
 	"github.com/liangzai006/ani-model-service/internal/biz/storage"
 	workbiz "github.com/liangzai006/ani-model-service/internal/biz/work"
@@ -110,6 +112,149 @@ func (f *importWorkFake) Create(_ context.Context, task workbiz.Task) (workbiz.T
 type importNotifierFake struct{ calls int }
 
 func (f *importNotifierFake) Notify() { f.calls++ }
+
+type bundleAuditFake struct {
+	event auditbiz.Event
+	err   error
+}
+
+func (f *bundleAuditFake) Insert(_ context.Context, event auditbiz.Event) error {
+	f.event = event
+	return f.err
+}
+
+type bundleImporterFake struct {
+	input  model.BundleImport
+	result model.BundleImportResult
+	err    error
+}
+
+func (f *bundleImporterFake) ImportBundle(_ context.Context, input model.BundleImport) (model.BundleImportResult, error) {
+	f.input = input
+	return f.result, f.err
+}
+
+func bundleImportRequest(tenant string) *modelv1.ImportModelBundleRequest {
+	return &modelv1.ImportModelBundleRequest{
+		TenantId:       tenant,
+		IdempotencyKey: "bundle-1",
+		Model:          &modelv1.ImportModelBundleModelData{Name: "qwen3.5-0.8b", Capabilities: []string{"text-generation"}, ExternalModelId: "Qwen/Qwen3.5-0.8B"},
+		Version:        &modelv1.ImportModelBundleVersionData{Version: "master", Format: "safetensors", EngineType: "vllm", EngineImage: "registry/vllm:tag", StartupCommand: "vllm serve /models"},
+		Source:         &modelv1.ImportModelBundleSourceData{Provider: "modelscope", RepoId: "Qwen/Qwen3.5-0.8B", Revision: "master"},
+	}
+}
+
+func TestImportModelBundleRequestCarriesCompleteRuntimeInput(t *testing.T) {
+	in := &modelv1.ImportModelBundleRequest{
+		TenantId:       "tenant-from-auth",
+		IdempotencyKey: "bundle-1",
+		Model: &modelv1.ImportModelBundleModelData{
+			Name:            "qwen3.5-0.8b",
+			Capabilities:    []string{"text-generation"},
+			ExternalModelId: "Qwen/Qwen3.5-0.8B",
+		},
+		Version: &modelv1.ImportModelBundleVersionData{
+			Version:        "master",
+			Format:         "safetensors",
+			EngineType:     "vllm",
+			EngineImage:    "registry/vllm:tag",
+			StartupCommand: "vllm serve /models --served-model-name qwen3.5-0.8b",
+		},
+		Source: &modelv1.ImportModelBundleSourceData{
+			Provider: "modelscope",
+			RepoId:   "Qwen/Qwen3.5-0.8B",
+			Revision: "master",
+		},
+	}
+	if in.GetVersion().GetStartupCommand() != "vllm serve /models --served-model-name qwen3.5-0.8b" {
+		t.Fatal("full startup command was not retained")
+	}
+	if in.GetSource().GetRepoId() != "Qwen/Qwen3.5-0.8B" || in.GetSource().GetRevision() != "master" || in.GetVersion().GetEngineType() != "vllm" || in.GetVersion().GetEngineImage() != "registry/vllm:tag" {
+		t.Fatalf("request runtime input was not retained: %+v", in)
+	}
+}
+
+func TestImportModelBundleUsesAuthenticatedTenantAndReturnsAggregate(t *testing.T) {
+	importer := &bundleImporterFake{result: model.BundleImportResult{
+		Model:   model.Record{TenantID: "tenant-auth", ID: "model-1", Name: "qwen3.5-0.8b", ExternalModelID: "Qwen/Qwen3.5-0.8B", Capabilities: []byte(`["text-generation"]`)},
+		Version: model.Version{TenantID: "tenant-auth", ID: "version-1", ModelID: "model-1", Version: "master", Format: "safetensors", EngineType: "vllm", EngineImage: "registry/vllm:tag", StartupCommand: "vllm serve /models"},
+		TaskID:  "task-1", TaskType: "model-import", TaskStatus: "pending",
+	}}
+	s := NewModelService(nil)
+	s.SetBundleImporter(importer)
+	audit := &bundleAuditFake{}
+	s.SetAuditStore(audit)
+	notifier := &importNotifierFake{}
+	s.SetImportNotifier(notifier)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-auth", Actor: "actor", Workload: "internal"})
+	got, err := s.ImportModelBundle(ctx, bundleImportRequest("tenant-auth"))
+	if err != nil {
+		t.Fatalf("ImportModelBundle() error = %v", err)
+	}
+	if importer.input.TenantID != "tenant-auth" {
+		t.Fatalf("tenant passed to importer = %q, want authenticated tenant", importer.input.TenantID)
+	}
+	if importer.input.StartupCommand != "vllm serve /models" || importer.input.RepoID != "Qwen/Qwen3.5-0.8B" {
+		t.Fatalf("runtime input = %+v", importer.input)
+	}
+	if audit.event.Action != "model_import_bundle.create" || audit.event.TaskID != "task-1" || notifier.calls != 1 {
+		t.Fatalf("audit/notifier = %+v/%d", audit.event, notifier.calls)
+	}
+	if got.GetModel().GetId() == "" || got.GetVersion().GetId() == "" || got.GetTask().GetTaskId() == "" {
+		t.Fatalf("aggregate response has empty members: %+v", got)
+	}
+}
+
+func TestImportModelBundleTenantMismatchFailsClosed(t *testing.T) {
+	importer := &bundleImporterFake{result: model.BundleImportResult{TaskID: "task-1"}}
+	s := NewModelBundleImportService(importer)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-auth", Actor: "actor", Workload: "internal"})
+	_, err := s.ImportModelBundle(ctx, bundleImportRequest("tenant-request"))
+	if kratoserrors.Code(err) != 403 {
+		t.Fatalf("code=%d err=%v, want 403", kratoserrors.Code(err), err)
+	}
+	if importer.input.TenantID != "" {
+		t.Fatalf("importer called after tenant mismatch: %+v", importer.input)
+	}
+}
+
+func TestImportModelBundleEmptyTenantUsesAuthenticatedTenant(t *testing.T) {
+	importer := &bundleImporterFake{result: model.BundleImportResult{
+		Model: model.Record{ID: "model-1", Name: "qwen3.5-0.8b"}, Version: model.Version{ID: "version-1", ModelID: "model-1"}, TaskID: "task-1", TaskType: "model-import", TaskStatus: "pending",
+	}}
+	s := NewModelBundleImportService(importer)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-auth", Actor: "actor", Workload: "internal"})
+	if _, err := s.ImportModelBundle(ctx, bundleImportRequest("")); err != nil {
+		t.Fatalf("ImportModelBundle() error = %v", err)
+	}
+	if importer.input.TenantID != "tenant-auth" {
+		t.Fatalf("tenant passed to importer = %q, want authenticated tenant", importer.input.TenantID)
+	}
+}
+
+func TestImportModelBundleReturns503WhenImporterIsUnavailable(t *testing.T) {
+	s := NewModelService(nil)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-auth", Actor: "actor", Workload: "internal"})
+	_, err := s.ImportModelBundle(ctx, bundleImportRequest("tenant-auth"))
+	if kratoserrors.Code(err) != 503 {
+		t.Fatalf("code=%d err=%v, want 503", kratoserrors.Code(err), err)
+	}
+}
+
+func TestImportModelBundleDoesNotNotifyWhenAuditFails(t *testing.T) {
+	importer := &bundleImporterFake{result: model.BundleImportResult{
+		Model: model.Record{ID: "model-1", Name: "qwen3.5-0.8b"}, Version: model.Version{ID: "version-1", ModelID: "model-1"}, TaskID: "task-1", TaskType: "model-import", TaskStatus: "pending",
+	}}
+	s := NewModelBundleImportService(importer)
+	s.SetAuditStore(&bundleAuditFake{err: errors.New("audit unavailable")})
+	notifier := &importNotifierFake{}
+	s.SetImportNotifier(notifier)
+	ctx := identity.WithPrincipal(context.Background(), identity.Principal{TenantID: "tenant-auth", Actor: "actor", Workload: "internal"})
+	_, err := s.ImportModelBundle(ctx, bundleImportRequest("tenant-auth"))
+	if kratoserrors.Code(err) != 500 || notifier.calls != 0 {
+		t.Fatalf("err=%v code=%d notifier=%d, want audit failure and no notification", err, kratoserrors.Code(err), notifier.calls)
+	}
+}
 
 type externalModelSearcherFake struct {
 	request model.SearchRequest
@@ -361,6 +506,20 @@ func TestGetModelVersionMapsCatalogErrors(t *testing.T) {
 			_, err := s.GetModelVersion(ctx, &modelv1.GetModelVersionRequest{TenantId: "tenant-a", ModelVersionId: "version-uuid"})
 			if kratoserrors.Code(err) != tt.code || kratoserrors.Reason(err) != tt.kind {
 				t.Fatalf("error = %v (code %d, reason %q), want code %d reason %q", err, kratoserrors.Code(err), kratoserrors.Reason(err), tt.code, tt.kind)
+			}
+		})
+	}
+}
+
+func TestMapStoreMapsDatabaseUnavailableTo503(t *testing.T) {
+	for name, err := range map[string]error{
+		"connection exception": &pgconn.PgError{Code: "08006", Message: "connection failure"},
+		"closed transaction":   pgx.ErrTxClosed,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mapped := mapStore(err)
+			if kratoserrors.Code(mapped) != 503 || kratoserrors.Reason(mapped) != "MODEL_STORE_UNAVAILABLE" {
+				t.Fatalf("mapStore(%v) = %v (code %d reason %q), want 503 MODEL_STORE_UNAVAILABLE", err, mapped, kratoserrors.Code(mapped), kratoserrors.Reason(mapped))
 			}
 		})
 	}

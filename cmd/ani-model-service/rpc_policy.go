@@ -116,6 +116,7 @@ func ModelServicePolicy() RPCPolicy {
 			"/model.v1.ModelService/CreateModelVersion",
 			"/model.v1.ModelService/GetUploadURL",
 			"/model.v1.ModelService/ImportModel",
+			"/model.v1.ModelService/ImportModelBundle",
 			"/model.v1.ModelService/GetImportTask",
 			"/model.v1.ModelService/GetImportTaskLogs",
 			"/model.v1.ModelService/RetryImportTask",

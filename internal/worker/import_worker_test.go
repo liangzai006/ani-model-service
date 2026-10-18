@@ -33,6 +33,7 @@ func (b *lockedBuffer) String() string {
 type workerStoreFake struct {
 	task                              workbiz.Task
 	completed, retried, failed, bound bool
+	failedMessage                     string
 	boundModel, boundVersion          string
 	renewErr                          error
 }
@@ -84,8 +85,9 @@ func (s *workerStoreFake) Bind(_ context.Context, _, _, _ string, _ int64, model
 	s.task.ModelID, s.task.VersionID = modelID, versionID
 	return nil
 }
-func (s *workerStoreFake) Fail(_ context.Context, _, _, _ string, _ int64, _ string) error {
+func (s *workerStoreFake) Fail(_ context.Context, _, _, _ string, _ int64, message string) error {
 	s.failed = true
+	s.failedMessage = message
 	return nil
 }
 
@@ -141,14 +143,26 @@ func (b bindingFake) ResolveBinding(context.Context, workbiz.Task) (string, stri
 }
 
 type finalizerFake struct {
-	err     error
-	tenant  string
-	version string
+	err          error
+	errorErr     error
+	tenant       string
+	version      string
+	errorTenant  string
+	errorTask    string
+	errorVersion string
+	errorOwner   string
+	errorEpoch   int64
+	errorMessage string
 }
 
 func (f *finalizerFake) MarkReady(_ context.Context, tenant, version string) error {
 	f.tenant, f.version = tenant, version
 	return f.err
+}
+
+func (f *finalizerFake) MarkErrorAndMaybeModel(_ context.Context, tenant, task, version, owner string, epoch int64, message string) error {
+	f.errorTenant, f.errorTask, f.errorVersion, f.errorOwner, f.errorEpoch, f.errorMessage = tenant, task, version, owner, epoch, message
+	return f.errorErr
 }
 
 func TestWorkerFinalizesVersionBeforeCompletingTask(t *testing.T) {
@@ -216,12 +230,31 @@ func TestWorkerBindsUnboundTaskBeforeExecuting(t *testing.T) {
 
 func TestWorkerFailsTaskAfterMaxAttempts(t *testing.T) {
 	store := &workerStoreFake{task: workbiz.Task{TenantID: "tenant", ID: "task", VersionID: "version", Status: workbiz.Pending, AttemptCount: 0}}
-	w := &Worker{Store: store, Executor: workerExecutorFake{err: errors.New("checksum mismatch")}, TenantID: "tenant", Owner: "worker", Lease: time.Minute, MaxAttempts: 1}
+	finalizer := &finalizerFake{}
+	w := &Worker{Store: store, Executor: workerExecutorFake{err: errors.New("checksum mismatch")}, Finalizer: finalizer, TenantID: "tenant", Owner: "worker", Lease: time.Minute, MaxAttempts: 1}
 	if err := w.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !store.failed || store.retried || store.completed {
 		t.Fatalf("terminal failure not recorded: failed=%v retried=%v completed=%v", store.failed, store.retried, store.completed)
+	}
+	if finalizer.errorTenant != "tenant" || finalizer.errorTask != "task" || finalizer.errorVersion != "version" || finalizer.errorOwner != "worker" || finalizer.errorEpoch != 1 || finalizer.errorMessage != "checksum mismatch" {
+		t.Fatalf("terminal version error not recorded: tenant=%q task=%q version=%q owner=%q epoch=%d message=%q", finalizer.errorTenant, finalizer.errorTask, finalizer.errorVersion, finalizer.errorOwner, finalizer.errorEpoch, finalizer.errorMessage)
+	}
+	if store.failedMessage != "checksum mismatch" {
+		t.Fatalf("task error changed after version error transition: %q", store.failedMessage)
+	}
+}
+
+func TestWorkerPreservesTaskErrorWhenVersionErrorTransitionFails(t *testing.T) {
+	store := &workerStoreFake{task: workbiz.Task{TenantID: "tenant", ID: "task", VersionID: "version", Status: workbiz.Pending}}
+	finalizer := &finalizerFake{errorErr: errors.New("version CAS lost")}
+	w := &Worker{Store: store, Executor: workerExecutorFake{err: errors.New("provider unavailable")}, Finalizer: finalizer, TenantID: "tenant", Owner: "worker", Lease: time.Minute, MaxAttempts: 1}
+	if err := w.runOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !store.failed || store.failedMessage != "provider unavailable" {
+		t.Fatalf("task failure was not preserved: failed=%v message=%q", store.failed, store.failedMessage)
 	}
 }
 
