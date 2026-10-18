@@ -21,6 +21,7 @@ func TestModelServicePolicyAllowsGovernanceModelLifecycle(t *testing.T) {
 		"/model.v1.ModelService/DeleteModelVersion",
 		"/model.v1.ModelService/GetUploadURL",
 		"/model.v1.ModelService/ImportModel",
+		"/model.v1.ModelService/ImportModelBundle",
 		"/model.v1.ModelService/GetImportTask",
 		"/model.v1.ModelService/RetryImportTask",
 		"/model.v1.ModelService/GetModelDownloadURL",

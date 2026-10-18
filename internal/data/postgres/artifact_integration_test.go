@@ -54,7 +54,14 @@ func TestArtifactStoreTenantIsolationPostgres(t *testing.T) {
 	if err != nil || ready.Status != "ready" || ready.ArtifactReference != want.Reference || ready.ArtifactSHA256 != want.SHA256 || ready.EngineType != wantVersion.EngineType || ready.EngineImage != wantVersion.EngineImage || ready.StartupCommand != command {
 		t.Fatalf("ready version mismatch: %+v err=%v", ready, err)
 	}
-	listed, err := vs.ListVersions(ctx, tenant, modelID, modelbiz.ListOptions{})
+	var modelStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM public.models WHERE tenant_id=$1 AND id=$2`, tenant, modelID).Scan(&modelStatus); err != nil {
+		t.Fatal(err)
+	}
+	if modelStatus != "ready" {
+		t.Fatalf("model status after ready version = %q, want ready", modelStatus)
+	}
+	listed, err := vs.ListVersions(ctx, tenant, modelID, modelbiz.ListOptions{Limit: 10})
 	if err != nil || len(listed) != 1 || listed[0].EngineType != wantVersion.EngineType || listed[0].EngineImage != wantVersion.EngineImage || listed[0].StartupCommand != command {
 		t.Fatalf("listed version defaults mismatch: %+v err=%v", listed, err)
 	}
