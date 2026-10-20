@@ -10,12 +10,28 @@ This module contains the public gRPC API definitions for the ANI Model Service, 
 
 ## Usage
 
+### In downstream services (e.g., ModelDev, Inference Service)
+
+Add this module as a dependency:
+
+```bash
+go get github.com/liangzai006/ani-model-service/api@v0.1.0
+```
+
+Import and use:
+
 ```go
 import (
     modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
     storagev1 "github.com/liangzai006/ani-model-service/api/storage/v1"
 )
+
+// Create gRPC clients
+modelClient := modelv1.NewModelServiceClient(conn)
+storageClient := storagev1.NewStorageServiceClient(conn)
 ```
+
+**⚠️ Important**: Do **not** copy `.proto` files into downstream services. Always import this module via `go.mod` to ensure API compatibility.
 
 ## Structure
 
