@@ -6,7 +6,10 @@
 
 训练服务完成微调后会产出一份标准 HF 模型归档 `model.tar`。模型服务负责接收、校验、登记这份产物，并将它变成可以被 Inference 使用的 `ModelVersion`。
 
-本阶段先适配 `ani-model-service`，不修改 `ani-modeldev-service` 的训练流程。训练服务后续只按本设计调用模型服务的内部注册协议。
+本阶段只交付 `ani-model-service`：注册协议、对象完整性校验、注册会话和聚合提交。
+不修改 `ani-modeldev-service` 的训练流程，也不在本阶段输出跨仓库接入代码。ModelDev
+当前状态和未来调用边界只作为契约约束记录；模型服务完成并验证后，再单独输出
+ModelDev 对接文档。
 
 ## 当前约束
 
@@ -42,10 +45,11 @@
   提供完整三元组，或从明确指定的 `base_model_version_id` 原样复制；不能把训练镜像、
   训练命令或模型文件推断成推理配置，也不能拼接启动命令。
 - 当前 Storage 合同的 `VerifyChecksum` 只返回 SHA 校验结果，没有实际对象大小；
-  MinIO 适配器也没有把大小纳入校验。因此“大小和 SHA 都由 Model Service 重新校验”
-  不是现状能力，必须新增返回实际大小的 `StatObject`/`VerifyObject` 合同，或在第一阶段
-  明确大小只作为上传元数据而不是完整性证明。本文按前者设计，未完成该合同前不得声称
-  固定大小校验已经实现。
+  MinIO 适配器也没有把大小纳入校验。本阶段只改 Model Service：增加内部
+  `ObjectVerifier` 端口，MinIO 直接 `StatObject` 并计算摘要，现有 Storage gRPC
+  适配器通过已有下载地址读取并计数。外部 Storage protobuf 不在本阶段修改；如果
+  后续需要避免整对象下载，再单独扩展 Storage 合同。未完成适配器实际大小校验前，
+  不得声称固定大小校验已经实现。
 - ModelDev 的发布引用包含它自己的 storage connection、bucket、key 和对象版本；
   Model Service 只接受自己的租户对象引用。控制面必须读取已验证的 ModelDev 对象，
   再通过 Model Service 签发的上传地址流式复制，并记录复制状态和重试信息。
@@ -77,10 +81,9 @@ Model 创建和版本创建必须由注册会话拥有的同一持久化事务�
 
 ## 注册协议
 
-新增模型服务内部 RPC，不改变现有公开 Model API。ModelDev 的控制面适配器通过专用
-mTLS 身份调用这些 RPC；当前 Model Service 的 RPC 策略没有 ModelDev 身份，必须增加
-该身份及仅限注册方法的授权，或者由已授权的 Governance 控制面代理。不能让训练 Pod
-复用 Governance 身份：
+新增模型服务内部 RPC，不改变现有公开 Model API。本阶段只接入已有的 Governance
+控制面身份，且只放行下面三个注册方法；不新增 ModelDev 身份，也不让训练 Pod 直接
+调用。ModelDev 的专用身份和跨服务代理方式留到后续对接文档：
 
 ```protobuf
 rpc PrepareTrainedArtifact(PrepareTrainedArtifactRequest)
@@ -159,9 +162,10 @@ checksum_sha256: 整个 model.tar 的 SHA256
 
 `format` 表示归档内部的模型权重格式，不能写成 `tar`。tar 是封装方式，当前由 `.tar` 文件名和 Inference 物化协议表示。
 
-Model Service 在第一阶段至少校验对象存在、实际大小和 SHA256。为此 Storage 需要提供返回实际
-大小与摘要的 `VerifyObject`（或 `StatObject` 加 SHA 校验）合同，并由 MinIO 和 gRPC
-适配器一起实现；现有仅按 SHA 校验的 `VerifyChecksum` 不足以满足本方案。ModelDev
+Model Service 在第一阶段至少校验对象存在、实际大小和 SHA256。Model Service 内部
+`ObjectVerifier` 由 MinIO 和现有 Storage gRPC 适配器实现；后者通过短期下载地址读取
+对象并计算实际大小与摘要。现有仅按 SHA 校验的 `VerifyChecksum` 不足以单独满足本方案。
+ModelDev
 已经校验 HF 必需文件和 tar 安全性，Inference 物化时还会独立校验并安全解包到
 `/models`。后续如果支持非 tar 产物，再新增显式 `packaging` 字段，并同步 Model、
 Inference 和 Governance 的生成代码。
@@ -189,14 +193,14 @@ startup_command
 
 训练 Pod 不直接访问 Model 数据库，也不持有 Model Storage 的长期凭据。
 
-ModelDev 的控制面注册 worker 负责：
+后续 ModelDev 的控制面注册 worker 负责：
 
 1. 从 ModelDev 发布存储读取已验证的 `bundle.tar`；
 2. 使用注册身份获得 Model Service 上传地址；
 3. 流式上传到 Model Service Storage；
 4. 完成注册会话。
 
-该 worker 使用专用服务身份，只允许调用训练产物注册 RPC。现有的公开 Model 管理 RPC 不直接开放给训练 Pod。若业务入口需要由 Governance 受理，Governance 负责租户授权，注册 worker 负责对象复制，二者的身份和职责保持分离。
+该 worker 后续应使用专用服务身份，只允许调用训练产物注册 RPC。现有的公开 Model 管理 RPC 不直接开放给训练 Pod。本阶段由 Governance 身份承载这条控制面调用，具体的 ModelDev 身份、租户授权和对象复制链路不在本次 Model 改动内。
 
 ## 状态和幂等
 
@@ -254,10 +258,28 @@ training:{execution_id}:model-version
 - 注册完成后 Inference 能下载并解包 `model.tar`；
 - 训练服务尚未接入时，不宣称训练到推理的真实链路已通过。
 
-当前实现状态必须单独记录：ModelDev 的 `RegisterModel` 仍返回
-`MODEL_DEPENDENCY_UNAVAILABLE`，Model Service 尚未有上述三个注册 RPC，Storage 也尚未
-提供实际大小校验。因此在这些实现和生成的 protobuf 合入前，训练产物注册链路仍是
-设计阶段，不能按已完成发布处理。
+## 当前实现状态（2026-10-20）
+
+### Model Service 已完成
+
+- ✅ 三个注册 RPC 方法实现并测试通过（PrepareTrainedArtifact、CompleteTrainedArtifact、AbortTrainedArtifact）
+- ✅ 注册会话数据库表和迁移（`000008_trained_artifact_registration.sql`）
+- ✅ 对象完整性校验（MinIO 和 gRPC Storage 适配器实现 `ObjectVerifier` 接口）
+- ✅ 原子事务创建 Model + ModelVersion + Artifact，确保不会留下半成品记录
+- ✅ 幂等重放和请求指纹冲突检测
+- ✅ 运行时三元组显式传入或从基础版本原样继承
+- ✅ RPC 策略配置，仅允许 Governance mTLS 身份（`ani-governance`）调用
+- ✅ 单元测试和集成测试覆盖核心场景
+
+### 尚未完成
+
+- ModelDev 的注册调用适配器（`RegisterModel` 仍返回 `MODEL_DEPENDENCY_UNAVAILABLE`）
+- ModelDev 发布对象到 Model Storage 的复制逻辑
+- ModelDev 专用 mTLS 身份和对应 RPC 策略（当前借用 Governance 身份）
+- Storage 分片上传协议（当前只支持单次 PUT，大文件需要后续扩展）
+- 端到端的训练到推理链路验证
+
+因此训练产物注册的 Model Service 端已完成，但跨服务集成和端到端链路尚未打通。
 
 ## 后续训练服务改动
 

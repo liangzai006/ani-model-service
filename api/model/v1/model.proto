@@ -31,6 +31,9 @@ service ModelService {
   rpc GetImportTaskLogs(GetImportTaskLogsRequest) returns (GetImportTaskLogsResponse);
   rpc RetryImportTask(RetryImportTaskRequest) returns (RetryImportTaskResponse);
   rpc GetModelDownloadURL(GetModelDownloadURLRequest) returns (GetModelDownloadURLResponse);
+  rpc PrepareTrainedArtifact(PrepareTrainedArtifactRequest) returns (PrepareTrainedArtifactResponse);
+  rpc CompleteTrainedArtifact(CompleteTrainedArtifactRequest) returns (CompleteTrainedArtifactResponse);
+  rpc AbortTrainedArtifact(AbortTrainedArtifactRequest) returns (AbortTrainedArtifactResponse);
 }
 
 message Model {
@@ -197,6 +200,58 @@ message GetUploadURLResponse {
   map<string, string> upload_headers = 5;
   string model_version_id = 6;
 }
+
+message PrepareTrainedArtifactRequest {
+  string tenant_id = 1;
+  string target_model_id = 2;
+  string model_name = 3;
+  string display_name = 4;
+  string description = 5;
+  repeated string capabilities = 6;
+  string source_model_version_id = 7;
+  string version = 8;
+  string file_name = 9;
+  string format = 10;
+  int64 size_bytes = 11;
+  string checksum_sha256 = 12;
+  string execution_id = 13;
+  string idempotency_key = 14;
+  string engine_type = 15;
+  string engine_image = 16;
+  string startup_command = 17;
+}
+
+message PrepareTrainedArtifactResponse {
+  string registration_id = 1;
+  string upload_url = 2;
+  string storage_path = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  map<string, string> upload_headers = 5;
+}
+
+message CompleteTrainedArtifactRequest {
+  string tenant_id = 1;
+  string registration_id = 2;
+  string idempotency_key = 3;
+}
+
+message CompleteTrainedArtifactResponse {
+  string registration_id = 1;
+  string model_id = 2;
+  string model_version_id = 3;
+  string model_version_status = 4;
+  string storage_path = 5;
+  int64 size_bytes = 6;
+  string checksum_sha256 = 7;
+}
+
+message AbortTrainedArtifactRequest {
+  string tenant_id = 1;
+  string registration_id = 2;
+  string reason = 3;
+}
+
+message AbortTrainedArtifactResponse {}
 
 message ImportModelRequest {
   string tenant_id = 1;

@@ -95,6 +95,37 @@ func (a *GRPCAdapter) VerifyChecksum(ctx context.Context, tenant, objectRef, che
 	return nil
 }
 
+func (a *GRPCAdapter) VerifyObject(ctx context.Context, tenant, objectRef string, expectedSize int64, expected string) (bizstorage.ObjectVerification, error) {
+	u, err := a.CreateDownloadURL(ctx, bizstorage.DownloadRequest{TenantID: tenant, ObjectRef: objectRef, Requester: "model-registration", TTL: 10 * time.Minute})
+	if err != nil {
+		return bizstorage.ObjectVerification{}, err
+	}
+	if err := bizstorage.ValidateSignedURL(u, time.Now()); err != nil {
+		return bizstorage.ObjectVerification{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.URL, nil)
+	if err != nil {
+		return bizstorage.ObjectVerification{}, fmt.Errorf("create storage download request: %w", err)
+	}
+	client := a.http
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return bizstorage.ObjectVerification{}, providerError(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return bizstorage.ObjectVerification{}, fmt.Errorf("%w: download returned status %d", bizstorage.ErrProvider, resp.StatusCode)
+	}
+	verification, err := bizstorage.VerifyReaderWithSize(resp.Body, expectedSize, expected)
+	if err != nil {
+		return bizstorage.ObjectVerification{}, providerError(err)
+	}
+	return verification, nil
+}
+
 func (a *GRPCAdapter) CreateDownloadURL(ctx context.Context, in bizstorage.DownloadRequest) (bizstorage.SignedURL, error) {
 	r, err := a.client.CreateDownloadURL(ctx, &storagev1.CreateDownloadURLRequest{TenantId: in.TenantID, ObjectRef: in.ObjectRef, Requester: in.Requester, Ttl: durationpb.New(in.TTL)})
 	if err != nil {

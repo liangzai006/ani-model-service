@@ -1767,6 +1767,502 @@ func (x *GetUploadURLResponse) GetModelVersionId() string {
 	return ""
 }
 
+type PrepareTrainedArtifactRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	TenantId             string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TargetModelId        string                 `protobuf:"bytes,2,opt,name=target_model_id,json=targetModelId,proto3" json:"target_model_id,omitempty"`
+	ModelName            string                 `protobuf:"bytes,3,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
+	DisplayName          string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Description          string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Capabilities         []string               `protobuf:"bytes,6,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	SourceModelVersionId string                 `protobuf:"bytes,7,opt,name=source_model_version_id,json=sourceModelVersionId,proto3" json:"source_model_version_id,omitempty"`
+	Version              string                 `protobuf:"bytes,8,opt,name=version,proto3" json:"version,omitempty"`
+	FileName             string                 `protobuf:"bytes,9,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	Format               string                 `protobuf:"bytes,10,opt,name=format,proto3" json:"format,omitempty"`
+	SizeBytes            int64                  `protobuf:"varint,11,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	ChecksumSha256       string                 `protobuf:"bytes,12,opt,name=checksum_sha256,json=checksumSha256,proto3" json:"checksum_sha256,omitempty"`
+	ExecutionId          string                 `protobuf:"bytes,13,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	IdempotencyKey       string                 `protobuf:"bytes,14,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	EngineType           string                 `protobuf:"bytes,15,opt,name=engine_type,json=engineType,proto3" json:"engine_type,omitempty"`
+	EngineImage          string                 `protobuf:"bytes,16,opt,name=engine_image,json=engineImage,proto3" json:"engine_image,omitempty"`
+	StartupCommand       string                 `protobuf:"bytes,17,opt,name=startup_command,json=startupCommand,proto3" json:"startup_command,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *PrepareTrainedArtifactRequest) Reset() {
+	*x = PrepareTrainedArtifactRequest{}
+	mi := &file_model_v1_model_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrepareTrainedArtifactRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrepareTrainedArtifactRequest) ProtoMessage() {}
+
+func (x *PrepareTrainedArtifactRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_model_v1_model_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrepareTrainedArtifactRequest.ProtoReflect.Descriptor instead.
+func (*PrepareTrainedArtifactRequest) Descriptor() ([]byte, []int) {
+	return file_model_v1_model_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *PrepareTrainedArtifactRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetTargetModelId() string {
+	if x != nil {
+		return x.TargetModelId
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetModelName() string {
+	if x != nil {
+		return x.ModelName
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *PrepareTrainedArtifactRequest) GetSourceModelVersionId() string {
+	if x != nil {
+		return x.SourceModelVersionId
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *PrepareTrainedArtifactRequest) GetChecksumSha256() string {
+	if x != nil {
+		return x.ChecksumSha256
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetEngineType() string {
+	if x != nil {
+		return x.EngineType
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetEngineImage() string {
+	if x != nil {
+		return x.EngineImage
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactRequest) GetStartupCommand() string {
+	if x != nil {
+		return x.StartupCommand
+	}
+	return ""
+}
+
+type PrepareTrainedArtifactResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RegistrationId string                 `protobuf:"bytes,1,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	UploadUrl      string                 `protobuf:"bytes,2,opt,name=upload_url,json=uploadUrl,proto3" json:"upload_url,omitempty"`
+	StoragePath    string                 `protobuf:"bytes,3,opt,name=storage_path,json=storagePath,proto3" json:"storage_path,omitempty"`
+	ExpiresAt      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	UploadHeaders  map[string]string      `protobuf:"bytes,5,rep,name=upload_headers,json=uploadHeaders,proto3" json:"upload_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PrepareTrainedArtifactResponse) Reset() {
+	*x = PrepareTrainedArtifactResponse{}
+	mi := &file_model_v1_model_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrepareTrainedArtifactResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrepareTrainedArtifactResponse) ProtoMessage() {}
+
+func (x *PrepareTrainedArtifactResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_model_v1_model_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrepareTrainedArtifactResponse.ProtoReflect.Descriptor instead.
+func (*PrepareTrainedArtifactResponse) Descriptor() ([]byte, []int) {
+	return file_model_v1_model_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *PrepareTrainedArtifactResponse) GetRegistrationId() string {
+	if x != nil {
+		return x.RegistrationId
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactResponse) GetUploadUrl() string {
+	if x != nil {
+		return x.UploadUrl
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactResponse) GetStoragePath() string {
+	if x != nil {
+		return x.StoragePath
+	}
+	return ""
+}
+
+func (x *PrepareTrainedArtifactResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *PrepareTrainedArtifactResponse) GetUploadHeaders() map[string]string {
+	if x != nil {
+		return x.UploadHeaders
+	}
+	return nil
+}
+
+type CompleteTrainedArtifactRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	RegistrationId string                 `protobuf:"bytes,2,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CompleteTrainedArtifactRequest) Reset() {
+	*x = CompleteTrainedArtifactRequest{}
+	mi := &file_model_v1_model_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteTrainedArtifactRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteTrainedArtifactRequest) ProtoMessage() {}
+
+func (x *CompleteTrainedArtifactRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_model_v1_model_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteTrainedArtifactRequest.ProtoReflect.Descriptor instead.
+func (*CompleteTrainedArtifactRequest) Descriptor() ([]byte, []int) {
+	return file_model_v1_model_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CompleteTrainedArtifactRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *CompleteTrainedArtifactRequest) GetRegistrationId() string {
+	if x != nil {
+		return x.RegistrationId
+	}
+	return ""
+}
+
+func (x *CompleteTrainedArtifactRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type CompleteTrainedArtifactResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RegistrationId     string                 `protobuf:"bytes,1,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	ModelId            string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelVersionId     string                 `protobuf:"bytes,3,opt,name=model_version_id,json=modelVersionId,proto3" json:"model_version_id,omitempty"`
+	ModelVersionStatus string                 `protobuf:"bytes,4,opt,name=model_version_status,json=modelVersionStatus,proto3" json:"model_version_status,omitempty"`
+	StoragePath        string                 `protobuf:"bytes,5,opt,name=storage_path,json=storagePath,proto3" json:"storage_path,omitempty"`
+	SizeBytes          int64                  `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	ChecksumSha256     string                 `protobuf:"bytes,7,opt,name=checksum_sha256,json=checksumSha256,proto3" json:"checksum_sha256,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CompleteTrainedArtifactResponse) Reset() {
+	*x = CompleteTrainedArtifactResponse{}
+	mi := &file_model_v1_model_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteTrainedArtifactResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteTrainedArtifactResponse) ProtoMessage() {}
+
+func (x *CompleteTrainedArtifactResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_model_v1_model_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteTrainedArtifactResponse.ProtoReflect.Descriptor instead.
+func (*CompleteTrainedArtifactResponse) Descriptor() ([]byte, []int) {
+	return file_model_v1_model_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *CompleteTrainedArtifactResponse) GetRegistrationId() string {
+	if x != nil {
+		return x.RegistrationId
+	}
+	return ""
+}
+
+func (x *CompleteTrainedArtifactResponse) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *CompleteTrainedArtifactResponse) GetModelVersionId() string {
+	if x != nil {
+		return x.ModelVersionId
+	}
+	return ""
+}
+
+func (x *CompleteTrainedArtifactResponse) GetModelVersionStatus() string {
+	if x != nil {
+		return x.ModelVersionStatus
+	}
+	return ""
+}
+
+func (x *CompleteTrainedArtifactResponse) GetStoragePath() string {
+	if x != nil {
+		return x.StoragePath
+	}
+	return ""
+}
+
+func (x *CompleteTrainedArtifactResponse) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *CompleteTrainedArtifactResponse) GetChecksumSha256() string {
+	if x != nil {
+		return x.ChecksumSha256
+	}
+	return ""
+}
+
+type AbortTrainedArtifactRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	RegistrationId string                 `protobuf:"bytes,2,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	Reason         string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AbortTrainedArtifactRequest) Reset() {
+	*x = AbortTrainedArtifactRequest{}
+	mi := &file_model_v1_model_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AbortTrainedArtifactRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AbortTrainedArtifactRequest) ProtoMessage() {}
+
+func (x *AbortTrainedArtifactRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_model_v1_model_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AbortTrainedArtifactRequest.ProtoReflect.Descriptor instead.
+func (*AbortTrainedArtifactRequest) Descriptor() ([]byte, []int) {
+	return file_model_v1_model_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *AbortTrainedArtifactRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *AbortTrainedArtifactRequest) GetRegistrationId() string {
+	if x != nil {
+		return x.RegistrationId
+	}
+	return ""
+}
+
+func (x *AbortTrainedArtifactRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type AbortTrainedArtifactResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AbortTrainedArtifactResponse) Reset() {
+	*x = AbortTrainedArtifactResponse{}
+	mi := &file_model_v1_model_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AbortTrainedArtifactResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AbortTrainedArtifactResponse) ProtoMessage() {}
+
+func (x *AbortTrainedArtifactResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_model_v1_model_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AbortTrainedArtifactResponse.ProtoReflect.Descriptor instead.
+func (*AbortTrainedArtifactResponse) Descriptor() ([]byte, []int) {
+	return file_model_v1_model_proto_rawDescGZIP(), []int{27}
+}
+
 type ImportModelRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -1785,7 +2281,7 @@ type ImportModelRequest struct {
 
 func (x *ImportModelRequest) Reset() {
 	*x = ImportModelRequest{}
-	mi := &file_model_v1_model_proto_msgTypes[22]
+	mi := &file_model_v1_model_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1797,7 +2293,7 @@ func (x *ImportModelRequest) String() string {
 func (*ImportModelRequest) ProtoMessage() {}
 
 func (x *ImportModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[22]
+	mi := &file_model_v1_model_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1810,7 +2306,7 @@ func (x *ImportModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportModelRequest.ProtoReflect.Descriptor instead.
 func (*ImportModelRequest) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{22}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ImportModelRequest) GetTenantId() string {
@@ -1882,7 +2378,7 @@ type ImportModelBundleModelData struct {
 
 func (x *ImportModelBundleModelData) Reset() {
 	*x = ImportModelBundleModelData{}
-	mi := &file_model_v1_model_proto_msgTypes[23]
+	mi := &file_model_v1_model_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1894,7 +2390,7 @@ func (x *ImportModelBundleModelData) String() string {
 func (*ImportModelBundleModelData) ProtoMessage() {}
 
 func (x *ImportModelBundleModelData) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[23]
+	mi := &file_model_v1_model_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1907,7 +2403,7 @@ func (x *ImportModelBundleModelData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportModelBundleModelData.ProtoReflect.Descriptor instead.
 func (*ImportModelBundleModelData) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{23}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ImportModelBundleModelData) GetName() string {
@@ -1958,7 +2454,7 @@ type ImportModelBundleVersionData struct {
 
 func (x *ImportModelBundleVersionData) Reset() {
 	*x = ImportModelBundleVersionData{}
-	mi := &file_model_v1_model_proto_msgTypes[24]
+	mi := &file_model_v1_model_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1970,7 +2466,7 @@ func (x *ImportModelBundleVersionData) String() string {
 func (*ImportModelBundleVersionData) ProtoMessage() {}
 
 func (x *ImportModelBundleVersionData) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[24]
+	mi := &file_model_v1_model_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1983,7 +2479,7 @@ func (x *ImportModelBundleVersionData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportModelBundleVersionData.ProtoReflect.Descriptor instead.
 func (*ImportModelBundleVersionData) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{24}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ImportModelBundleVersionData) GetVersion() string {
@@ -2032,7 +2528,7 @@ type ImportModelBundleSourceData struct {
 
 func (x *ImportModelBundleSourceData) Reset() {
 	*x = ImportModelBundleSourceData{}
-	mi := &file_model_v1_model_proto_msgTypes[25]
+	mi := &file_model_v1_model_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2044,7 +2540,7 @@ func (x *ImportModelBundleSourceData) String() string {
 func (*ImportModelBundleSourceData) ProtoMessage() {}
 
 func (x *ImportModelBundleSourceData) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[25]
+	mi := &file_model_v1_model_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2057,7 +2553,7 @@ func (x *ImportModelBundleSourceData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportModelBundleSourceData.ProtoReflect.Descriptor instead.
 func (*ImportModelBundleSourceData) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{25}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ImportModelBundleSourceData) GetProvider() string {
@@ -2094,7 +2590,7 @@ type ImportModelBundleRequest struct {
 
 func (x *ImportModelBundleRequest) Reset() {
 	*x = ImportModelBundleRequest{}
-	mi := &file_model_v1_model_proto_msgTypes[26]
+	mi := &file_model_v1_model_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2106,7 +2602,7 @@ func (x *ImportModelBundleRequest) String() string {
 func (*ImportModelBundleRequest) ProtoMessage() {}
 
 func (x *ImportModelBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[26]
+	mi := &file_model_v1_model_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2119,7 +2615,7 @@ func (x *ImportModelBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportModelBundleRequest.ProtoReflect.Descriptor instead.
 func (*ImportModelBundleRequest) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{26}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ImportModelBundleRequest) GetTenantId() string {
@@ -2168,7 +2664,7 @@ type ImportModelBundleResponse struct {
 
 func (x *ImportModelBundleResponse) Reset() {
 	*x = ImportModelBundleResponse{}
-	mi := &file_model_v1_model_proto_msgTypes[27]
+	mi := &file_model_v1_model_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2180,7 +2676,7 @@ func (x *ImportModelBundleResponse) String() string {
 func (*ImportModelBundleResponse) ProtoMessage() {}
 
 func (x *ImportModelBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[27]
+	mi := &file_model_v1_model_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2193,7 +2689,7 @@ func (x *ImportModelBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportModelBundleResponse.ProtoReflect.Descriptor instead.
 func (*ImportModelBundleResponse) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{27}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ImportModelBundleResponse) GetModel() *Model {
@@ -2236,7 +2732,7 @@ type ImportTask struct {
 
 func (x *ImportTask) Reset() {
 	*x = ImportTask{}
-	mi := &file_model_v1_model_proto_msgTypes[28]
+	mi := &file_model_v1_model_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2248,7 +2744,7 @@ func (x *ImportTask) String() string {
 func (*ImportTask) ProtoMessage() {}
 
 func (x *ImportTask) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[28]
+	mi := &file_model_v1_model_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2261,7 +2757,7 @@ func (x *ImportTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportTask.ProtoReflect.Descriptor instead.
 func (*ImportTask) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{28}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ImportTask) GetTaskId() string {
@@ -2351,7 +2847,7 @@ type GetImportTaskRequest struct {
 
 func (x *GetImportTaskRequest) Reset() {
 	*x = GetImportTaskRequest{}
-	mi := &file_model_v1_model_proto_msgTypes[29]
+	mi := &file_model_v1_model_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2363,7 +2859,7 @@ func (x *GetImportTaskRequest) String() string {
 func (*GetImportTaskRequest) ProtoMessage() {}
 
 func (x *GetImportTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[29]
+	mi := &file_model_v1_model_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2376,7 +2872,7 @@ func (x *GetImportTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetImportTaskRequest.ProtoReflect.Descriptor instead.
 func (*GetImportTaskRequest) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{29}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *GetImportTaskRequest) GetTenantId() string {
@@ -2403,7 +2899,7 @@ type RetryImportTaskRequest struct {
 
 func (x *RetryImportTaskRequest) Reset() {
 	*x = RetryImportTaskRequest{}
-	mi := &file_model_v1_model_proto_msgTypes[30]
+	mi := &file_model_v1_model_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2415,7 +2911,7 @@ func (x *RetryImportTaskRequest) String() string {
 func (*RetryImportTaskRequest) ProtoMessage() {}
 
 func (x *RetryImportTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[30]
+	mi := &file_model_v1_model_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2428,7 +2924,7 @@ func (x *RetryImportTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryImportTaskRequest.ProtoReflect.Descriptor instead.
 func (*RetryImportTaskRequest) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{30}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *RetryImportTaskRequest) GetTenantId() string {
@@ -2454,7 +2950,7 @@ type GetImportTaskResponse struct {
 
 func (x *GetImportTaskResponse) Reset() {
 	*x = GetImportTaskResponse{}
-	mi := &file_model_v1_model_proto_msgTypes[31]
+	mi := &file_model_v1_model_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2466,7 +2962,7 @@ func (x *GetImportTaskResponse) String() string {
 func (*GetImportTaskResponse) ProtoMessage() {}
 
 func (x *GetImportTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[31]
+	mi := &file_model_v1_model_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2479,7 +2975,7 @@ func (x *GetImportTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetImportTaskResponse.ProtoReflect.Descriptor instead.
 func (*GetImportTaskResponse) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{31}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GetImportTaskResponse) GetTask() *ImportTask {
@@ -2499,7 +2995,7 @@ type GetImportTaskLogsRequest struct {
 
 func (x *GetImportTaskLogsRequest) Reset() {
 	*x = GetImportTaskLogsRequest{}
-	mi := &file_model_v1_model_proto_msgTypes[32]
+	mi := &file_model_v1_model_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2511,7 +3007,7 @@ func (x *GetImportTaskLogsRequest) String() string {
 func (*GetImportTaskLogsRequest) ProtoMessage() {}
 
 func (x *GetImportTaskLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[32]
+	mi := &file_model_v1_model_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2524,7 +3020,7 @@ func (x *GetImportTaskLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetImportTaskLogsRequest.ProtoReflect.Descriptor instead.
 func (*GetImportTaskLogsRequest) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{32}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GetImportTaskLogsRequest) GetTenantId() string {
@@ -2553,7 +3049,7 @@ type GetImportTaskLogsResponse struct {
 
 func (x *GetImportTaskLogsResponse) Reset() {
 	*x = GetImportTaskLogsResponse{}
-	mi := &file_model_v1_model_proto_msgTypes[33]
+	mi := &file_model_v1_model_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2565,7 +3061,7 @@ func (x *GetImportTaskLogsResponse) String() string {
 func (*GetImportTaskLogsResponse) ProtoMessage() {}
 
 func (x *GetImportTaskLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[33]
+	mi := &file_model_v1_model_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2578,7 +3074,7 @@ func (x *GetImportTaskLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetImportTaskLogsResponse.ProtoReflect.Descriptor instead.
 func (*GetImportTaskLogsResponse) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{33}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *GetImportTaskLogsResponse) GetTaskId() string {
@@ -2618,7 +3114,7 @@ type RetryImportTaskResponse struct {
 
 func (x *RetryImportTaskResponse) Reset() {
 	*x = RetryImportTaskResponse{}
-	mi := &file_model_v1_model_proto_msgTypes[34]
+	mi := &file_model_v1_model_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2630,7 +3126,7 @@ func (x *RetryImportTaskResponse) String() string {
 func (*RetryImportTaskResponse) ProtoMessage() {}
 
 func (x *RetryImportTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[34]
+	mi := &file_model_v1_model_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2643,7 +3139,7 @@ func (x *RetryImportTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryImportTaskResponse.ProtoReflect.Descriptor instead.
 func (*RetryImportTaskResponse) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{34}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RetryImportTaskResponse) GetTask() *ImportTask {
@@ -2664,7 +3160,7 @@ type GetModelDownloadURLRequest struct {
 
 func (x *GetModelDownloadURLRequest) Reset() {
 	*x = GetModelDownloadURLRequest{}
-	mi := &file_model_v1_model_proto_msgTypes[35]
+	mi := &file_model_v1_model_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2676,7 +3172,7 @@ func (x *GetModelDownloadURLRequest) String() string {
 func (*GetModelDownloadURLRequest) ProtoMessage() {}
 
 func (x *GetModelDownloadURLRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[35]
+	mi := &file_model_v1_model_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2689,7 +3185,7 @@ func (x *GetModelDownloadURLRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetModelDownloadURLRequest.ProtoReflect.Descriptor instead.
 func (*GetModelDownloadURLRequest) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{35}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GetModelDownloadURLRequest) GetTenantId() string {
@@ -2727,7 +3223,7 @@ type GetModelDownloadURLResponse struct {
 
 func (x *GetModelDownloadURLResponse) Reset() {
 	*x = GetModelDownloadURLResponse{}
-	mi := &file_model_v1_model_proto_msgTypes[36]
+	mi := &file_model_v1_model_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2739,7 +3235,7 @@ func (x *GetModelDownloadURLResponse) String() string {
 func (*GetModelDownloadURLResponse) ProtoMessage() {}
 
 func (x *GetModelDownloadURLResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_model_v1_model_proto_msgTypes[36]
+	mi := &file_model_v1_model_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2752,7 +3248,7 @@ func (x *GetModelDownloadURLResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetModelDownloadURLResponse.ProtoReflect.Descriptor instead.
 func (*GetModelDownloadURLResponse) Descriptor() ([]byte, []int) {
-	return file_model_v1_model_proto_rawDescGZIP(), []int{36}
+	return file_model_v1_model_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GetModelDownloadURLResponse) GetDownloadUrl() string {
@@ -2973,7 +3469,58 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\x10model_version_id\x18\x06 \x01(\tR\x0emodelVersionId\x1a@\n" +
 	"\x12UploadHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8d\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf3\x04\n" +
+	"\x1dPrepareTrainedArtifactRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12&\n" +
+	"\x0ftarget_model_id\x18\x02 \x01(\tR\rtargetModelId\x12\x1d\n" +
+	"\n" +
+	"model_name\x18\x03 \x01(\tR\tmodelName\x12!\n" +
+	"\fdisplay_name\x18\x04 \x01(\tR\vdisplayName\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\"\n" +
+	"\fcapabilities\x18\x06 \x03(\tR\fcapabilities\x125\n" +
+	"\x17source_model_version_id\x18\a \x01(\tR\x14sourceModelVersionId\x12\x18\n" +
+	"\aversion\x18\b \x01(\tR\aversion\x12\x1b\n" +
+	"\tfile_name\x18\t \x01(\tR\bfileName\x12\x16\n" +
+	"\x06format\x18\n" +
+	" \x01(\tR\x06format\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\v \x01(\x03R\tsizeBytes\x12'\n" +
+	"\x0fchecksum_sha256\x18\f \x01(\tR\x0echecksumSha256\x12!\n" +
+	"\fexecution_id\x18\r \x01(\tR\vexecutionId\x12'\n" +
+	"\x0fidempotency_key\x18\x0e \x01(\tR\x0eidempotencyKey\x12\x1f\n" +
+	"\vengine_type\x18\x0f \x01(\tR\n" +
+	"engineType\x12!\n" +
+	"\fengine_image\x18\x10 \x01(\tR\vengineImage\x12'\n" +
+	"\x0fstartup_command\x18\x11 \x01(\tR\x0estartupCommand\"\xec\x02\n" +
+	"\x1ePrepareTrainedArtifactResponse\x12'\n" +
+	"\x0fregistration_id\x18\x01 \x01(\tR\x0eregistrationId\x12\x1d\n" +
+	"\n" +
+	"upload_url\x18\x02 \x01(\tR\tuploadUrl\x12!\n" +
+	"\fstorage_path\x18\x03 \x01(\tR\vstoragePath\x129\n" +
+	"\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12b\n" +
+	"\x0eupload_headers\x18\x05 \x03(\v2;.model.v1.PrepareTrainedArtifactResponse.UploadHeadersEntryR\ruploadHeaders\x1a@\n" +
+	"\x12UploadHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8f\x01\n" +
+	"\x1eCompleteTrainedArtifactRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12'\n" +
+	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\xac\x02\n" +
+	"\x1fCompleteTrainedArtifactResponse\x12'\n" +
+	"\x0fregistration_id\x18\x01 \x01(\tR\x0eregistrationId\x12\x19\n" +
+	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12(\n" +
+	"\x10model_version_id\x18\x03 \x01(\tR\x0emodelVersionId\x120\n" +
+	"\x14model_version_status\x18\x04 \x01(\tR\x12modelVersionStatus\x12!\n" +
+	"\fstorage_path\x18\x05 \x01(\tR\vstoragePath\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x06 \x01(\x03R\tsizeBytes\x12'\n" +
+	"\x0fchecksum_sha256\x18\a \x01(\tR\x0echecksumSha256\"{\n" +
+	"\x1bAbortTrainedArtifactRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12'\n" +
+	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"\x1e\n" +
+	"\x1cAbortTrainedArtifactResponse\"\x8d\x02\n" +
 	"\x12ImportModelRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x17\n" +
@@ -3055,8 +3602,7 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\fencrypt_algo\x18\x04 \x01(\tR\vencryptAlgo\x12!\n" +
 	"\fencrypt_hint\x18\x05 \x01(\tR\vencryptHint\x129\n" +
 	"\n" +
-	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt2\xbf\n" +
-	"\n" +
+	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt2\x83\r\n" +
 	"\fModelService\x12<\n" +
 	"\vCreateModel\x12\x1c.model.v1.CreateModelRequest\x1a\x0f.model.v1.Model\x126\n" +
 	"\bGetModel\x12\x19.model.v1.GetModelRequest\x1a\x0f.model.v1.Model\x12G\n" +
@@ -3074,7 +3620,10 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\rGetImportTask\x12\x1e.model.v1.GetImportTaskRequest\x1a\x1f.model.v1.GetImportTaskResponse\x12\\\n" +
 	"\x11GetImportTaskLogs\x12\".model.v1.GetImportTaskLogsRequest\x1a#.model.v1.GetImportTaskLogsResponse\x12V\n" +
 	"\x0fRetryImportTask\x12 .model.v1.RetryImportTaskRequest\x1a!.model.v1.RetryImportTaskResponse\x12b\n" +
-	"\x13GetModelDownloadURL\x12$.model.v1.GetModelDownloadURLRequest\x1a%.model.v1.GetModelDownloadURLResponseB?Z=github.com/liangzai006/ani-model-service/api/model/v1;modelv1b\x06proto3"
+	"\x13GetModelDownloadURL\x12$.model.v1.GetModelDownloadURLRequest\x1a%.model.v1.GetModelDownloadURLResponse\x12k\n" +
+	"\x16PrepareTrainedArtifact\x12'.model.v1.PrepareTrainedArtifactRequest\x1a(.model.v1.PrepareTrainedArtifactResponse\x12n\n" +
+	"\x17CompleteTrainedArtifact\x12(.model.v1.CompleteTrainedArtifactRequest\x1a).model.v1.CompleteTrainedArtifactResponse\x12e\n" +
+	"\x14AbortTrainedArtifact\x12%.model.v1.AbortTrainedArtifactRequest\x1a&.model.v1.AbortTrainedArtifactResponseB?Z=github.com/liangzai006/ani-model-service/api/model/v1;modelv1b\x06proto3"
 
 var (
 	file_model_v1_model_proto_rawDescOnce sync.Once
@@ -3088,110 +3637,125 @@ func file_model_v1_model_proto_rawDescGZIP() []byte {
 	return file_model_v1_model_proto_rawDescData
 }
 
-var file_model_v1_model_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_model_v1_model_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_model_v1_model_proto_goTypes = []any{
-	(*Model)(nil),                        // 0: model.v1.Model
-	(*ModelVersion)(nil),                 // 1: model.v1.ModelVersion
-	(*ModelArtifact)(nil),                // 2: model.v1.ModelArtifact
-	(*CreateModelRequest)(nil),           // 3: model.v1.CreateModelRequest
-	(*GetModelRequest)(nil),              // 4: model.v1.GetModelRequest
-	(*DeleteModelRequest)(nil),           // 5: model.v1.DeleteModelRequest
-	(*DeleteModelVersionRequest)(nil),    // 6: model.v1.DeleteModelVersionRequest
-	(*DeleteModelVersionResponse)(nil),   // 7: model.v1.DeleteModelVersionResponse
-	(*GetModelVersionRequest)(nil),       // 8: model.v1.GetModelVersionRequest
-	(*GetModelVersionResponse)(nil),      // 9: model.v1.GetModelVersionResponse
-	(*CursorPageRequest)(nil),            // 10: model.v1.CursorPageRequest
-	(*CursorPageMeta)(nil),               // 11: model.v1.CursorPageMeta
-	(*ListModelsRequest)(nil),            // 12: model.v1.ListModelsRequest
-	(*ListModelsResponse)(nil),           // 13: model.v1.ListModelsResponse
-	(*SearchExternalModelsRequest)(nil),  // 14: model.v1.SearchExternalModelsRequest
-	(*ExternalModelCandidate)(nil),       // 15: model.v1.ExternalModelCandidate
-	(*SearchExternalModelsResponse)(nil), // 16: model.v1.SearchExternalModelsResponse
-	(*ListModelVersionsRequest)(nil),     // 17: model.v1.ListModelVersionsRequest
-	(*ListModelVersionsResponse)(nil),    // 18: model.v1.ListModelVersionsResponse
-	(*CreateModelVersionRequest)(nil),    // 19: model.v1.CreateModelVersionRequest
-	(*GetUploadURLRequest)(nil),          // 20: model.v1.GetUploadURLRequest
-	(*GetUploadURLResponse)(nil),         // 21: model.v1.GetUploadURLResponse
-	(*ImportModelRequest)(nil),           // 22: model.v1.ImportModelRequest
-	(*ImportModelBundleModelData)(nil),   // 23: model.v1.ImportModelBundleModelData
-	(*ImportModelBundleVersionData)(nil), // 24: model.v1.ImportModelBundleVersionData
-	(*ImportModelBundleSourceData)(nil),  // 25: model.v1.ImportModelBundleSourceData
-	(*ImportModelBundleRequest)(nil),     // 26: model.v1.ImportModelBundleRequest
-	(*ImportModelBundleResponse)(nil),    // 27: model.v1.ImportModelBundleResponse
-	(*ImportTask)(nil),                   // 28: model.v1.ImportTask
-	(*GetImportTaskRequest)(nil),         // 29: model.v1.GetImportTaskRequest
-	(*RetryImportTaskRequest)(nil),       // 30: model.v1.RetryImportTaskRequest
-	(*GetImportTaskResponse)(nil),        // 31: model.v1.GetImportTaskResponse
-	(*GetImportTaskLogsRequest)(nil),     // 32: model.v1.GetImportTaskLogsRequest
-	(*GetImportTaskLogsResponse)(nil),    // 33: model.v1.GetImportTaskLogsResponse
-	(*RetryImportTaskResponse)(nil),      // 34: model.v1.RetryImportTaskResponse
-	(*GetModelDownloadURLRequest)(nil),   // 35: model.v1.GetModelDownloadURLRequest
-	(*GetModelDownloadURLResponse)(nil),  // 36: model.v1.GetModelDownloadURLResponse
-	nil,                                  // 37: model.v1.GetUploadURLResponse.UploadHeadersEntry
-	(*timestamppb.Timestamp)(nil),        // 38: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),                // 39: google.protobuf.Empty
+	(*Model)(nil),                           // 0: model.v1.Model
+	(*ModelVersion)(nil),                    // 1: model.v1.ModelVersion
+	(*ModelArtifact)(nil),                   // 2: model.v1.ModelArtifact
+	(*CreateModelRequest)(nil),              // 3: model.v1.CreateModelRequest
+	(*GetModelRequest)(nil),                 // 4: model.v1.GetModelRequest
+	(*DeleteModelRequest)(nil),              // 5: model.v1.DeleteModelRequest
+	(*DeleteModelVersionRequest)(nil),       // 6: model.v1.DeleteModelVersionRequest
+	(*DeleteModelVersionResponse)(nil),      // 7: model.v1.DeleteModelVersionResponse
+	(*GetModelVersionRequest)(nil),          // 8: model.v1.GetModelVersionRequest
+	(*GetModelVersionResponse)(nil),         // 9: model.v1.GetModelVersionResponse
+	(*CursorPageRequest)(nil),               // 10: model.v1.CursorPageRequest
+	(*CursorPageMeta)(nil),                  // 11: model.v1.CursorPageMeta
+	(*ListModelsRequest)(nil),               // 12: model.v1.ListModelsRequest
+	(*ListModelsResponse)(nil),              // 13: model.v1.ListModelsResponse
+	(*SearchExternalModelsRequest)(nil),     // 14: model.v1.SearchExternalModelsRequest
+	(*ExternalModelCandidate)(nil),          // 15: model.v1.ExternalModelCandidate
+	(*SearchExternalModelsResponse)(nil),    // 16: model.v1.SearchExternalModelsResponse
+	(*ListModelVersionsRequest)(nil),        // 17: model.v1.ListModelVersionsRequest
+	(*ListModelVersionsResponse)(nil),       // 18: model.v1.ListModelVersionsResponse
+	(*CreateModelVersionRequest)(nil),       // 19: model.v1.CreateModelVersionRequest
+	(*GetUploadURLRequest)(nil),             // 20: model.v1.GetUploadURLRequest
+	(*GetUploadURLResponse)(nil),            // 21: model.v1.GetUploadURLResponse
+	(*PrepareTrainedArtifactRequest)(nil),   // 22: model.v1.PrepareTrainedArtifactRequest
+	(*PrepareTrainedArtifactResponse)(nil),  // 23: model.v1.PrepareTrainedArtifactResponse
+	(*CompleteTrainedArtifactRequest)(nil),  // 24: model.v1.CompleteTrainedArtifactRequest
+	(*CompleteTrainedArtifactResponse)(nil), // 25: model.v1.CompleteTrainedArtifactResponse
+	(*AbortTrainedArtifactRequest)(nil),     // 26: model.v1.AbortTrainedArtifactRequest
+	(*AbortTrainedArtifactResponse)(nil),    // 27: model.v1.AbortTrainedArtifactResponse
+	(*ImportModelRequest)(nil),              // 28: model.v1.ImportModelRequest
+	(*ImportModelBundleModelData)(nil),      // 29: model.v1.ImportModelBundleModelData
+	(*ImportModelBundleVersionData)(nil),    // 30: model.v1.ImportModelBundleVersionData
+	(*ImportModelBundleSourceData)(nil),     // 31: model.v1.ImportModelBundleSourceData
+	(*ImportModelBundleRequest)(nil),        // 32: model.v1.ImportModelBundleRequest
+	(*ImportModelBundleResponse)(nil),       // 33: model.v1.ImportModelBundleResponse
+	(*ImportTask)(nil),                      // 34: model.v1.ImportTask
+	(*GetImportTaskRequest)(nil),            // 35: model.v1.GetImportTaskRequest
+	(*RetryImportTaskRequest)(nil),          // 36: model.v1.RetryImportTaskRequest
+	(*GetImportTaskResponse)(nil),           // 37: model.v1.GetImportTaskResponse
+	(*GetImportTaskLogsRequest)(nil),        // 38: model.v1.GetImportTaskLogsRequest
+	(*GetImportTaskLogsResponse)(nil),       // 39: model.v1.GetImportTaskLogsResponse
+	(*RetryImportTaskResponse)(nil),         // 40: model.v1.RetryImportTaskResponse
+	(*GetModelDownloadURLRequest)(nil),      // 41: model.v1.GetModelDownloadURLRequest
+	(*GetModelDownloadURLResponse)(nil),     // 42: model.v1.GetModelDownloadURLResponse
+	nil,                                     // 43: model.v1.GetUploadURLResponse.UploadHeadersEntry
+	nil,                                     // 44: model.v1.PrepareTrainedArtifactResponse.UploadHeadersEntry
+	(*timestamppb.Timestamp)(nil),           // 45: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),                   // 46: google.protobuf.Empty
 }
 var file_model_v1_model_proto_depIdxs = []int32{
 	1,  // 0: model.v1.Model.versions:type_name -> model.v1.ModelVersion
-	38, // 1: model.v1.Model.created_at:type_name -> google.protobuf.Timestamp
-	38, // 2: model.v1.Model.updated_at:type_name -> google.protobuf.Timestamp
-	38, // 3: model.v1.ModelVersion.created_at:type_name -> google.protobuf.Timestamp
+	45, // 1: model.v1.Model.created_at:type_name -> google.protobuf.Timestamp
+	45, // 2: model.v1.Model.updated_at:type_name -> google.protobuf.Timestamp
+	45, // 3: model.v1.ModelVersion.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: model.v1.GetModelVersionResponse.model:type_name -> model.v1.Model
 	1,  // 5: model.v1.GetModelVersionResponse.version:type_name -> model.v1.ModelVersion
 	0,  // 6: model.v1.ListModelsResponse.items:type_name -> model.v1.Model
-	38, // 7: model.v1.ExternalModelCandidate.updated_at:type_name -> google.protobuf.Timestamp
+	45, // 7: model.v1.ExternalModelCandidate.updated_at:type_name -> google.protobuf.Timestamp
 	15, // 8: model.v1.SearchExternalModelsResponse.items:type_name -> model.v1.ExternalModelCandidate
 	1,  // 9: model.v1.ListModelVersionsResponse.items:type_name -> model.v1.ModelVersion
-	38, // 10: model.v1.GetUploadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
-	37, // 11: model.v1.GetUploadURLResponse.upload_headers:type_name -> model.v1.GetUploadURLResponse.UploadHeadersEntry
-	23, // 12: model.v1.ImportModelBundleRequest.model:type_name -> model.v1.ImportModelBundleModelData
-	24, // 13: model.v1.ImportModelBundleRequest.version:type_name -> model.v1.ImportModelBundleVersionData
-	25, // 14: model.v1.ImportModelBundleRequest.source:type_name -> model.v1.ImportModelBundleSourceData
-	0,  // 15: model.v1.ImportModelBundleResponse.model:type_name -> model.v1.Model
-	1,  // 16: model.v1.ImportModelBundleResponse.version:type_name -> model.v1.ModelVersion
-	28, // 17: model.v1.ImportModelBundleResponse.task:type_name -> model.v1.ImportTask
-	38, // 18: model.v1.ImportTask.created_at:type_name -> google.protobuf.Timestamp
-	38, // 19: model.v1.ImportTask.completed_at:type_name -> google.protobuf.Timestamp
-	28, // 20: model.v1.GetImportTaskResponse.task:type_name -> model.v1.ImportTask
-	28, // 21: model.v1.RetryImportTaskResponse.task:type_name -> model.v1.ImportTask
-	38, // 22: model.v1.GetModelDownloadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
-	3,  // 23: model.v1.ModelService.CreateModel:input_type -> model.v1.CreateModelRequest
-	4,  // 24: model.v1.ModelService.GetModel:input_type -> model.v1.GetModelRequest
-	12, // 25: model.v1.ModelService.ListModels:input_type -> model.v1.ListModelsRequest
-	14, // 26: model.v1.ModelService.SearchExternalModels:input_type -> model.v1.SearchExternalModelsRequest
-	5,  // 27: model.v1.ModelService.DeleteModel:input_type -> model.v1.DeleteModelRequest
-	8,  // 28: model.v1.ModelService.GetModelVersion:input_type -> model.v1.GetModelVersionRequest
-	17, // 29: model.v1.ModelService.ListModelVersions:input_type -> model.v1.ListModelVersionsRequest
-	6,  // 30: model.v1.ModelService.DeleteModelVersion:input_type -> model.v1.DeleteModelVersionRequest
-	19, // 31: model.v1.ModelService.CreateModelVersion:input_type -> model.v1.CreateModelVersionRequest
-	20, // 32: model.v1.ModelService.GetUploadURL:input_type -> model.v1.GetUploadURLRequest
-	22, // 33: model.v1.ModelService.ImportModel:input_type -> model.v1.ImportModelRequest
-	26, // 34: model.v1.ModelService.ImportModelBundle:input_type -> model.v1.ImportModelBundleRequest
-	29, // 35: model.v1.ModelService.GetImportTask:input_type -> model.v1.GetImportTaskRequest
-	32, // 36: model.v1.ModelService.GetImportTaskLogs:input_type -> model.v1.GetImportTaskLogsRequest
-	30, // 37: model.v1.ModelService.RetryImportTask:input_type -> model.v1.RetryImportTaskRequest
-	35, // 38: model.v1.ModelService.GetModelDownloadURL:input_type -> model.v1.GetModelDownloadURLRequest
-	0,  // 39: model.v1.ModelService.CreateModel:output_type -> model.v1.Model
-	0,  // 40: model.v1.ModelService.GetModel:output_type -> model.v1.Model
-	13, // 41: model.v1.ModelService.ListModels:output_type -> model.v1.ListModelsResponse
-	16, // 42: model.v1.ModelService.SearchExternalModels:output_type -> model.v1.SearchExternalModelsResponse
-	39, // 43: model.v1.ModelService.DeleteModel:output_type -> google.protobuf.Empty
-	9,  // 44: model.v1.ModelService.GetModelVersion:output_type -> model.v1.GetModelVersionResponse
-	18, // 45: model.v1.ModelService.ListModelVersions:output_type -> model.v1.ListModelVersionsResponse
-	7,  // 46: model.v1.ModelService.DeleteModelVersion:output_type -> model.v1.DeleteModelVersionResponse
-	1,  // 47: model.v1.ModelService.CreateModelVersion:output_type -> model.v1.ModelVersion
-	21, // 48: model.v1.ModelService.GetUploadURL:output_type -> model.v1.GetUploadURLResponse
-	28, // 49: model.v1.ModelService.ImportModel:output_type -> model.v1.ImportTask
-	27, // 50: model.v1.ModelService.ImportModelBundle:output_type -> model.v1.ImportModelBundleResponse
-	31, // 51: model.v1.ModelService.GetImportTask:output_type -> model.v1.GetImportTaskResponse
-	33, // 52: model.v1.ModelService.GetImportTaskLogs:output_type -> model.v1.GetImportTaskLogsResponse
-	34, // 53: model.v1.ModelService.RetryImportTask:output_type -> model.v1.RetryImportTaskResponse
-	36, // 54: model.v1.ModelService.GetModelDownloadURL:output_type -> model.v1.GetModelDownloadURLResponse
-	39, // [39:55] is the sub-list for method output_type
-	23, // [23:39] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	45, // 10: model.v1.GetUploadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
+	43, // 11: model.v1.GetUploadURLResponse.upload_headers:type_name -> model.v1.GetUploadURLResponse.UploadHeadersEntry
+	45, // 12: model.v1.PrepareTrainedArtifactResponse.expires_at:type_name -> google.protobuf.Timestamp
+	44, // 13: model.v1.PrepareTrainedArtifactResponse.upload_headers:type_name -> model.v1.PrepareTrainedArtifactResponse.UploadHeadersEntry
+	29, // 14: model.v1.ImportModelBundleRequest.model:type_name -> model.v1.ImportModelBundleModelData
+	30, // 15: model.v1.ImportModelBundleRequest.version:type_name -> model.v1.ImportModelBundleVersionData
+	31, // 16: model.v1.ImportModelBundleRequest.source:type_name -> model.v1.ImportModelBundleSourceData
+	0,  // 17: model.v1.ImportModelBundleResponse.model:type_name -> model.v1.Model
+	1,  // 18: model.v1.ImportModelBundleResponse.version:type_name -> model.v1.ModelVersion
+	34, // 19: model.v1.ImportModelBundleResponse.task:type_name -> model.v1.ImportTask
+	45, // 20: model.v1.ImportTask.created_at:type_name -> google.protobuf.Timestamp
+	45, // 21: model.v1.ImportTask.completed_at:type_name -> google.protobuf.Timestamp
+	34, // 22: model.v1.GetImportTaskResponse.task:type_name -> model.v1.ImportTask
+	34, // 23: model.v1.RetryImportTaskResponse.task:type_name -> model.v1.ImportTask
+	45, // 24: model.v1.GetModelDownloadURLResponse.expires_at:type_name -> google.protobuf.Timestamp
+	3,  // 25: model.v1.ModelService.CreateModel:input_type -> model.v1.CreateModelRequest
+	4,  // 26: model.v1.ModelService.GetModel:input_type -> model.v1.GetModelRequest
+	12, // 27: model.v1.ModelService.ListModels:input_type -> model.v1.ListModelsRequest
+	14, // 28: model.v1.ModelService.SearchExternalModels:input_type -> model.v1.SearchExternalModelsRequest
+	5,  // 29: model.v1.ModelService.DeleteModel:input_type -> model.v1.DeleteModelRequest
+	8,  // 30: model.v1.ModelService.GetModelVersion:input_type -> model.v1.GetModelVersionRequest
+	17, // 31: model.v1.ModelService.ListModelVersions:input_type -> model.v1.ListModelVersionsRequest
+	6,  // 32: model.v1.ModelService.DeleteModelVersion:input_type -> model.v1.DeleteModelVersionRequest
+	19, // 33: model.v1.ModelService.CreateModelVersion:input_type -> model.v1.CreateModelVersionRequest
+	20, // 34: model.v1.ModelService.GetUploadURL:input_type -> model.v1.GetUploadURLRequest
+	28, // 35: model.v1.ModelService.ImportModel:input_type -> model.v1.ImportModelRequest
+	32, // 36: model.v1.ModelService.ImportModelBundle:input_type -> model.v1.ImportModelBundleRequest
+	35, // 37: model.v1.ModelService.GetImportTask:input_type -> model.v1.GetImportTaskRequest
+	38, // 38: model.v1.ModelService.GetImportTaskLogs:input_type -> model.v1.GetImportTaskLogsRequest
+	36, // 39: model.v1.ModelService.RetryImportTask:input_type -> model.v1.RetryImportTaskRequest
+	41, // 40: model.v1.ModelService.GetModelDownloadURL:input_type -> model.v1.GetModelDownloadURLRequest
+	22, // 41: model.v1.ModelService.PrepareTrainedArtifact:input_type -> model.v1.PrepareTrainedArtifactRequest
+	24, // 42: model.v1.ModelService.CompleteTrainedArtifact:input_type -> model.v1.CompleteTrainedArtifactRequest
+	26, // 43: model.v1.ModelService.AbortTrainedArtifact:input_type -> model.v1.AbortTrainedArtifactRequest
+	0,  // 44: model.v1.ModelService.CreateModel:output_type -> model.v1.Model
+	0,  // 45: model.v1.ModelService.GetModel:output_type -> model.v1.Model
+	13, // 46: model.v1.ModelService.ListModels:output_type -> model.v1.ListModelsResponse
+	16, // 47: model.v1.ModelService.SearchExternalModels:output_type -> model.v1.SearchExternalModelsResponse
+	46, // 48: model.v1.ModelService.DeleteModel:output_type -> google.protobuf.Empty
+	9,  // 49: model.v1.ModelService.GetModelVersion:output_type -> model.v1.GetModelVersionResponse
+	18, // 50: model.v1.ModelService.ListModelVersions:output_type -> model.v1.ListModelVersionsResponse
+	7,  // 51: model.v1.ModelService.DeleteModelVersion:output_type -> model.v1.DeleteModelVersionResponse
+	1,  // 52: model.v1.ModelService.CreateModelVersion:output_type -> model.v1.ModelVersion
+	21, // 53: model.v1.ModelService.GetUploadURL:output_type -> model.v1.GetUploadURLResponse
+	34, // 54: model.v1.ModelService.ImportModel:output_type -> model.v1.ImportTask
+	33, // 55: model.v1.ModelService.ImportModelBundle:output_type -> model.v1.ImportModelBundleResponse
+	37, // 56: model.v1.ModelService.GetImportTask:output_type -> model.v1.GetImportTaskResponse
+	39, // 57: model.v1.ModelService.GetImportTaskLogs:output_type -> model.v1.GetImportTaskLogsResponse
+	40, // 58: model.v1.ModelService.RetryImportTask:output_type -> model.v1.RetryImportTaskResponse
+	42, // 59: model.v1.ModelService.GetModelDownloadURL:output_type -> model.v1.GetModelDownloadURLResponse
+	23, // 60: model.v1.ModelService.PrepareTrainedArtifact:output_type -> model.v1.PrepareTrainedArtifactResponse
+	25, // 61: model.v1.ModelService.CompleteTrainedArtifact:output_type -> model.v1.CompleteTrainedArtifactResponse
+	27, // 62: model.v1.ModelService.AbortTrainedArtifact:output_type -> model.v1.AbortTrainedArtifactResponse
+	44, // [44:63] is the sub-list for method output_type
+	25, // [25:44] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_model_v1_model_proto_init() }
@@ -3208,7 +3772,7 @@ func file_model_v1_model_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_model_v1_model_proto_rawDesc), len(file_model_v1_model_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   38,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

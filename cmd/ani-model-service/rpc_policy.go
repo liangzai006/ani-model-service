@@ -122,6 +122,9 @@ func ModelServicePolicy() RPCPolicy {
 			"/model.v1.ModelService/RetryImportTask",
 			"/model.v1.ModelService/GetModelDownloadURL",
 			"/model.v1.ModelService/SearchExternalModels",
+			"/model.v1.ModelService/PrepareTrainedArtifact",
+			"/model.v1.ModelService/CompleteTrainedArtifact",
+			"/model.v1.ModelService/AbortTrainedArtifact",
 		},
 	}
 

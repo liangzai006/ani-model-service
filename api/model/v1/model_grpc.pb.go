@@ -20,22 +20,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ModelService_CreateModel_FullMethodName          = "/model.v1.ModelService/CreateModel"
-	ModelService_GetModel_FullMethodName             = "/model.v1.ModelService/GetModel"
-	ModelService_ListModels_FullMethodName           = "/model.v1.ModelService/ListModels"
-	ModelService_SearchExternalModels_FullMethodName = "/model.v1.ModelService/SearchExternalModels"
-	ModelService_DeleteModel_FullMethodName          = "/model.v1.ModelService/DeleteModel"
-	ModelService_GetModelVersion_FullMethodName      = "/model.v1.ModelService/GetModelVersion"
-	ModelService_ListModelVersions_FullMethodName    = "/model.v1.ModelService/ListModelVersions"
-	ModelService_DeleteModelVersion_FullMethodName   = "/model.v1.ModelService/DeleteModelVersion"
-	ModelService_CreateModelVersion_FullMethodName   = "/model.v1.ModelService/CreateModelVersion"
-	ModelService_GetUploadURL_FullMethodName         = "/model.v1.ModelService/GetUploadURL"
-	ModelService_ImportModel_FullMethodName          = "/model.v1.ModelService/ImportModel"
-	ModelService_ImportModelBundle_FullMethodName    = "/model.v1.ModelService/ImportModelBundle"
-	ModelService_GetImportTask_FullMethodName        = "/model.v1.ModelService/GetImportTask"
-	ModelService_GetImportTaskLogs_FullMethodName    = "/model.v1.ModelService/GetImportTaskLogs"
-	ModelService_RetryImportTask_FullMethodName      = "/model.v1.ModelService/RetryImportTask"
-	ModelService_GetModelDownloadURL_FullMethodName  = "/model.v1.ModelService/GetModelDownloadURL"
+	ModelService_CreateModel_FullMethodName             = "/model.v1.ModelService/CreateModel"
+	ModelService_GetModel_FullMethodName                = "/model.v1.ModelService/GetModel"
+	ModelService_ListModels_FullMethodName              = "/model.v1.ModelService/ListModels"
+	ModelService_SearchExternalModels_FullMethodName    = "/model.v1.ModelService/SearchExternalModels"
+	ModelService_DeleteModel_FullMethodName             = "/model.v1.ModelService/DeleteModel"
+	ModelService_GetModelVersion_FullMethodName         = "/model.v1.ModelService/GetModelVersion"
+	ModelService_ListModelVersions_FullMethodName       = "/model.v1.ModelService/ListModelVersions"
+	ModelService_DeleteModelVersion_FullMethodName      = "/model.v1.ModelService/DeleteModelVersion"
+	ModelService_CreateModelVersion_FullMethodName      = "/model.v1.ModelService/CreateModelVersion"
+	ModelService_GetUploadURL_FullMethodName            = "/model.v1.ModelService/GetUploadURL"
+	ModelService_ImportModel_FullMethodName             = "/model.v1.ModelService/ImportModel"
+	ModelService_ImportModelBundle_FullMethodName       = "/model.v1.ModelService/ImportModelBundle"
+	ModelService_GetImportTask_FullMethodName           = "/model.v1.ModelService/GetImportTask"
+	ModelService_GetImportTaskLogs_FullMethodName       = "/model.v1.ModelService/GetImportTaskLogs"
+	ModelService_RetryImportTask_FullMethodName         = "/model.v1.ModelService/RetryImportTask"
+	ModelService_GetModelDownloadURL_FullMethodName     = "/model.v1.ModelService/GetModelDownloadURL"
+	ModelService_PrepareTrainedArtifact_FullMethodName  = "/model.v1.ModelService/PrepareTrainedArtifact"
+	ModelService_CompleteTrainedArtifact_FullMethodName = "/model.v1.ModelService/CompleteTrainedArtifact"
+	ModelService_AbortTrainedArtifact_FullMethodName    = "/model.v1.ModelService/AbortTrainedArtifact"
 )
 
 // ModelServiceClient is the client API for ModelService service.
@@ -65,6 +68,9 @@ type ModelServiceClient interface {
 	GetImportTaskLogs(ctx context.Context, in *GetImportTaskLogsRequest, opts ...grpc.CallOption) (*GetImportTaskLogsResponse, error)
 	RetryImportTask(ctx context.Context, in *RetryImportTaskRequest, opts ...grpc.CallOption) (*RetryImportTaskResponse, error)
 	GetModelDownloadURL(ctx context.Context, in *GetModelDownloadURLRequest, opts ...grpc.CallOption) (*GetModelDownloadURLResponse, error)
+	PrepareTrainedArtifact(ctx context.Context, in *PrepareTrainedArtifactRequest, opts ...grpc.CallOption) (*PrepareTrainedArtifactResponse, error)
+	CompleteTrainedArtifact(ctx context.Context, in *CompleteTrainedArtifactRequest, opts ...grpc.CallOption) (*CompleteTrainedArtifactResponse, error)
+	AbortTrainedArtifact(ctx context.Context, in *AbortTrainedArtifactRequest, opts ...grpc.CallOption) (*AbortTrainedArtifactResponse, error)
 }
 
 type modelServiceClient struct {
@@ -235,6 +241,36 @@ func (c *modelServiceClient) GetModelDownloadURL(ctx context.Context, in *GetMod
 	return out, nil
 }
 
+func (c *modelServiceClient) PrepareTrainedArtifact(ctx context.Context, in *PrepareTrainedArtifactRequest, opts ...grpc.CallOption) (*PrepareTrainedArtifactResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PrepareTrainedArtifactResponse)
+	err := c.cc.Invoke(ctx, ModelService_PrepareTrainedArtifact_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *modelServiceClient) CompleteTrainedArtifact(ctx context.Context, in *CompleteTrainedArtifactRequest, opts ...grpc.CallOption) (*CompleteTrainedArtifactResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompleteTrainedArtifactResponse)
+	err := c.cc.Invoke(ctx, ModelService_CompleteTrainedArtifact_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *modelServiceClient) AbortTrainedArtifact(ctx context.Context, in *AbortTrainedArtifactRequest, opts ...grpc.CallOption) (*AbortTrainedArtifactResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AbortTrainedArtifactResponse)
+	err := c.cc.Invoke(ctx, ModelService_AbortTrainedArtifact_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ModelServiceServer is the server API for ModelService service.
 // All implementations must embed UnimplementedModelServiceServer
 // for forward compatibility.
@@ -262,6 +298,9 @@ type ModelServiceServer interface {
 	GetImportTaskLogs(context.Context, *GetImportTaskLogsRequest) (*GetImportTaskLogsResponse, error)
 	RetryImportTask(context.Context, *RetryImportTaskRequest) (*RetryImportTaskResponse, error)
 	GetModelDownloadURL(context.Context, *GetModelDownloadURLRequest) (*GetModelDownloadURLResponse, error)
+	PrepareTrainedArtifact(context.Context, *PrepareTrainedArtifactRequest) (*PrepareTrainedArtifactResponse, error)
+	CompleteTrainedArtifact(context.Context, *CompleteTrainedArtifactRequest) (*CompleteTrainedArtifactResponse, error)
+	AbortTrainedArtifact(context.Context, *AbortTrainedArtifactRequest) (*AbortTrainedArtifactResponse, error)
 	mustEmbedUnimplementedModelServiceServer()
 }
 
@@ -319,6 +358,15 @@ func (UnimplementedModelServiceServer) RetryImportTask(context.Context, *RetryIm
 }
 func (UnimplementedModelServiceServer) GetModelDownloadURL(context.Context, *GetModelDownloadURLRequest) (*GetModelDownloadURLResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetModelDownloadURL not implemented")
+}
+func (UnimplementedModelServiceServer) PrepareTrainedArtifact(context.Context, *PrepareTrainedArtifactRequest) (*PrepareTrainedArtifactResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PrepareTrainedArtifact not implemented")
+}
+func (UnimplementedModelServiceServer) CompleteTrainedArtifact(context.Context, *CompleteTrainedArtifactRequest) (*CompleteTrainedArtifactResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteTrainedArtifact not implemented")
+}
+func (UnimplementedModelServiceServer) AbortTrainedArtifact(context.Context, *AbortTrainedArtifactRequest) (*AbortTrainedArtifactResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AbortTrainedArtifact not implemented")
 }
 func (UnimplementedModelServiceServer) mustEmbedUnimplementedModelServiceServer() {}
 func (UnimplementedModelServiceServer) testEmbeddedByValue()                      {}
@@ -629,6 +677,60 @@ func _ModelService_GetModelDownloadURL_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ModelService_PrepareTrainedArtifact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareTrainedArtifactRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).PrepareTrainedArtifact(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_PrepareTrainedArtifact_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).PrepareTrainedArtifact(ctx, req.(*PrepareTrainedArtifactRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ModelService_CompleteTrainedArtifact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteTrainedArtifactRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).CompleteTrainedArtifact(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_CompleteTrainedArtifact_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).CompleteTrainedArtifact(ctx, req.(*CompleteTrainedArtifactRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ModelService_AbortTrainedArtifact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AbortTrainedArtifactRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ModelServiceServer).AbortTrainedArtifact(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ModelService_AbortTrainedArtifact_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ModelServiceServer).AbortTrainedArtifact(ctx, req.(*AbortTrainedArtifactRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ModelService_ServiceDesc is the grpc.ServiceDesc for ModelService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -699,6 +801,18 @@ var ModelService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetModelDownloadURL",
 			Handler:    _ModelService_GetModelDownloadURL_Handler,
+		},
+		{
+			MethodName: "PrepareTrainedArtifact",
+			Handler:    _ModelService_PrepareTrainedArtifact_Handler,
+		},
+		{
+			MethodName: "CompleteTrainedArtifact",
+			Handler:    _ModelService_CompleteTrainedArtifact_Handler,
+		},
+		{
+			MethodName: "AbortTrainedArtifact",
+			Handler:    _ModelService_AbortTrainedArtifact_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

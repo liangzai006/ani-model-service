@@ -40,6 +40,7 @@ type ModelService struct {
 	notifier       ImportNotifier
 	searcher       model.Searcher
 	bundleImporter model.BundleImporter
+	trained        model.TrainedArtifactRegistrar
 }
 
 // ImportNotifier wakes the durable import worker after a task is committed.
@@ -71,6 +72,9 @@ func (s *ModelService) SetImportTaskLogReader(r ImportTaskLogReader, namespace s
 func (s *ModelService) SetImportTaskRetrier(r workbiz.Retrier)           { s.taskRetry = r }
 func (s *ModelService) SetExternalModelSearcher(searcher model.Searcher) { s.searcher = searcher }
 func (s *ModelService) SetBundleImporter(importer model.BundleImporter)  { s.bundleImporter = importer }
+func (s *ModelService) SetTrainedArtifactRegistrar(registrar model.TrainedArtifactRegistrar) {
+	s.trained = registrar
+}
 
 func NewModelService(r model.VersionReader) *ModelService { return &ModelService{reader: r} }
 func NewModelServiceWithDependencies(r model.VersionReader, v model.VersionCatalog, c model.Catalog, st storage.Port, w workbiz.Creator) *ModelService {

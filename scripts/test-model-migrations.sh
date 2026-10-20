@@ -37,7 +37,7 @@ run_migration "$dsn" "$repo_root/charts/ani-model/migrations"
 
 count=$(docker exec "$pg_container" psql -U "$db_user" -d "$db_name" -Atqc \
   "SELECT count(*) FROM public.schema_migrations")
-test "$count" = 6
+test "$count" = 8
 
 cp -a "$repo_root/charts/ani-model/migrations/." "$tmp_dir/"
 cat >"$tmp_dir/999999_rollback.sql" <<'SQL'
