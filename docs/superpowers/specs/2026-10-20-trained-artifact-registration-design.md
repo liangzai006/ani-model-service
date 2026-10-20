@@ -23,6 +23,36 @@
 - 训练产物本身不能推断 vLLM、SGLang 或其他推理运行时；
 - ModelDev 的发布对象和 Model Service 的对象存储是不同边界，不能直接把对方的对象 key 写入 `storage_path`。
 
+## 交叉审查结论
+
+这份方案需要和两个仓库当前的实现边界对齐，不能把现有的占位流程当成已经接通：
+
+- ModelDev 的 `register` 步骤会先确认 `PUBLISHED` 产物，然后进入
+  `ManagedRuntime.RegisterModel`。当前实现只持久化
+  `MODEL_DEPENDENCY_UNAVAILABLE` 登记意图，不会直接调用 Model Service。真正的
+  Model 调用必须放在 ModelDev 控制面运行时适配器中；训练 Pod 和 `register` Pod
+  都不能持有 Model 数据库或对象存储的长期凭据。
+- ModelDev 快照已经有两种目标归属：`target_model_id` 表示写入已有 Model，
+  `new_model_name` 表示创建新 Model；`base_model_version_id` 位于基础模型引用中，
+  它是训练血缘来源，不能用目标 Model ID 替代。新 Model 模式目前没有
+  `display_name`、`description`、`capabilities`，所以这些字段必须在训练准入时加入
+  冻结快照，或明确要求调用方先创建 Model，不能从名称推断。
+- Model Service 的版本写入要求完整的 `engine_type`、`engine_image`、
+  `startup_command`。ModelDev 当前快照没有这三个字段。第一阶段必须在注册请求中
+  提供完整三元组，或从明确指定的 `base_model_version_id` 原样复制；不能把训练镜像、
+  训练命令或模型文件推断成推理配置，也不能拼接启动命令。
+- 当前 Storage 合同的 `VerifyChecksum` 只返回 SHA 校验结果，没有实际对象大小；
+  MinIO 适配器也没有把大小纳入校验。因此“大小和 SHA 都由 Model Service 重新校验”
+  不是现状能力，必须新增返回实际大小的 `StatObject`/`VerifyObject` 合同，或在第一阶段
+  明确大小只作为上传元数据而不是完整性证明。本文按前者设计，未完成该合同前不得声称
+  固定大小校验已经实现。
+- ModelDev 的发布引用包含它自己的 storage connection、bucket、key 和对象版本；
+  Model Service 只接受自己的租户对象引用。控制面必须读取已验证的 ModelDev 对象，
+  再通过 Model Service 签发的上传地址流式复制，并记录复制状态和重试信息。
+- 注册完成后必须返回 Model Service 生成的 `model_id`、`model_version_id` 和
+  `registration_id`（或等价的持久化回执）。ModelDev 现有的
+  `VerifiedPublication` 只能证明训练产物已发布，不能作为 ModelVersion 回执。
+
 ## 业务模型
 
 注册请求中的 `target_model_id` 是可选的：
@@ -37,13 +67,20 @@
 
 请求不提供 `target_model_id`，但必须提供 `name`、`display_name`、`description` 和 `capabilities`。模型服务在完成产物校验后创建 Model 和第一个 ModelVersion。
 
-Model 创建和版本创建必须在同一事务中完成。模型服务不能留下只有 Model 没有可用版本的半成品记录；注册失败时只保留注册任务的失败记录和审计信息。
+Model 创建和版本创建必须由注册会话拥有的同一持久化事务完成。当前 Model Service
+已有的普通 Model/ModelVersion store 是分开的，不能直接宣称现有写入已经满足这个
+原子性；实现注册协议时必须增加聚合写入事务或等价的可恢复提交记录。模型服务不能
+留下只有 Model 没有可用版本的半成品记录；注册失败时只保留注册会话的失败记录和
+审计信息。
 
 两种业务共用同一个产物上传和版本登记流程，区别只有是否需要创建目标 Model。
 
 ## 注册协议
 
-新增模型服务内部 RPC，不改变现有公开 Model API：
+新增模型服务内部 RPC，不改变现有公开 Model API。ModelDev 的控制面适配器通过专用
+mTLS 身份调用这些 RPC；当前 Model Service 的 RPC 策略没有 ModelDev 身份，必须增加
+该身份及仅限注册方法的授权，或者由已授权的 Governance 控制面代理。不能让训练 Pod
+复用 Governance 身份：
 
 ```protobuf
 rpc PrepareTrainedArtifact(PrepareTrainedArtifactRequest)
@@ -66,7 +103,8 @@ rpc AbortTrainedArtifact(AbortTrainedArtifactRequest)
 - `format`，第一阶段固定使用 `safetensors`；
 - 整个 tar 的 `size_bytes` 和 `checksum_sha256`；
 - `execution_id` 和 `idempotency_key`；
-- 可选的推理运行时配置。
+- 推理运行时配置：显式提供完整三元组，或提供可继承的
+  `source_model_version_id`。两者都没有时不能进入完成阶段。
 
 响应包括：
 
@@ -80,7 +118,9 @@ rpc AbortTrainedArtifact(AbortTrainedArtifactRequest)
 Model。完成注册后 ModelVersion 直接引用这个不可变对象路径，避免为了创建 Model
 再复制一次大文件。
 
-模型服务创建一条注册会话，但此时不把版本标记为 ready。
+模型服务创建一条注册会话，但此时不创建可部署的 ready 版本。会话记录必须保存
+对象引用、大小、摘要、租户、执行 ID、运行时三元组和目标归属，便于 Complete 重试
+时重新校验同一份输入。
 
 ### CompleteTrainedArtifact
 
@@ -88,13 +128,17 @@ Model。完成注册后 ModelVersion 直接引用这个不可变对象路径，�
 
 1. 校验注册会话属于当前租户且没有被终止；
 2. 检查对象存在；
-3. 校验对象大小和 SHA256；
+3. 通过 Storage 的实际对象校验接口校验大小和 SHA256；
 4. 校验运行时配置是否完整；
 5. 按 `target_model_id` 分支使用已有 Model 或创建新 Model；
 6. 创建 Artifact 和 ModelVersion；
 7. 将 ModelVersion 标记为 `ready`；
 8. 复用现有逻辑同步父 Model 状态；
 9. 记录执行任务、来源版本和审计信息。
+
+完成响应必须包含 `registration_id`、最终 `model_id`、`model_version_id`、
+`model_version_status` 和不可变产物引用。ModelDev 的注册步骤还要把这份 Model
+回执持久化到执行记录，并在重试时原样返回；`VerifiedPublication` 不能替代这份回执。
 
 重复完成请求必须返回同一个结果。相同幂等键但产物摘要不同，返回冲突，不得创建第二个版本。
 
@@ -115,7 +159,12 @@ checksum_sha256: 整个 model.tar 的 SHA256
 
 `format` 表示归档内部的模型权重格式，不能写成 `tar`。tar 是封装方式，当前由 `.tar` 文件名和 Inference 物化协议表示。
 
-Model Service 在第一阶段至少校验对象存在、大小和 SHA256。ModelDev 已经校验 HF 必需文件和 tar 安全性，Inference 物化时还会独立校验并安全解包到 `/models`。后续如果支持非 tar 产物，再新增显式 `packaging` 字段，并同步 Model、Inference 和 Governance 的生成代码。
+Model Service 在第一阶段至少校验对象存在、实际大小和 SHA256。为此 Storage 需要提供返回实际
+大小与摘要的 `VerifyObject`（或 `StatObject` 加 SHA 校验）合同，并由 MinIO 和 gRPC
+适配器一起实现；现有仅按 SHA 校验的 `VerifyChecksum` 不足以满足本方案。ModelDev
+已经校验 HF 必需文件和 tar 安全性，Inference 物化时还会独立校验并安全解包到
+`/models`。后续如果支持非 tar 产物，再新增显式 `packaging` 字段，并同步 Model、
+Inference 和 Governance 的生成代码。
 
 ## 运行时配置
 
@@ -159,7 +208,9 @@ pending → uploaded → ready
 pending → aborted
 ```
 
-ModelVersion 仍使用现有的 `pending → ready/error` 状态，注册会话负责记录上传和校验过程，避免为了训练发布扩大现有版本状态枚举。
+ModelVersion 仍使用现有的 `pending → ready/error` 状态，注册会话负责记录上传和校验过程，避免为了训练发布扩大现有版本状态枚举。只有聚合事务提交成功后才允许变为
+`ready`；对象校验或 Model/Version 写入失败时，注册会话进入终态并保留可重试或审计
+信息，不能返回一个没有真实回执的成功状态。
 
 幂等键建议使用：
 
@@ -194,9 +245,19 @@ training:{execution_id}:model-version
 - 上传对象不存在、大小不符、SHA 不符时注册失败；
 - 同一幂等键重试返回同一结果；
 - 同一幂等键使用不同 SHA 时返回冲突；
+- ModelDev 的 `target_model_id`、`new_model_name`、`base_model_version_id` 映射正确，
+  新 Model 所需的展示信息和能力字段缺失时明确失败；
+- ModelDev 注册适配器使用专用 mTLS 身份，训练 Pod 无法调用注册 RPC；
+- ModelDev 发布对象复制到 Model Storage 后，复制失败可重试且不会生成半成品 ready 版本；
+- Complete 响应中的 Model/ModelVersion 回执能被 ModelDev 执行记录读取；
 - 基础版本运行时继承是原样复制，不修改启动命令；
 - 注册完成后 Inference 能下载并解包 `model.tar`；
 - 训练服务尚未接入时，不宣称训练到推理的真实链路已通过。
+
+当前实现状态必须单独记录：ModelDev 的 `RegisterModel` 仍返回
+`MODEL_DEPENDENCY_UNAVAILABLE`，Model Service 尚未有上述三个注册 RPC，Storage 也尚未
+提供实际大小校验。因此在这些实现和生成的 protobuf 合入前，训练产物注册链路仍是
+设计阶段，不能按已完成发布处理。
 
 ## 后续训练服务改动
 
@@ -207,6 +268,9 @@ training:{execution_id}:model-version
 3. 传递 `target_model_id` 或新 Model 元数据；
 4. 传递 `source_model_version_id` 和显式运行时配置；
 5. 使用 `execution_id` 作为幂等依据；
-6. 根据注册会话状态更新训练发布结果。
+6. 根据注册会话状态更新训练发布结果，并保存 Model Service 的 Model/ModelVersion
+   回执；
+7. 不在训练 Pod 中直接实现注册，不把 ModelDev 对象存储引用冒充成 Model Storage
+   路径。
 
 ModelDev 不应直接写 Model 数据库，不应使用训练镜像推断推理命令，也不应把自己的对象存储 key 直接写入 ModelVersion。
