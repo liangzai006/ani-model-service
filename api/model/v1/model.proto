@@ -20,6 +20,7 @@ service ModelService {
   rpc DeleteModel(DeleteModelRequest) returns (google.protobuf.Empty);
   rpc GetModelVersion(GetModelVersionRequest) returns (GetModelVersionResponse);
   rpc ListModelVersions(ListModelVersionsRequest) returns (ListModelVersionsResponse);
+  rpc ListModelOperations(ListModelOperationsRequest) returns (ListModelOperationsResponse);
   rpc DeleteModelVersion(DeleteModelVersionRequest) returns (DeleteModelVersionResponse);
   // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ModelVersion directly.
   rpc CreateModelVersion(CreateModelVersionRequest) returns (ModelVersion);
@@ -158,6 +159,9 @@ message ListModelVersionsRequest {
   reserved 3;
   optional int32 page = 4;
   optional int32 page_size = 5 [json_name = "pageSize"];
+  // Canonical states: pending, importing, ready, error. UI aliases downloading
+  // and failed are accepted as importing and error respectively.
+  string status = 6;
 }
 message ListModelVersionsResponse {
   reserved 1, 2;
@@ -351,4 +355,32 @@ message GetModelDownloadURLResponse {
   string encrypt_algo = 4;
   string encrypt_hint = 5;
   google.protobuf.Timestamp expires_at = 6;
+}
+
+// Tenant-scoped, newest-first operation history for one model.
+message ListModelOperationsRequest {
+  string tenant_id = 1;
+  string model_id = 2;
+  optional int32 page = 3;
+  optional int32 page_size = 4 [json_name = "pageSize"];
+}
+message ListModelOperationsResponse {
+  repeated ModelOperation items = 1;
+  int64 total = 2;
+}
+message ModelOperation {
+  string id = 1;
+  string model_id = 2;
+  string model_version_id = 3;
+  string action = 4;
+  string actor = 5;
+  // succeeded / failed / accepted. Accepted means asynchronous work was queued;
+  // it does not mean that the model import has completed successfully.
+  string result = 6;
+  string before_state = 7;
+  string after_state = 8;
+  string error_class = 9;
+  string request_id = 10;
+  google.protobuf.Timestamp created_at = 11;
+  string task_id = 12;
 }

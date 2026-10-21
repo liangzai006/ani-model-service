@@ -1,24 +1,37 @@
-# Model Service Public gRPC Contract
+# Model Service API module
 
 Module: `github.com/liangzai006/ani-model-service/api`
 
-This module contains the public gRPC API definitions for the ANI Model Service, including:
+## Ownership
 
-- **model/v1**: Model and ModelVersion management, trained artifact registration
-- **storage/v1**: Object storage upload/download contracts
-- **inference/v1**: Model reference types for inference workloads
+- `model/v1`: model/version management, import and trained artifact registration.
+- `storage/v1`: object storage upload/download contracts.
 
-## Usage
+`ModelReferenceService` belongs to Inference. Import its client from
+`github.com/liangzai006/ani-inference-service/api/inference/v1`; do not copy that
+protocol into this module. Service roots may consume each other's API modules;
+the two API modules do not need to depend on each other for these RPCs.
 
-### In downstream services (e.g., ModelDev, Inference Service)
+The existing `model/v1/conf.proto` and `validate.go` also expose runtime
+configuration types and validation. Their separation is a future migration,
+not part of the reference-protocol ownership change.
 
-Add this module as a dependency:
+## Consumption and releases
+
+Consumers must pin an immutable published API version. The Model runtime
+currently pins this downloadable version:
 
 ```bash
-go get github.com/liangzai006/ani-model-service/api@v0.1.0
+go get github.com/liangzai006/ani-model-service/api@v0.0.0-20261020102840-e6b26b580a9f
 ```
 
-Import and use:
+That historical version still contains the old `inference/v1` copy. The removal
+in this working tree must be published before consumers can receive it. Migrate
+any imports of `ani-model-service/api/inference/v1` to the Inference-owned
+package first. Do not import both copies into the same executable: their
+protobuf descriptors conflict during initialization.
+
+Import Model clients using:
 
 ```go
 import (
@@ -26,63 +39,47 @@ import (
     storagev1 "github.com/liangzai006/ani-model-service/api/storage/v1"
 )
 
-// Create gRPC clients
 modelClient := modelv1.NewModelServiceClient(conn)
 storageClient := storagev1.NewStorageServiceClient(conn)
 ```
 
-**⚠️ Important**: Do **not** copy `.proto` files into downstream services. Always import this module via `go.mod` to ensure API compatibility.
+For a tagged release, create the tag at the repository root with the `api/`
+prefix (for example, `api/v0.1.0`); consumers use the version without the prefix.
+This is the tag convention, not a claim that `api/v0.1.0` is already published.
+Package removal is a Go API compatibility change even when the gRPC wire
+contract is unchanged. Document the migration when publishing the next version.
+Never use a permanent local `replace` or workspace to stand in for a release.
 
-## Structure
+## RPC examples
 
-```
-api/
-├── go.mod              # Independent module for API contracts
-├── model/v1/           # Model management APIs
-│   ├── model.proto
-│   ├── model.pb.go
-│   └── model_grpc.pb.go
-├── storage/v1/         # Storage APIs
-│   ├── storage.proto
-│   ├── storage.pb.go
-│   └── storage_grpc.pb.go
-└── inference/v1/       # Inference reference types
-    ├── model_reference.proto
-    └── model_reference.pb.go
-```
+- Models: `CreateModel`, `GetModel`, `ListModels`, `DeleteModel`.
+- Versions: `CreateModelVersion`, `GetModelVersion`, `ListModelVersions`,
+  `DeleteModelVersion`.
+- Trained artifacts: `PrepareTrainedArtifact`, `CompleteTrainedArtifact`,
+  `AbortTrainedArtifact`.
+- Storage: `CreateUploadURL`, `ObjectExists`, `VerifyChecksum`,
+  `CreateDownloadURL`.
 
-## Key APIs
+## Generation and verification
 
-### Model Management
-
-- `GetModel` / `ListModels` - Query model metadata
-- `CreateModel` / `UpdateModel` - Manage model records
-- `GetModelVersion` / `ListModelVersions` - Version management
-- `PrepareTrainedArtifact` - Initialize artifact registration
-- `CompleteTrainedArtifact` - Finalize registration with integrity verification
-- `AbortTrainedArtifact` - Cancel in-progress registration
-
-### Storage
-
-- `PrepareUpload` - Generate signed upload URLs
-- `PrepareDownload` - Generate signed download URLs
-- Object verification with SHA256 checksums
-
-## Generation
-
-Generated files are committed. To regenerate from `.proto` sources:
+Run from the repository root:
 
 ```bash
-make api
+make config                    # Regenerate protobuf output only
+make generate                  # Also run Go generators and format Go source
+make verify-api                # Tidy, tests, vet, build and module verification for api/
+make verify-api-compatibility  # Load contracts together and test the service against local API
+make verify                    # Generation, both modules and compatibility checks
 ```
 
-Generation uses:
-- buf 1.72.0
-- protoc-gen-go 1.36.12
-- protoc-gen-go-grpc 1.6.2
+The pinned workflow is `scripts/generate-api.sh`, using Buf v1.60.0,
+protoc-gen-go v1.36.11 and protoc-gen-go-grpc v1.6.0. Do not edit generated Go
+files by hand.
 
-Do not edit generated `*.pb.go` and `*_grpc.pb.go` files directly.
-
-## Versioning
-
-This module follows semantic versioning independently from the service implementation. Breaking changes to the gRPC contract require a major version bump or a new API version (e.g., `model/v2`).
+The root module's `go test ./...` does not traverse this nested module and uses
+its published API dependency. `make test` explicitly tests both modules.
+`make verify-api-compatibility` uses a disposable modfile pointing only the
+Model API dependency at this checkout, loads every local API package together
+with the published Inference contract to catch duplicate registration, and
+runs the root tests against the local API. It does not modify repository
+`go.mod`/`go.sum`, publish a version, or change normal build dependencies.

@@ -67,7 +67,7 @@ func (v *paginationVersions) ListVersions(_ context.Context, tenant, modelID str
 	}
 	return all[start:end], nil
 }
-func (v *paginationVersions) CountModelVersions(context.Context, string, string) (int64, error) {
+func (v *paginationVersions) CountModelVersions(context.Context, string, string, model.ListOptions) (int64, error) {
 	return 31, nil
 }
 

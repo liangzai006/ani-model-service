@@ -112,6 +112,7 @@ func ModelServicePolicy() RPCPolicy {
 			"/model.v1.ModelService/DeleteModel",
 			"/model.v1.ModelService/GetModelVersion",
 			"/model.v1.ModelService/ListModelVersions",
+			"/model.v1.ModelService/ListModelOperations",
 			"/model.v1.ModelService/DeleteModelVersion",
 			"/model.v1.ModelService/CreateModelVersion",
 			"/model.v1.ModelService/GetUploadURL",

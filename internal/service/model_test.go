@@ -307,7 +307,7 @@ func (f *versionCatalogFake) CreateVersion(_ context.Context, v model.Version) (
 func (f *versionCatalogFake) ListVersions(context.Context, string, string, model.ListOptions) ([]model.Version, error) {
 	return nil, nil
 }
-func (f *versionCatalogFake) CountModelVersions(context.Context, string, string) (int64, error) {
+func (f *versionCatalogFake) CountModelVersions(context.Context, string, string, model.ListOptions) (int64, error) {
 	return 0, nil
 }
 func (f *versionCatalogFake) MarkReady(context.Context, string, string) error {
