@@ -7,8 +7,8 @@ require (
 	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/liangzai006/ani-inference-service/api v0.1.1
-	github.com/liangzai006/ani-model-service/api v0.0.0-20261020102840-e6b26b580a9f
+	github.com/liangzai006/ani-inference-service/api v0.1.2-0.20261021113945-1356085e3d92
+	github.com/liangzai006/ani-model-service/api v0.0.0-20261021113912-a21befaaa5e5
 	github.com/minio/minio-go/v7 v7.2.0
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/otel v1.45.0
@@ -91,5 +91,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/liangzai006/ani-model-service/api => ./api
