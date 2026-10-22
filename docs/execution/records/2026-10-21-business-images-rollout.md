@@ -55,7 +55,7 @@
 - 通过 Console/Governance 查询推理列表 HTTP 200；携带有效 API key 请求 Higress 的 `/api/v1/inference/services` 返回 404。管理与推理入口分别验证。
 - 验收服务删除 operation：`d156fa35-5078-4fff-9a1b-d35450f84c32`。
   最终 `succeeded/complete`；按 service-id 查询 CR、Deployment、ReplicaSet、Pod、Service、Job、PVC、下载 Secret 均无残留，
-  Volcano PodGroup 列表为空，模型专属 Higress route/Service Source 已清理，Governance 推理列表恢复为空。
+  Volcano PodGroup 列表为空，模型专属 Higress HTTPRoute 已清理，Governance 推理列表恢复为空。
 - 最终四个业务 Deployment 均 `1/1 Ready`；新镜像保持部署，验收临时服务已删除。
 
 ## 验证边界
