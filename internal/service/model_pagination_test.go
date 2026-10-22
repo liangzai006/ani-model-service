@@ -115,7 +115,7 @@ func TestListModelsRejectsInvalidPageValues(t *testing.T) {
 		size *int32
 	}{
 		{name: "page zero", page: int32ptr(0)},
-		{name: "page too large", page: int32ptr(101)},
+		{name: "offset too large", page: int32ptr(2147483647)},
 		{name: "size zero", size: int32ptr(0)},
 		{name: "size too large", size: int32ptr(101)},
 	} {
@@ -144,5 +144,14 @@ func TestListModelVersionsPageAndTotal(t *testing.T) {
 	}
 	if got := versions.options[len(versions.options)-1]; got.Offset != 4 || got.Limit != 2 {
 		t.Fatalf("page options = %+v", got)
+	}
+}
+
+func TestModelPagesBeyondOneHundred(t *testing.T) {
+	for _, p := range []int32{101, 1001} {
+		options, err := resolvePage(int32ptr(p), int32ptr(20))
+		if err != nil || options.Offset != int64(p-1)*20 {
+			t.Fatalf("page %d: %+v %v", p, options, err)
+		}
 	}
 }

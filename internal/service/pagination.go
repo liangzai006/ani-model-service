@@ -36,10 +36,10 @@ func resolvePage(page, pageSize *int32) (model.ListOptions, error) {
 	if pageSize != nil {
 		size = int64(*pageSize)
 	}
-	if p < 1 || p > 100 || size < 1 || size > 100 {
-		return model.ListOptions{}, errors.BadRequest("INVALID_ARGUMENT", "page and page_size must be between 1 and 100")
+	if p < 1 || size < 1 || size > 100 {
+		return model.ListOptions{}, errors.BadRequest("INVALID_ARGUMENT", "page must be positive and page_size must be between 1 and 100")
 	}
-	if p-1 > math.MaxInt64/size {
+	if p-1 > math.MaxInt32/size {
 		return model.ListOptions{}, errors.BadRequest("INVALID_ARGUMENT", "page offset overflows")
 	}
 	return model.ListOptions{Limit: int32(size), Offset: (p - 1) * size}, nil
