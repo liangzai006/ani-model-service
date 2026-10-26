@@ -72,6 +72,8 @@ message ModelVersion {
   string startup_command = 14;
   reserved 15;
   string engine_image = 16;
+  string recommended_image_id = 17;
+  string recommended_image_scope = 18;
 }
 
 message ModelArtifact {
@@ -185,6 +187,8 @@ message CreateModelVersionRequest {
   string startup_command = 13;
   reserved 14;
   string engine_image = 15;
+  string recommended_image_id = 16;
+  string recommended_image_scope = 17;
 }
 
 message GetUploadURLRequest {
@@ -223,6 +227,8 @@ message PrepareTrainedArtifactRequest {
   string engine_type = 15;
   string engine_image = 16;
   string startup_command = 17;
+  string recommended_image_id = 18;
+  string recommended_image_scope = 19;
 }
 
 message PrepareTrainedArtifactResponse {
@@ -284,6 +290,8 @@ message ImportModelBundleVersionData {
   string engine_type = 3;
   string engine_image = 4;
   string startup_command = 5;
+  string recommended_image_id = 6;
+  string recommended_image_scope = 7;
 }
 
 message ImportModelBundleSourceData {
