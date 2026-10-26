@@ -31,7 +31,7 @@ func TestArtifactStoreTenantIsolationPostgres(t *testing.T) {
 	}
 	vs := NewVersionStore(pool)
 	command := "exec  vllm serve '/models'   --served-model-name \"qwen2.5\""
-	wantVersion := modelbiz.Version{TenantID: tenant, ID: versionID, ModelID: modelID, Version: "v1", Format: "safetensors", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", EngineType: "vllm", EngineImage: "registry/vllm:latest", StartupCommand: command}
+	wantVersion := modelbiz.Version{TenantID: tenant, ID: versionID, ModelID: modelID, Version: "v1", Format: "safetensors", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", EngineType: "vllm", EngineImage: "registry/vllm:latest", RecommendedImageID: "image-a", RecommendedImageScope: "platform", StartupCommand: command}
 	if _, err := vs.CreateVersion(ctx, wantVersion); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestArtifactStoreTenantIsolationPostgres(t *testing.T) {
 		t.Fatalf("matching artifact did not allow ready transition: %v", err)
 	}
 	ready, err := vs.GetVersion(ctx, tenant, versionID)
-	if err != nil || ready.Status != "ready" || ready.ArtifactReference != want.Reference || ready.ArtifactSHA256 != want.SHA256 || ready.EngineType != wantVersion.EngineType || ready.EngineImage != wantVersion.EngineImage || ready.StartupCommand != command {
+	if err != nil || ready.Status != "ready" || ready.ArtifactReference != want.Reference || ready.ArtifactSHA256 != want.SHA256 || ready.EngineType != wantVersion.EngineType || ready.EngineImage != wantVersion.EngineImage || ready.RecommendedImageID != wantVersion.RecommendedImageID || ready.RecommendedImageScope != wantVersion.RecommendedImageScope || ready.StartupCommand != command {
 		t.Fatalf("ready version mismatch: %+v err=%v", ready, err)
 	}
 	var modelStatus string
@@ -62,7 +62,7 @@ func TestArtifactStoreTenantIsolationPostgres(t *testing.T) {
 		t.Fatalf("model status after ready version = %q, want ready", modelStatus)
 	}
 	listed, err := vs.ListVersions(ctx, tenant, modelID, modelbiz.ListOptions{Limit: 10})
-	if err != nil || len(listed) != 1 || listed[0].EngineType != wantVersion.EngineType || listed[0].EngineImage != wantVersion.EngineImage || listed[0].StartupCommand != command {
+	if err != nil || len(listed) != 1 || listed[0].EngineType != wantVersion.EngineType || listed[0].EngineImage != wantVersion.EngineImage || listed[0].RecommendedImageID != wantVersion.RecommendedImageID || listed[0].RecommendedImageScope != wantVersion.RecommendedImageScope || listed[0].StartupCommand != command {
 		t.Fatalf("listed version defaults mismatch: %+v err=%v", listed, err)
 	}
 	secondVersion := uuid.NewString()

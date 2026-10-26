@@ -327,27 +327,29 @@ func (q *Queries) CreateBundleTask(ctx context.Context, arg CreateBundleTaskPara
 const createBundleVersion = `-- name: CreateBundleVersion :one
 INSERT INTO public.model_versions
  (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
-  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image,
+  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image, recommended_image_id, recommended_image_scope,
   startup_command, startup_args, idempotency_key, request_fingerprint)
 VALUES ($1, $2, $3, $4,
         $5, 'pending', false, '', '', 0, '', $6,
-        $7, $8, $9,
-        $10, $11)
-RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image
+        $7, $8, $9, $10, $11,
+        $12, $13)
+RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image, recommended_image_id, recommended_image_scope
 `
 
 type CreateBundleVersionParams struct {
-	TenantID           pgtype.UUID `json:"tenant_id"`
-	ID                 pgtype.UUID `json:"id"`
-	ModelID            pgtype.UUID `json:"model_id"`
-	Version            string      `json:"version"`
-	Format             string      `json:"format"`
-	EngineType         string      `json:"engine_type"`
-	EngineImage        string      `json:"engine_image"`
-	StartupCommand     string      `json:"startup_command"`
-	StartupArgs        []byte      `json:"startup_args"`
-	IdempotencyKey     string      `json:"idempotency_key"`
-	RequestFingerprint string      `json:"request_fingerprint"`
+	TenantID              pgtype.UUID `json:"tenant_id"`
+	ID                    pgtype.UUID `json:"id"`
+	ModelID               pgtype.UUID `json:"model_id"`
+	Version               string      `json:"version"`
+	Format                string      `json:"format"`
+	EngineType            string      `json:"engine_type"`
+	EngineImage           string      `json:"engine_image"`
+	RecommendedImageID    string      `json:"recommended_image_id"`
+	RecommendedImageScope string      `json:"recommended_image_scope"`
+	StartupCommand        string      `json:"startup_command"`
+	StartupArgs           []byte      `json:"startup_args"`
+	IdempotencyKey        string      `json:"idempotency_key"`
+	RequestFingerprint    string      `json:"request_fingerprint"`
 }
 
 func (q *Queries) CreateBundleVersion(ctx context.Context, arg CreateBundleVersionParams) (ModelVersion, error) {
@@ -359,6 +361,8 @@ func (q *Queries) CreateBundleVersion(ctx context.Context, arg CreateBundleVersi
 		arg.Format,
 		arg.EngineType,
 		arg.EngineImage,
+		arg.RecommendedImageID,
+		arg.RecommendedImageScope,
 		arg.StartupCommand,
 		arg.StartupArgs,
 		arg.IdempotencyKey,
@@ -386,6 +390,8 @@ func (q *Queries) CreateBundleVersion(ctx context.Context, arg CreateBundleVersi
 		&i.IdempotencyKey,
 		&i.RequestFingerprint,
 		&i.EngineImage,
+		&i.RecommendedImageID,
+		&i.RecommendedImageScope,
 	)
 	return i, err
 }
@@ -561,36 +567,38 @@ func (q *Queries) CreateModelArtifact(ctx context.Context, arg CreateModelArtifa
 const createModelVersion = `-- name: CreateModelVersion :one
 WITH parent AS (
  SELECT m.id FROM public.models m
- WHERE m.tenant_id = $1 AND m.id = $16 AND m.status <> 'deleted'
+ WHERE m.tenant_id = $1 AND m.id = $18 AND m.status <> 'deleted'
  FOR KEY SHARE
 )
 INSERT INTO public.model_versions
  (tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo,
-  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image, startup_command, startup_args, idempotency_key, request_fingerprint)
+  encrypt_hint, size_bytes, checksum_sha256, engine_type, engine_image, recommended_image_id, recommended_image_scope, startup_command, startup_args, idempotency_key, request_fingerprint)
 SELECT $1, $2, parent.id, $3, $4, 'pending',
        $5, $6, $7, $8,
-       $9, $10, $11, $12, $13,
-       $14, $15 FROM parent
-RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image
+       $9, $10, $11, $12, $13, $14, $15,
+       $16, $17 FROM parent
+RETURNING tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image, recommended_image_id, recommended_image_scope
 `
 
 type CreateModelVersionParams struct {
-	TenantID           pgtype.UUID `json:"tenant_id"`
-	ID                 pgtype.UUID `json:"id"`
-	Version            string      `json:"version"`
-	Format             string      `json:"format"`
-	IsEncrypted        bool        `json:"is_encrypted"`
-	EncryptAlgo        string      `json:"encrypt_algo"`
-	EncryptHint        string      `json:"encrypt_hint"`
-	SizeBytes          int64       `json:"size_bytes"`
-	ChecksumSha256     string      `json:"checksum_sha256"`
-	EngineType         string      `json:"engine_type"`
-	EngineImage        string      `json:"engine_image"`
-	StartupCommand     string      `json:"startup_command"`
-	StartupArgs        []byte      `json:"startup_args"`
-	IdempotencyKey     string      `json:"idempotency_key"`
-	RequestFingerprint string      `json:"request_fingerprint"`
-	ModelID            pgtype.UUID `json:"model_id"`
+	TenantID              pgtype.UUID `json:"tenant_id"`
+	ID                    pgtype.UUID `json:"id"`
+	Version               string      `json:"version"`
+	Format                string      `json:"format"`
+	IsEncrypted           bool        `json:"is_encrypted"`
+	EncryptAlgo           string      `json:"encrypt_algo"`
+	EncryptHint           string      `json:"encrypt_hint"`
+	SizeBytes             int64       `json:"size_bytes"`
+	ChecksumSha256        string      `json:"checksum_sha256"`
+	EngineType            string      `json:"engine_type"`
+	EngineImage           string      `json:"engine_image"`
+	RecommendedImageID    string      `json:"recommended_image_id"`
+	RecommendedImageScope string      `json:"recommended_image_scope"`
+	StartupCommand        string      `json:"startup_command"`
+	StartupArgs           []byte      `json:"startup_args"`
+	IdempotencyKey        string      `json:"idempotency_key"`
+	RequestFingerprint    string      `json:"request_fingerprint"`
+	ModelID               pgtype.UUID `json:"model_id"`
 }
 
 func (q *Queries) CreateModelVersion(ctx context.Context, arg CreateModelVersionParams) (ModelVersion, error) {
@@ -606,6 +614,8 @@ func (q *Queries) CreateModelVersion(ctx context.Context, arg CreateModelVersion
 		arg.ChecksumSha256,
 		arg.EngineType,
 		arg.EngineImage,
+		arg.RecommendedImageID,
+		arg.RecommendedImageScope,
 		arg.StartupCommand,
 		arg.StartupArgs,
 		arg.IdempotencyKey,
@@ -634,6 +644,8 @@ func (q *Queries) CreateModelVersion(ctx context.Context, arg CreateModelVersion
 		&i.IdempotencyKey,
 		&i.RequestFingerprint,
 		&i.EngineImage,
+		&i.RecommendedImageID,
+		&i.RecommendedImageScope,
 	)
 	return i, err
 }
@@ -771,7 +783,7 @@ func (q *Queries) GetBundleTaskByIdempotency(ctx context.Context, arg GetBundleT
 }
 
 const getBundleVersionByIdempotency = `-- name: GetBundleVersionByIdempotency :one
-SELECT tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image FROM public.model_versions
+SELECT tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image, recommended_image_id, recommended_image_scope FROM public.model_versions
 WHERE tenant_id = $1 AND idempotency_key = $2
 `
 
@@ -804,6 +816,8 @@ func (q *Queries) GetBundleVersionByIdempotency(ctx context.Context, arg GetBund
 		&i.IdempotencyKey,
 		&i.RequestFingerprint,
 		&i.EngineImage,
+		&i.RecommendedImageID,
+		&i.RecommendedImageScope,
 	)
 	return i, err
 }
@@ -1121,7 +1135,7 @@ func (q *Queries) GetModelByIdempotency(ctx context.Context, arg GetModelByIdemp
 const getModelVersion = `-- name: GetModelVersion :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.recommended_image_id, v.recommended_image_scope, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -1138,29 +1152,31 @@ type GetModelVersionParams struct {
 }
 
 type GetModelVersionRow struct {
-	TenantID          pgtype.UUID        `json:"tenant_id"`
-	ID                pgtype.UUID        `json:"id"`
-	ModelID           pgtype.UUID        `json:"model_id"`
-	Version           string             `json:"version"`
-	Format            string             `json:"format"`
-	Status            string             `json:"status"`
-	IsEncrypted       bool               `json:"is_encrypted"`
-	EncryptAlgo       string             `json:"encrypt_algo"`
-	EncryptHint       string             `json:"encrypt_hint"`
-	SizeBytes         int64              `json:"size_bytes"`
-	ChecksumSha256    string             `json:"checksum_sha256"`
-	EngineType        string             `json:"engine_type"`
-	EngineImage       string             `json:"engine_image"`
-	StartupCommand    string             `json:"startup_command"`
-	StartupArgs       []byte             `json:"startup_args"`
-	ErrorMessage      string             `json:"error_message"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ExternalModelID   string             `json:"external_model_id"`
-	ArtifactProvider  pgtype.Text        `json:"artifact_provider"`
-	ArtifactReference pgtype.Text        `json:"artifact_reference"`
-	ArtifactSha256    pgtype.Text        `json:"artifact_sha256"`
-	ArtifactSizeBytes pgtype.Int8        `json:"artifact_size_bytes"`
+	TenantID              pgtype.UUID        `json:"tenant_id"`
+	ID                    pgtype.UUID        `json:"id"`
+	ModelID               pgtype.UUID        `json:"model_id"`
+	Version               string             `json:"version"`
+	Format                string             `json:"format"`
+	Status                string             `json:"status"`
+	IsEncrypted           bool               `json:"is_encrypted"`
+	EncryptAlgo           string             `json:"encrypt_algo"`
+	EncryptHint           string             `json:"encrypt_hint"`
+	SizeBytes             int64              `json:"size_bytes"`
+	ChecksumSha256        string             `json:"checksum_sha256"`
+	EngineType            string             `json:"engine_type"`
+	EngineImage           string             `json:"engine_image"`
+	RecommendedImageID    string             `json:"recommended_image_id"`
+	RecommendedImageScope string             `json:"recommended_image_scope"`
+	StartupCommand        string             `json:"startup_command"`
+	StartupArgs           []byte             `json:"startup_args"`
+	ErrorMessage          string             `json:"error_message"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	ExternalModelID       string             `json:"external_model_id"`
+	ArtifactProvider      pgtype.Text        `json:"artifact_provider"`
+	ArtifactReference     pgtype.Text        `json:"artifact_reference"`
+	ArtifactSha256        pgtype.Text        `json:"artifact_sha256"`
+	ArtifactSizeBytes     pgtype.Int8        `json:"artifact_size_bytes"`
 }
 
 func (q *Queries) GetModelVersion(ctx context.Context, arg GetModelVersionParams) (GetModelVersionRow, error) {
@@ -1180,6 +1196,8 @@ func (q *Queries) GetModelVersion(ctx context.Context, arg GetModelVersionParams
 		&i.ChecksumSha256,
 		&i.EngineType,
 		&i.EngineImage,
+		&i.RecommendedImageID,
+		&i.RecommendedImageScope,
 		&i.StartupCommand,
 		&i.StartupArgs,
 		&i.ErrorMessage,
@@ -1195,7 +1213,7 @@ func (q *Queries) GetModelVersion(ctx context.Context, arg GetModelVersionParams
 }
 
 const getModelVersionByIdempotency = `-- name: GetModelVersionByIdempotency :one
-SELECT tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image FROM public.model_versions WHERE tenant_id = $1 AND idempotency_key = $2
+SELECT tenant_id, id, model_id, version, format, status, is_encrypted, encrypt_algo, encrypt_hint, size_bytes, checksum_sha256, engine_type, startup_command, startup_args, error_message, created_at, updated_at, idempotency_key, request_fingerprint, engine_image, recommended_image_id, recommended_image_scope FROM public.model_versions WHERE tenant_id = $1 AND idempotency_key = $2
 `
 
 type GetModelVersionByIdempotencyParams struct {
@@ -1227,6 +1245,8 @@ func (q *Queries) GetModelVersionByIdempotency(ctx context.Context, arg GetModel
 		&i.IdempotencyKey,
 		&i.RequestFingerprint,
 		&i.EngineImage,
+		&i.RecommendedImageID,
+		&i.RecommendedImageScope,
 	)
 	return i, err
 }
@@ -1254,7 +1274,7 @@ func (q *Queries) GetModelVersionForImport(ctx context.Context, arg GetModelVers
 const getReadyModelVersion = `-- name: GetReadyModelVersion :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.recommended_image_id, v.recommended_image_scope, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -1273,29 +1293,31 @@ type GetReadyModelVersionParams struct {
 }
 
 type GetReadyModelVersionRow struct {
-	TenantID          pgtype.UUID        `json:"tenant_id"`
-	ID                pgtype.UUID        `json:"id"`
-	ModelID           pgtype.UUID        `json:"model_id"`
-	Version           string             `json:"version"`
-	Format            string             `json:"format"`
-	Status            string             `json:"status"`
-	IsEncrypted       bool               `json:"is_encrypted"`
-	EncryptAlgo       string             `json:"encrypt_algo"`
-	EncryptHint       string             `json:"encrypt_hint"`
-	SizeBytes         int64              `json:"size_bytes"`
-	ChecksumSha256    string             `json:"checksum_sha256"`
-	EngineType        string             `json:"engine_type"`
-	EngineImage       string             `json:"engine_image"`
-	StartupCommand    string             `json:"startup_command"`
-	StartupArgs       []byte             `json:"startup_args"`
-	ErrorMessage      string             `json:"error_message"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ExternalModelID   string             `json:"external_model_id"`
-	ArtifactProvider  string             `json:"artifact_provider"`
-	ArtifactReference string             `json:"artifact_reference"`
-	ArtifactSha256    string             `json:"artifact_sha256"`
-	ArtifactSizeBytes int64              `json:"artifact_size_bytes"`
+	TenantID              pgtype.UUID        `json:"tenant_id"`
+	ID                    pgtype.UUID        `json:"id"`
+	ModelID               pgtype.UUID        `json:"model_id"`
+	Version               string             `json:"version"`
+	Format                string             `json:"format"`
+	Status                string             `json:"status"`
+	IsEncrypted           bool               `json:"is_encrypted"`
+	EncryptAlgo           string             `json:"encrypt_algo"`
+	EncryptHint           string             `json:"encrypt_hint"`
+	SizeBytes             int64              `json:"size_bytes"`
+	ChecksumSha256        string             `json:"checksum_sha256"`
+	EngineType            string             `json:"engine_type"`
+	EngineImage           string             `json:"engine_image"`
+	RecommendedImageID    string             `json:"recommended_image_id"`
+	RecommendedImageScope string             `json:"recommended_image_scope"`
+	StartupCommand        string             `json:"startup_command"`
+	StartupArgs           []byte             `json:"startup_args"`
+	ErrorMessage          string             `json:"error_message"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	ExternalModelID       string             `json:"external_model_id"`
+	ArtifactProvider      string             `json:"artifact_provider"`
+	ArtifactReference     string             `json:"artifact_reference"`
+	ArtifactSha256        string             `json:"artifact_sha256"`
+	ArtifactSizeBytes     int64              `json:"artifact_size_bytes"`
 }
 
 func (q *Queries) GetReadyModelVersion(ctx context.Context, arg GetReadyModelVersionParams) (GetReadyModelVersionRow, error) {
@@ -1315,6 +1337,8 @@ func (q *Queries) GetReadyModelVersion(ctx context.Context, arg GetReadyModelVer
 		&i.ChecksumSha256,
 		&i.EngineType,
 		&i.EngineImage,
+		&i.RecommendedImageID,
+		&i.RecommendedImageScope,
 		&i.StartupCommand,
 		&i.StartupArgs,
 		&i.ErrorMessage,
@@ -1332,7 +1356,7 @@ func (q *Queries) GetReadyModelVersion(ctx context.Context, arg GetReadyModelVer
 const getReadyModelVersionByExternalRef = `-- name: GetReadyModelVersionByExternalRef :one
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status,
        v.is_encrypted, v.encrypt_algo, v.encrypt_hint, v.size_bytes,
-       v.checksum_sha256, v.engine_type, v.engine_image, v.startup_command, v.startup_args,
+       v.checksum_sha256, v.engine_type, v.engine_image, v.recommended_image_id, v.recommended_image_scope, v.startup_command, v.startup_args,
        v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        a.provider AS artifact_provider, a.reference AS artifact_reference,
@@ -1352,29 +1376,31 @@ type GetReadyModelVersionByExternalRefParams struct {
 }
 
 type GetReadyModelVersionByExternalRefRow struct {
-	TenantID          pgtype.UUID        `json:"tenant_id"`
-	ID                pgtype.UUID        `json:"id"`
-	ModelID           pgtype.UUID        `json:"model_id"`
-	Version           string             `json:"version"`
-	Format            string             `json:"format"`
-	Status            string             `json:"status"`
-	IsEncrypted       bool               `json:"is_encrypted"`
-	EncryptAlgo       string             `json:"encrypt_algo"`
-	EncryptHint       string             `json:"encrypt_hint"`
-	SizeBytes         int64              `json:"size_bytes"`
-	ChecksumSha256    string             `json:"checksum_sha256"`
-	EngineType        string             `json:"engine_type"`
-	EngineImage       string             `json:"engine_image"`
-	StartupCommand    string             `json:"startup_command"`
-	StartupArgs       []byte             `json:"startup_args"`
-	ErrorMessage      string             `json:"error_message"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ExternalModelID   string             `json:"external_model_id"`
-	ArtifactProvider  string             `json:"artifact_provider"`
-	ArtifactReference string             `json:"artifact_reference"`
-	ArtifactSha256    string             `json:"artifact_sha256"`
-	ArtifactSizeBytes int64              `json:"artifact_size_bytes"`
+	TenantID              pgtype.UUID        `json:"tenant_id"`
+	ID                    pgtype.UUID        `json:"id"`
+	ModelID               pgtype.UUID        `json:"model_id"`
+	Version               string             `json:"version"`
+	Format                string             `json:"format"`
+	Status                string             `json:"status"`
+	IsEncrypted           bool               `json:"is_encrypted"`
+	EncryptAlgo           string             `json:"encrypt_algo"`
+	EncryptHint           string             `json:"encrypt_hint"`
+	SizeBytes             int64              `json:"size_bytes"`
+	ChecksumSha256        string             `json:"checksum_sha256"`
+	EngineType            string             `json:"engine_type"`
+	EngineImage           string             `json:"engine_image"`
+	RecommendedImageID    string             `json:"recommended_image_id"`
+	RecommendedImageScope string             `json:"recommended_image_scope"`
+	StartupCommand        string             `json:"startup_command"`
+	StartupArgs           []byte             `json:"startup_args"`
+	ErrorMessage          string             `json:"error_message"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	ExternalModelID       string             `json:"external_model_id"`
+	ArtifactProvider      string             `json:"artifact_provider"`
+	ArtifactReference     string             `json:"artifact_reference"`
+	ArtifactSha256        string             `json:"artifact_sha256"`
+	ArtifactSizeBytes     int64              `json:"artifact_size_bytes"`
 }
 
 func (q *Queries) GetReadyModelVersionByExternalRef(ctx context.Context, arg GetReadyModelVersionByExternalRefParams) (GetReadyModelVersionByExternalRefRow, error) {
@@ -1394,6 +1420,8 @@ func (q *Queries) GetReadyModelVersionByExternalRef(ctx context.Context, arg Get
 		&i.ChecksumSha256,
 		&i.EngineType,
 		&i.EngineImage,
+		&i.RecommendedImageID,
+		&i.RecommendedImageScope,
 		&i.StartupCommand,
 		&i.StartupArgs,
 		&i.ErrorMessage,
@@ -1453,7 +1481,7 @@ const latestModelVersions = `-- name: LatestModelVersions :many
 SELECT DISTINCT ON (v.model_id)
        v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
-       v.engine_image, v.startup_args, v.error_message, v.created_at, v.updated_at,
+       v.engine_image, v.recommended_image_id, v.recommended_image_scope, v.startup_args, v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        COALESCE(a.provider, '')::text AS artifact_provider,
        COALESCE(a.reference, '')::text AS artifact_reference
@@ -1470,27 +1498,29 @@ type LatestModelVersionsParams struct {
 }
 
 type LatestModelVersionsRow struct {
-	TenantID          pgtype.UUID        `json:"tenant_id"`
-	ID                pgtype.UUID        `json:"id"`
-	ModelID           pgtype.UUID        `json:"model_id"`
-	Version           string             `json:"version"`
-	Format            string             `json:"format"`
-	Status            string             `json:"status"`
-	IsEncrypted       bool               `json:"is_encrypted"`
-	EncryptAlgo       string             `json:"encrypt_algo"`
-	EncryptHint       string             `json:"encrypt_hint"`
-	SizeBytes         int64              `json:"size_bytes"`
-	ChecksumSha256    string             `json:"checksum_sha256"`
-	EngineType        string             `json:"engine_type"`
-	StartupCommand    string             `json:"startup_command"`
-	EngineImage       string             `json:"engine_image"`
-	StartupArgs       []byte             `json:"startup_args"`
-	ErrorMessage      string             `json:"error_message"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ExternalModelID   string             `json:"external_model_id"`
-	ArtifactProvider  string             `json:"artifact_provider"`
-	ArtifactReference string             `json:"artifact_reference"`
+	TenantID              pgtype.UUID        `json:"tenant_id"`
+	ID                    pgtype.UUID        `json:"id"`
+	ModelID               pgtype.UUID        `json:"model_id"`
+	Version               string             `json:"version"`
+	Format                string             `json:"format"`
+	Status                string             `json:"status"`
+	IsEncrypted           bool               `json:"is_encrypted"`
+	EncryptAlgo           string             `json:"encrypt_algo"`
+	EncryptHint           string             `json:"encrypt_hint"`
+	SizeBytes             int64              `json:"size_bytes"`
+	ChecksumSha256        string             `json:"checksum_sha256"`
+	EngineType            string             `json:"engine_type"`
+	StartupCommand        string             `json:"startup_command"`
+	EngineImage           string             `json:"engine_image"`
+	RecommendedImageID    string             `json:"recommended_image_id"`
+	RecommendedImageScope string             `json:"recommended_image_scope"`
+	StartupArgs           []byte             `json:"startup_args"`
+	ErrorMessage          string             `json:"error_message"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	ExternalModelID       string             `json:"external_model_id"`
+	ArtifactProvider      string             `json:"artifact_provider"`
+	ArtifactReference     string             `json:"artifact_reference"`
 }
 
 func (q *Queries) LatestModelVersions(ctx context.Context, arg LatestModelVersionsParams) ([]LatestModelVersionsRow, error) {
@@ -1517,6 +1547,8 @@ func (q *Queries) LatestModelVersions(ctx context.Context, arg LatestModelVersio
 			&i.EngineType,
 			&i.StartupCommand,
 			&i.EngineImage,
+			&i.RecommendedImageID,
+			&i.RecommendedImageScope,
 			&i.StartupArgs,
 			&i.ErrorMessage,
 			&i.CreatedAt,
@@ -1775,7 +1807,7 @@ func (q *Queries) ListModelOperations(ctx context.Context, arg ListModelOperatio
 const listModelVersions = `-- name: ListModelVersions :many
 SELECT v.tenant_id, v.id, v.model_id, v.version, v.format, v.status, v.is_encrypted, v.encrypt_algo,
        v.encrypt_hint, v.size_bytes, v.checksum_sha256, v.engine_type, v.startup_command,
-       v.engine_image, v.startup_args, v.error_message, v.created_at, v.updated_at,
+       v.engine_image, v.recommended_image_id, v.recommended_image_scope, v.startup_args, v.error_message, v.created_at, v.updated_at,
        m.model_id AS external_model_id,
        COALESCE(a.provider, '')::text AS artifact_provider,
        COALESCE(a.reference, '')::text AS artifact_reference
@@ -1802,27 +1834,29 @@ type ListModelVersionsParams struct {
 }
 
 type ListModelVersionsRow struct {
-	TenantID          pgtype.UUID        `json:"tenant_id"`
-	ID                pgtype.UUID        `json:"id"`
-	ModelID           pgtype.UUID        `json:"model_id"`
-	Version           string             `json:"version"`
-	Format            string             `json:"format"`
-	Status            string             `json:"status"`
-	IsEncrypted       bool               `json:"is_encrypted"`
-	EncryptAlgo       string             `json:"encrypt_algo"`
-	EncryptHint       string             `json:"encrypt_hint"`
-	SizeBytes         int64              `json:"size_bytes"`
-	ChecksumSha256    string             `json:"checksum_sha256"`
-	EngineType        string             `json:"engine_type"`
-	StartupCommand    string             `json:"startup_command"`
-	EngineImage       string             `json:"engine_image"`
-	StartupArgs       []byte             `json:"startup_args"`
-	ErrorMessage      string             `json:"error_message"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ExternalModelID   string             `json:"external_model_id"`
-	ArtifactProvider  string             `json:"artifact_provider"`
-	ArtifactReference string             `json:"artifact_reference"`
+	TenantID              pgtype.UUID        `json:"tenant_id"`
+	ID                    pgtype.UUID        `json:"id"`
+	ModelID               pgtype.UUID        `json:"model_id"`
+	Version               string             `json:"version"`
+	Format                string             `json:"format"`
+	Status                string             `json:"status"`
+	IsEncrypted           bool               `json:"is_encrypted"`
+	EncryptAlgo           string             `json:"encrypt_algo"`
+	EncryptHint           string             `json:"encrypt_hint"`
+	SizeBytes             int64              `json:"size_bytes"`
+	ChecksumSha256        string             `json:"checksum_sha256"`
+	EngineType            string             `json:"engine_type"`
+	StartupCommand        string             `json:"startup_command"`
+	EngineImage           string             `json:"engine_image"`
+	RecommendedImageID    string             `json:"recommended_image_id"`
+	RecommendedImageScope string             `json:"recommended_image_scope"`
+	StartupArgs           []byte             `json:"startup_args"`
+	ErrorMessage          string             `json:"error_message"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	ExternalModelID       string             `json:"external_model_id"`
+	ArtifactProvider      string             `json:"artifact_provider"`
+	ArtifactReference     string             `json:"artifact_reference"`
 }
 
 func (q *Queries) ListModelVersions(ctx context.Context, arg ListModelVersionsParams) ([]ListModelVersionsRow, error) {
@@ -1857,6 +1891,8 @@ func (q *Queries) ListModelVersions(ctx context.Context, arg ListModelVersionsPa
 			&i.EngineType,
 			&i.StartupCommand,
 			&i.EngineImage,
+			&i.RecommendedImageID,
+			&i.RecommendedImageScope,
 			&i.StartupArgs,
 			&i.ErrorMessage,
 			&i.CreatedAt,

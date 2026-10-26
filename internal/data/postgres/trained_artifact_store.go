@@ -23,7 +23,7 @@ func NewTrainedArtifactStore(pool *pgxpool.Pool) *TrainedArtifactStore {
 const trainedArtifactColumns = `tenant_id, id, idempotency_key, request_fingerprint,
  execution_id, target_model_id, model_name, display_name, description, capabilities,
  source_model_version_id, version, file_name, format, storage_path, size_bytes,
- checksum_sha256, engine_type, engine_image, startup_command, status, error_message,
+ checksum_sha256, engine_type, engine_image, startup_command, recommended_image_id, recommended_image_scope, status, error_message,
  model_id, model_version_id, created_at, updated_at`
 
 func (s *TrainedArtifactStore) Prepare(ctx context.Context, in modelbiz.TrainedArtifactRegistration) (modelbiz.TrainedArtifactRegistration, error) {
@@ -63,9 +63,9 @@ func (s *TrainedArtifactStore) Prepare(ctx context.Context, in modelbiz.TrainedA
 		return modelbiz.TrainedArtifactRegistration{}, err
 	}
 	row := s.pool.QueryRow(ctx, `INSERT INTO public.trained_artifact_registrations
- (tenant_id,id,idempotency_key,request_fingerprint,execution_id,target_model_id,model_name,display_name,description,capabilities,source_model_version_id,version,file_name,format,storage_path,size_bytes,checksum_sha256,engine_type,engine_image,startup_command,status)
- VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'pending')
- RETURNING `+trainedArtifactColumns, tenant, id, in.IdempotencyKey, in.RequestFingerprint, in.ExecutionID, target, in.ModelName, in.DisplayName, in.Description, caps, source, in.Version, in.FileName, in.Format, in.StoragePath, in.SizeBytes, in.ChecksumSHA256, in.EngineType, in.EngineImage, in.StartupCommand)
+ (tenant_id,id,idempotency_key,request_fingerprint,execution_id,target_model_id,model_name,display_name,description,capabilities,source_model_version_id,version,file_name,format,storage_path,size_bytes,checksum_sha256,engine_type,engine_image,startup_command,recommended_image_id,recommended_image_scope,status)
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'pending')
+ RETURNING `+trainedArtifactColumns, tenant, id, in.IdempotencyKey, in.RequestFingerprint, in.ExecutionID, target, in.ModelName, in.DisplayName, in.Description, caps, source, in.Version, in.FileName, in.Format, in.StoragePath, in.SizeBytes, in.ChecksumSHA256, in.EngineType, in.EngineImage, in.StartupCommand, in.RecommendedImageID, in.RecommendedImageScope)
 	var result modelbiz.TrainedArtifactRegistration
 	if err := scanTrainedArtifact(row, &result); err != nil {
 		var pgErr *pgconn.PgError
@@ -84,6 +84,21 @@ func (s *TrainedArtifactStore) Get(ctx context.Context, tenantID, registrationID
 	}
 	var result modelbiz.TrainedArtifactRegistration
 	err = scanTrainedArtifact(s.pool.QueryRow(ctx, `SELECT `+trainedArtifactColumns+` FROM public.trained_artifact_registrations WHERE tenant_id=$1 AND id=$2`, tenant, id), &result)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return modelbiz.TrainedArtifactRegistration{}, modelbiz.ErrRegistrationNotFound
+	}
+	return result, err
+}
+
+// GetByIdempotencyKey reads the existing registration before resolving source
+// defaults so retries use the same frozen runtime, even after source changes.
+func (s *TrainedArtifactStore) GetByIdempotencyKey(ctx context.Context, tenantID, key string) (modelbiz.TrainedArtifactRegistration, error) {
+	tenant, err := uuid.Parse(tenantID)
+	if err != nil {
+		return modelbiz.TrainedArtifactRegistration{}, fmt.Errorf("tenant_id: %w", err)
+	}
+	var result modelbiz.TrainedArtifactRegistration
+	err = scanTrainedArtifact(s.pool.QueryRow(ctx, `SELECT `+trainedArtifactColumns+` FROM public.trained_artifact_registrations WHERE tenant_id=$1 AND idempotency_key=$2`, tenant, key), &result)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return modelbiz.TrainedArtifactRegistration{}, modelbiz.ErrRegistrationNotFound
 	}
@@ -155,7 +170,7 @@ func (s *TrainedArtifactStore) Complete(ctx context.Context, tenantID, registrat
 		return result, mapRegistrationWriteError(err)
 	}
 	versionID := uuid.NewString()
-	_, err = tx.Exec(ctx, `INSERT INTO public.model_versions (tenant_id,id,model_id,version,format,status,size_bytes,checksum_sha256,engine_type,engine_image,startup_command) VALUES ($1,$2,$3,$4,$5,'pending',$6,$7,$8,$9,$10)`, tenant, uuid.MustParse(versionID), uuid.MustParse(modelID), session.Version, session.Format, session.SizeBytes, session.ChecksumSHA256, session.EngineType, session.EngineImage, session.StartupCommand)
+	_, err = tx.Exec(ctx, `INSERT INTO public.model_versions (tenant_id,id,model_id,version,format,status,size_bytes,checksum_sha256,engine_type,engine_image,startup_command,recommended_image_id,recommended_image_scope) VALUES ($1,$2,$3,$4,$5,'pending',$6,$7,$8,$9,$10,$11,$12)`, tenant, uuid.MustParse(versionID), uuid.MustParse(modelID), session.Version, session.Format, session.SizeBytes, session.ChecksumSHA256, session.EngineType, session.EngineImage, session.StartupCommand, session.RecommendedImageID, session.RecommendedImageScope)
 	if err != nil {
 		return result, mapRegistrationWriteError(err)
 	}
@@ -246,7 +261,7 @@ type trainedArtifactScanner interface {
 func scanTrainedArtifact(row trainedArtifactScanner, out *modelbiz.TrainedArtifactRegistration) error {
 	var tenant, id, target, source, modelID, versionID pgtype.UUID
 	var caps []byte
-	err := row.Scan(&tenant, &id, &out.IdempotencyKey, &out.RequestFingerprint, &out.ExecutionID, &target, &out.ModelName, &out.DisplayName, &out.Description, &caps, &source, &out.Version, &out.FileName, &out.Format, &out.StoragePath, &out.SizeBytes, &out.ChecksumSHA256, &out.EngineType, &out.EngineImage, &out.StartupCommand, &out.Status, &out.ErrorMessage, &modelID, &versionID, &out.CreatedAt, &out.UpdatedAt)
+	err := row.Scan(&tenant, &id, &out.IdempotencyKey, &out.RequestFingerprint, &out.ExecutionID, &target, &out.ModelName, &out.DisplayName, &out.Description, &caps, &source, &out.Version, &out.FileName, &out.Format, &out.StoragePath, &out.SizeBytes, &out.ChecksumSHA256, &out.EngineType, &out.EngineImage, &out.StartupCommand, &out.RecommendedImageID, &out.RecommendedImageScope, &out.Status, &out.ErrorMessage, &modelID, &versionID, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		return err
 	}

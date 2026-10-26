@@ -329,7 +329,7 @@ func (s *ModelService) CreateModelVersion(ctx context.Context, in *modelv1.Creat
 	if err != nil {
 		return nil, err
 	}
-	v := model.Version{TenantID: p.TenantID, ID: uuid.NewString(), ModelID: m.ID, ExternalModelID: m.ExternalModelID, Version: in.GetVersion(), Format: in.GetFormat(), Status: "pending", SizeBytes: in.GetSizeBytes(), ArtifactSHA256: in.GetChecksumSha256(), EngineType: in.GetEngineType(), EngineImage: in.GetEngineImage(), StartupCommand: in.GetStartupCommand(), IdempotencyKey: in.GetIdempotencyKey()}
+	v := model.Version{TenantID: p.TenantID, ID: uuid.NewString(), ModelID: m.ID, ExternalModelID: m.ExternalModelID, Version: in.GetVersion(), Format: in.GetFormat(), Status: "pending", SizeBytes: in.GetSizeBytes(), ArtifactSHA256: in.GetChecksumSha256(), EngineType: in.GetEngineType(), EngineImage: in.GetEngineImage(), RecommendedImageID: in.GetRecommendedImageId(), RecommendedImageScope: in.GetRecommendedImageScope(), StartupCommand: in.GetStartupCommand(), IdempotencyKey: in.GetIdempotencyKey()}
 	if err := v.Validate(); err != nil || model.ValidateEngineDefaults(v.EngineType, v.EngineImage, v.StartupCommand) != nil {
 		return nil, errors2.New(400, "INVALID_ARGUMENT", "invalid model version")
 	}
@@ -456,7 +456,7 @@ func toProtoVersion(v model.Version) *modelv1.ModelVersion {
 	if modelID == "" {
 		modelID = v.ModelID
 	}
-	return &modelv1.ModelVersion{Id: v.ID, ModelId: modelID, Version: v.Version, Format: v.Format, Status: v.Status, ChecksumSha256: v.ArtifactSHA256, StoragePath: v.ArtifactReference, EngineType: v.EngineType, EngineImage: v.EngineImage, StartupCommand: v.StartupCommand, SizeBytes: v.SizeBytes, IsEncrypted: v.IsEncrypted, EncryptAlgo: v.EncryptAlgo, EncryptHint: v.EncryptHint, CreatedAt: protoTime(v.CreatedAt)}
+	return &modelv1.ModelVersion{Id: v.ID, ModelId: modelID, Version: v.Version, Format: v.Format, Status: v.Status, ChecksumSha256: v.ArtifactSHA256, StoragePath: v.ArtifactReference, EngineType: v.EngineType, EngineImage: v.EngineImage, RecommendedImageId: v.RecommendedImageID, RecommendedImageScope: v.RecommendedImageScope, StartupCommand: v.StartupCommand, SizeBytes: v.SizeBytes, IsEncrypted: v.IsEncrypted, EncryptAlgo: v.EncryptAlgo, EncryptHint: v.EncryptHint, CreatedAt: protoTime(v.CreatedAt)}
 }
 
 func (s *ModelService) GetModelDownloadURL(ctx context.Context, in *modelv1.GetModelDownloadURLRequest) (*modelv1.GetModelDownloadURLResponse, error) {
@@ -582,6 +582,7 @@ func (s *ModelService) ImportModelBundle(ctx context.Context, in *modelv1.Import
 	}
 	if versionData != nil {
 		bundle.Version, bundle.Format, bundle.EngineType, bundle.EngineImage, bundle.StartupCommand = versionData.GetVersion(), versionData.GetFormat(), versionData.GetEngineType(), versionData.GetEngineImage(), versionData.GetStartupCommand()
+		bundle.RecommendedImageID, bundle.RecommendedImageScope = versionData.GetRecommendedImageId(), versionData.GetRecommendedImageScope()
 	}
 	if sourceData != nil {
 		bundle.Provider, bundle.RepoID, bundle.Revision = sourceData.GetProvider(), sourceData.GetRepoId(), sourceData.GetRevision()

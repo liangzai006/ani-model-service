@@ -100,7 +100,7 @@ func (s *BundleImportStore) importBundleTx(ctx context.Context, tx pgx.Tx, in mo
 	}
 	versionRow, err = q.CreateBundleVersion(ctx, CreateBundleVersionParams{
 		TenantID: uuidType(ids.tenant), ID: uuidType(ids.version), ModelID: uuidType(ids.model), Version: in.Version,
-		Format: in.Format, EngineType: in.EngineType, EngineImage: in.EngineImage, StartupCommand: in.StartupCommand,
+		Format: in.Format, EngineType: in.EngineType, EngineImage: in.EngineImage, RecommendedImageID: in.RecommendedImageID, RecommendedImageScope: in.RecommendedImageScope, StartupCommand: in.StartupCommand,
 		StartupArgs: []byte("[]"), IdempotencyKey: in.IdempotencyKey, RequestFingerprint: fingerprint,
 	})
 	if err != nil {

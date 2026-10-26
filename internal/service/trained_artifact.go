@@ -57,7 +57,20 @@ func (s *ModelService) PrepareTrainedArtifact(ctx context.Context, in *modelv1.P
 		}
 		targetModelID = owner.ID
 	}
-	engineType, engineImage, startupCommand, err := s.resolveTrainedRuntime(ctx, p.TenantID, in)
+	if model.ValidateRecommendedImage(in.GetRecommendedImageId(), in.GetRecommendedImageScope()) != nil {
+		return nil, kratoserrors.New(400, "INVALID_ARGUMENT", "recommended image id and scope must be supplied together")
+	}
+	// Inherited defaults belong to the durable registration. A Prepare replay
+	// must not read changed source defaults, including its catalog selection.
+	existing, lookupErr := s.trained.GetByIdempotencyKey(ctx, p.TenantID, in.GetIdempotencyKey())
+	if lookupErr != nil && !errors.Is(lookupErr, model.ErrRegistrationNotFound) {
+		return nil, mapTrainedRegistration(lookupErr)
+	}
+	var frozen *model.TrainedArtifactRegistration
+	if lookupErr == nil {
+		frozen = &existing
+	}
+	runtime, err := s.resolveTrainedRuntime(ctx, p.TenantID, in, frozen)
 	if err != nil {
 		return nil, err
 	}
@@ -67,10 +80,12 @@ func (s *ModelService) PrepareTrainedArtifact(ctx context.Context, in *modelv1.P
 		TargetModelID, ModelName, DisplayName, Description, Version, Format, Checksum, EngineType, EngineImage, StartupCommand, SourceVersion, ExecutionID string
 		Capabilities                                                                                                                                       []string
 		SizeBytes                                                                                                                                          int64
-	}{targetModelID, in.GetModelName(), in.GetDisplayName(), in.GetDescription(), in.GetVersion(), in.GetFormat(), in.GetChecksumSha256(), engineType, engineImage, startupCommand, in.GetSourceModelVersionId(), in.GetExecutionId(), in.GetCapabilities(), in.GetSizeBytes()})
+		RecommendedImageID                                                                                                                                 string `json:",omitempty"`
+		RecommendedImageScope                                                                                                                              string `json:",omitempty"`
+	}{targetModelID, in.GetModelName(), in.GetDisplayName(), in.GetDescription(), in.GetVersion(), in.GetFormat(), in.GetChecksumSha256(), runtime.EngineType, runtime.EngineImage, runtime.StartupCommand, in.GetSourceModelVersionId(), in.GetExecutionId(), in.GetCapabilities(), in.GetSizeBytes(), runtime.RecommendedImageID, runtime.RecommendedImageScope})
 	session, err := s.trained.Prepare(ctx, model.TrainedArtifactRegistration{
 		TenantID: p.TenantID, ID: registrationID, IdempotencyKey: in.GetIdempotencyKey(), RequestFingerprint: idempotency.Fingerprint(fingerprintBytes), ExecutionID: in.GetExecutionId(), TargetModelID: targetModelID,
-		ModelName: in.GetModelName(), DisplayName: in.GetDisplayName(), Description: in.GetDescription(), Capabilities: in.GetCapabilities(), SourceModelVersionID: in.GetSourceModelVersionId(), Version: in.GetVersion(), FileName: in.GetFileName(), Format: in.GetFormat(), StoragePath: storagePath, SizeBytes: in.GetSizeBytes(), ChecksumSHA256: in.GetChecksumSha256(), EngineType: engineType, EngineImage: engineImage, StartupCommand: startupCommand,
+		ModelName: in.GetModelName(), DisplayName: in.GetDisplayName(), Description: in.GetDescription(), Capabilities: in.GetCapabilities(), SourceModelVersionID: in.GetSourceModelVersionId(), Version: in.GetVersion(), FileName: in.GetFileName(), Format: in.GetFormat(), StoragePath: storagePath, SizeBytes: in.GetSizeBytes(), ChecksumSHA256: in.GetChecksumSha256(), EngineType: runtime.EngineType, EngineImage: runtime.EngineImage, StartupCommand: runtime.StartupCommand, RecommendedImageID: runtime.RecommendedImageID, RecommendedImageScope: runtime.RecommendedImageScope,
 	})
 	if err != nil {
 		return nil, mapTrainedRegistration(err)
@@ -147,40 +162,46 @@ func (s *ModelService) AbortTrainedArtifact(ctx context.Context, in *modelv1.Abo
 	return &modelv1.AbortTrainedArtifactResponse{}, nil
 }
 
-func (s *ModelService) resolveTrainedRuntime(ctx context.Context, tenant string, in *modelv1.PrepareTrainedArtifactRequest) (string, string, string, error) {
+func (s *ModelService) resolveTrainedRuntime(ctx context.Context, tenant string, in *modelv1.PrepareTrainedArtifactRequest, frozen *model.TrainedArtifactRegistration) (model.Version, error) {
 	provided := 0
 	for _, value := range []string{in.GetEngineType(), in.GetEngineImage(), in.GetStartupCommand()} {
 		if strings.TrimSpace(value) != "" {
 			provided++
 		}
 	}
-	var source *model.Version
-	if in.GetSourceModelVersionId() != "" {
+	if provided != 0 && provided != 3 {
+		return model.Version{}, kratoserrors.New(400, "INVALID_ARGUMENT", "complete inference runtime or source_model_version_id is required")
+	}
+	if provided == 0 && (in.GetSourceModelVersionId() == "" || in.GetRecommendedImageId() != "") {
+		return model.Version{}, kratoserrors.New(400, "INVALID_ARGUMENT", "catalog selection requires an explicit runtime or complete source inheritance")
+	}
+	var source model.Version
+	if frozen == nil && in.GetSourceModelVersionId() != "" {
 		if s.reader == nil {
-			return "", "", "", kratoserrors.New(503, "MODEL_STORE_UNAVAILABLE", "source model version lookup is not configured")
+			return model.Version{}, kratoserrors.New(503, "MODEL_STORE_UNAVAILABLE", "source model version lookup is not configured")
 		}
 		v, err := s.reader.GetVersion(ctx, tenant, in.GetSourceModelVersionId())
 		if err != nil {
-			return "", "", "", mapDomain(err)
+			return model.Version{}, mapDomain(err)
 		}
 		if v.Status != model.VersionReady {
-			return "", "", "", kratoserrors.New(400, "INVALID_ARGUMENT", "source_model_version_id is not ready")
+			return model.Version{}, kratoserrors.New(400, "INVALID_ARGUMENT", "source_model_version_id is not ready")
 		}
-		source = &v
+		source = v
 	}
 	if provided == 3 {
 		if err := model.ValidateEngineDefaults(in.GetEngineType(), in.GetEngineImage(), in.GetStartupCommand()); err != nil {
-			return "", "", "", kratoserrors.New(400, "INVALID_ARGUMENT", "invalid inference runtime")
+			return model.Version{}, kratoserrors.New(400, "INVALID_ARGUMENT", "invalid inference runtime")
 		}
-		return in.GetEngineType(), in.GetEngineImage(), in.GetStartupCommand(), nil
+		return model.Version{EngineType: in.GetEngineType(), EngineImage: in.GetEngineImage(), StartupCommand: in.GetStartupCommand(), RecommendedImageID: in.GetRecommendedImageId(), RecommendedImageScope: in.GetRecommendedImageScope()}, nil
 	}
-	if provided != 0 || source == nil {
-		return "", "", "", kratoserrors.New(400, "INVALID_ARGUMENT", "complete inference runtime or source_model_version_id is required")
+	if frozen != nil {
+		return model.Version{EngineType: frozen.EngineType, EngineImage: frozen.EngineImage, StartupCommand: frozen.StartupCommand, RecommendedImageID: frozen.RecommendedImageID, RecommendedImageScope: frozen.RecommendedImageScope}, nil
 	}
-	if model.ValidateEngineDefaults(source.EngineType, source.EngineImage, source.StartupCommand) != nil {
-		return "", "", "", kratoserrors.New(400, "INVALID_ARGUMENT", "source_model_version_id does not have a ready inference runtime")
+	if model.ValidateEngineDefaults(source.EngineType, source.EngineImage, source.StartupCommand) != nil || model.ValidateRecommendedImage(source.RecommendedImageID, source.RecommendedImageScope) != nil {
+		return model.Version{}, kratoserrors.New(400, "INVALID_ARGUMENT", "source_model_version_id does not have a ready inference runtime")
 	}
-	return source.EngineType, source.EngineImage, source.StartupCommand, nil
+	return source, nil
 }
 
 func trainedResultResponse(result model.TrainedArtifactRegistrationResult) *modelv1.CompleteTrainedArtifactResponse {
