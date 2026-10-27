@@ -8,6 +8,7 @@ import (
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
 	"github.com/liangzai006/ani-model-service/internal/identity"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestPrepareTrainedArtifactFreezesInheritedImageForReplay(t *testing.T) {
@@ -48,9 +49,9 @@ func TestPrepareTrainedArtifactFreezesInheritedImageForReplay(t *testing.T) {
 			if err != nil || first.GetRegistrationId() != second.GetRegistrationId() || reads != 1 {
 				t.Fatalf("replay=%+v err=%v reads=%d", second, err, reads)
 			}
-			changed := *in
+			changed := proto.Clone(in).(*modelv1.PrepareTrainedArtifactRequest)
 			changed.SourceModelVersionId = "different-source"
-			if _, err := s.PrepareTrainedArtifact(trainedArtifactContext(), &changed); kratoserrors.Code(err) != 409 {
+			if _, err := s.PrepareTrainedArtifact(trainedArtifactContext(), changed); kratoserrors.Code(err) != 409 {
 				t.Fatalf("source change=%v", err)
 			}
 		})
