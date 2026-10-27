@@ -32,6 +32,7 @@ type Version struct {
 	TenantID, ID, ModelID, ExternalModelID, Version, Format, Status string
 	ArtifactProvider, ArtifactReference, ArtifactSHA256             string
 	EngineType, EngineImage, StartupCommand                         string
+	RecommendedImageID, RecommendedImageScope                       string
 	StartupArgs                                                     []string
 	IdempotencyKey                                                  string
 	SizeBytes                                                       int64
@@ -80,7 +81,7 @@ func (v Version) Validate() error {
 	if v.Format != "safetensors" && v.Format != "gguf" && v.Format != "pytorch" {
 		return ErrInvalidModelVersion
 	}
-	return nil
+	return ValidateRecommendedImage(v.RecommendedImageID, v.RecommendedImageScope)
 }
 
 func (v Version) DeploymentInput() error {
@@ -113,6 +114,18 @@ func ValidateEngineDefaults(engine, image, command string) error {
 	return nil
 }
 
+// ValidateRecommendedImage preserves legacy empty defaults while requiring a
+// complete catalog selection whenever a caller supplies either field.
+func ValidateRecommendedImage(id, scope string) error {
+	if id == "" && scope == "" {
+		return nil
+	}
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(id) != id || (scope != "platform" && scope != "tenant") {
+		return ErrInvalidModelVersion
+	}
+	return nil
+}
+
 // BundleImport is the complete model, version, and source input for one
 // aggregate import. TenantID is supplied by the trusted caller context.
 type BundleImport struct {
@@ -122,6 +135,8 @@ type BundleImport struct {
 	Version, Format, EngineType, EngineImage        string
 	StartupCommand                                  string
 	Provider, RepoID, Revision                      string
+	RecommendedImageID                              string `json:",omitempty"`
+	RecommendedImageScope                           string `json:",omitempty"`
 }
 
 func (b BundleImport) Validate() error {
@@ -140,6 +155,9 @@ func (b BundleImport) Validate() error {
 		}
 	}
 	if strings.TrimSpace(b.Version) == "" || strings.TrimSpace(b.Format) == "" || ValidateEngineDefaults(b.EngineType, b.EngineImage, b.StartupCommand) != nil {
+		return ErrInvalidBundleImport
+	}
+	if ValidateRecommendedImage(b.RecommendedImageID, b.RecommendedImageScope) != nil {
 		return ErrInvalidBundleImport
 	}
 	return nil

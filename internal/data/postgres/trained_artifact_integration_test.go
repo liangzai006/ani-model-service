@@ -26,24 +26,26 @@ func TestTrainedArtifactStoreCompletesAggregateIdempotently(t *testing.T) {
 	registrationID := uuid.NewString()
 	store := NewTrainedArtifactStore(pool)
 	session := modelbiz.TrainedArtifactRegistration{
-		TenantID:           tenant,
-		ID:                 registrationID,
-		IdempotencyKey:     "training:" + registrationID,
-		RequestFingerprint: "fingerprint-" + registrationID,
-		ExecutionID:        "execution-" + registrationID,
-		ModelName:          "trained-qwen-" + registrationID[:8],
-		DisplayName:        "Trained Qwen",
-		Description:        "integration test artifact",
-		Capabilities:       []string{"text-generation"},
-		Version:            "run-1",
-		FileName:           "model.tar",
-		Format:             "safetensors",
-		StoragePath:        tenant + "/trained-artifacts/" + registrationID + "/model.tar",
-		SizeBytes:          4,
-		ChecksumSHA256:     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		EngineType:         "vllm",
-		EngineImage:        "registry/vllm:cpu",
-		StartupCommand:     "vllm serve /models --served-model-name trained-qwen",
+		TenantID:              tenant,
+		ID:                    registrationID,
+		IdempotencyKey:        "training:" + registrationID,
+		RequestFingerprint:    "fingerprint-" + registrationID,
+		ExecutionID:           "execution-" + registrationID,
+		ModelName:             "trained-qwen-" + registrationID[:8],
+		DisplayName:           "Trained Qwen",
+		Description:           "integration test artifact",
+		Capabilities:          []string{"text-generation"},
+		Version:               "run-1",
+		FileName:              "model.tar",
+		Format:                "safetensors",
+		StoragePath:           tenant + "/trained-artifacts/" + registrationID + "/model.tar",
+		SizeBytes:             4,
+		ChecksumSHA256:        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		EngineType:            "vllm",
+		EngineImage:           "registry/vllm:cpu",
+		RecommendedImageID:    "image-a",
+		RecommendedImageScope: "tenant",
+		StartupCommand:        "vllm serve /models --served-model-name trained-qwen",
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM public.trained_artifact_registrations WHERE tenant_id=$1`, tenant)
@@ -62,7 +64,7 @@ func TestTrainedArtifactStoreCompletesAggregateIdempotently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotReplay.ID != first.ID {
+	if gotReplay.ID != first.ID || gotReplay.RecommendedImageID != session.RecommendedImageID || gotReplay.RecommendedImageScope != session.RecommendedImageScope {
 		t.Fatalf("replay registration id=%q, want %q", gotReplay.ID, first.ID)
 	}
 	if err := store.MarkUploaded(ctx, tenant, first.ID); err != nil {
@@ -81,6 +83,18 @@ func TestTrainedArtifactStoreCompletesAggregateIdempotently(t *testing.T) {
 	}
 	if replayedResult != result {
 		t.Fatalf("complete replay=%+v, want %+v", replayedResult, result)
+	}
+
+	persisted, err := NewVersionStore(pool).GetVersion(ctx, tenant, result.ModelVersionID)
+	if err != nil || persisted.RecommendedImageID != session.RecommendedImageID || persisted.RecommendedImageScope != session.RecommendedImageScope || persisted.EngineImage != session.EngineImage {
+		t.Fatalf("completed default=%+v err=%v", persisted, err)
+	}
+	frozen, err := store.GetByIdempotencyKey(ctx, tenant, session.IdempotencyKey)
+	if err != nil || frozen.RecommendedImageID != session.RecommendedImageID || frozen.RecommendedImageScope != session.RecommendedImageScope {
+		t.Fatalf("frozen registration=%+v err=%v", frozen, err)
+	}
+	if _, err := store.GetByIdempotencyKey(ctx, uuid.NewString(), session.IdempotencyKey); err != modelbiz.ErrRegistrationNotFound {
+		t.Fatalf("cross-tenant registration lookup=%v", err)
 	}
 
 	var modelStatus, versionStatus string

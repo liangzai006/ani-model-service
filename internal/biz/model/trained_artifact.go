@@ -28,6 +28,7 @@ type TrainedArtifactRegistration struct {
 	StoragePath, ChecksumSHA256                                   string
 	SizeBytes                                                     int64
 	EngineType, EngineImage, StartupCommand                       string
+	RecommendedImageID, RecommendedImageScope                     string
 	Status, ErrorMessage, ModelID, ModelVersionID                 string
 	CreatedAt, UpdatedAt                                          time.Time
 }
@@ -40,6 +41,7 @@ type TrainedArtifactRegistrationResult struct {
 type TrainedArtifactRegistrar interface {
 	Prepare(context.Context, TrainedArtifactRegistration) (TrainedArtifactRegistration, error)
 	Get(context.Context, string, string) (TrainedArtifactRegistration, error)
+	GetByIdempotencyKey(context.Context, string, string) (TrainedArtifactRegistration, error)
 	MarkUploaded(context.Context, string, string) error
 	Complete(context.Context, string, string) (TrainedArtifactRegistrationResult, error)
 	Fail(context.Context, string, string, string) error

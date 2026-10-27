@@ -40,22 +40,34 @@ kubectl --context "$KUBE_CONTEXT" -n <import-namespace> logs job/<job-name> -c i
 
 ## 模型版本与推理启动配置
 
-`ModelVersion` 保存推理默认配置：`engine_type`、`engine_image` 和完整的
-`startup_command`。创建版本时由调用方提供，例如：
+`ModelVersion` 保存推理默认配置：`engine_type`、`engine_image`、完整的
+`startup_command`，以及成对的 `recommended_image_id`、`recommended_image_scope`。
+scope 为 `platform` 或 `tenant`。新表单从镜像目录选择，Gov 查询目录后填入固定
+`engine_image` 引用；历史记录和旧调用仍可同时省略两个推荐字段。例如：
 
 ```json
 {
   "engine_type": "vllm",
-  "engine_image": "registry.example/vllm:latest",
+  "engine_image": "registry.example/vllm@sha256:<digest>",
+  "recommended_image_id": "<registered-image-id>",
+  "recommended_image_scope": "platform",
   "startup_command": "vllm serve /models --served-model-name qwen2.5-1.5b-instruct"
 }
 ```
 
 `GetModelVersion` 和 `ListModelVersions` 会原样返回这些字段。前端选择版本后将其
-带入推理创建表单，创建请求仍提交最终的 `engine.type`、`engine.image` 和
-`engine.command`，因此可以针对单次推理临时修改，而不会修改 ModelVersion 默认值。
+带入推理创建表单。使用目录的推理请求显式提交最终 `image_id`、`image_scope` 和
+完整引擎命令，Inference 在接受前解析实际执行镜像；单次覆盖不会修改模型默认值。
 `startup_command` 始终是一条完整字符串；服务不会把它拆成数组，也不会拼接启动
 参数。
+
+版本创建、整包导入及训练产物注册均保存推荐字段，并把选择计入现有幂等指纹；
+两个字段为空时保留旧指纹。`PrepareTrainedArtifact` 继承源版本时将推荐字段与
+镜像引用冻结进注册会话，重放及 `CompleteTrainedArtifact` 使用冻结值。旧 ModelDev
+仍可不传新字段，源版本没有目录选择时不会伪造 ID。
+
+`IMG-KNOWN-P2-001` 保持 **DEFERRED**：Model 已保存但响应丢失后，Gov 保存前的
+目录查询仍可能因目录变化或不可用而阻断原请求重放；本期未增加补偿入口或账本。
 
 Model、ModelVersion 列表统一使用 `page`、`pageSize`，返回 `items` 和 `total`。
 

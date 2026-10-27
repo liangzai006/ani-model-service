@@ -43,6 +43,13 @@ func (f *trainedArtifactRegistrarFake) Get(context.Context, string, string) (mod
 	return f.session, nil
 }
 
+func (f *trainedArtifactRegistrarFake) GetByIdempotencyKey(_ context.Context, tenant, key string) (model.TrainedArtifactRegistration, error) {
+	if f.session.TenantID != tenant || f.session.IdempotencyKey != key {
+		return model.TrainedArtifactRegistration{}, model.ErrRegistrationNotFound
+	}
+	return f.session, nil
+}
+
 func (f *trainedArtifactRegistrarFake) MarkUploaded(context.Context, string, string) error {
 	f.uploadedCalls++
 	f.session.Status = model.RegistrationUploaded

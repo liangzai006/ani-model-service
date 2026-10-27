@@ -50,9 +50,13 @@ func TestBundleImportStorePostgres(t *testing.T) {
 	})
 	store := NewBundleImportStore(pool)
 	in := bundleImportFixture(tenant, "bundle-"+uuid.NewString())
+	in.RecommendedImageID, in.RecommendedImageScope = "image-a", "platform"
 	first, err := store.ImportBundle(ctx, in)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if first.Version.RecommendedImageID != in.RecommendedImageID || first.Version.RecommendedImageScope != in.RecommendedImageScope {
+		t.Fatalf("bundle default=%+v", first.Version)
 	}
 	var counts struct{ models, versions, tasks int }
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.models WHERE tenant_id=$1`, tenant).Scan(&counts.models); err != nil {
@@ -88,6 +92,11 @@ func TestBundleImportStorePostgres(t *testing.T) {
 	replay, err := store.ImportBundle(ctx, in)
 	if err != nil || replay.Model.ID != first.Model.ID || replay.Version.ID != first.Version.ID || replay.TaskID != first.TaskID {
 		t.Fatalf("replay=%+v err=%v first=%+v", replay, err, first)
+	}
+	changedImage := in
+	changedImage.RecommendedImageID = "image-b"
+	if _, err := store.ImportBundle(ctx, changedImage); err == nil {
+		t.Fatal("changed image unexpectedly replayed bundle")
 	}
 	conflict := in
 	conflict.StartupCommand += " --port 8000"

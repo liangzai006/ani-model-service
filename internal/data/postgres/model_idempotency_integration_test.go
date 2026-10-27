@@ -37,16 +37,21 @@ func TestModelAndVersionIdempotencyPostgres(t *testing.T) {
 
 	versions := NewVersionStore(pool)
 	versionID := uuid.NewString()
-	v := modelbiz.Version{TenantID: tenant, ID: versionID, ModelID: modelID, Version: "v1", Format: "safetensors", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", IdempotencyKey: "version-key-" + versionID}
+	v := modelbiz.Version{TenantID: tenant, ID: versionID, ModelID: modelID, Version: "v1", Format: "safetensors", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", IdempotencyKey: "version-key-" + versionID, RecommendedImageID: "image-a", RecommendedImageScope: "platform"}
 	created, err := versions.CreateVersion(ctx, v)
 	if err != nil {
 		t.Fatal(err)
 	}
 	v.ID = uuid.NewString()
 	replayed, err := versions.CreateVersion(ctx, v)
-	if err != nil || replayed.ID != created.ID {
+	if err != nil || replayed.ID != created.ID || replayed.RecommendedImageID != "image-a" || replayed.RecommendedImageScope != "platform" {
 		t.Fatalf("version replay mismatch: created=%+v replayed=%+v err=%v", created, replayed, err)
 	}
+	v.RecommendedImageID = "image-b"
+	if _, err := versions.CreateVersion(ctx, v); err == nil {
+		t.Fatal("changed image unexpectedly replayed version")
+	}
+	v.RecommendedImageID = "image-a"
 	v.Version = "v2"
 	if _, err := versions.CreateVersion(ctx, v); err == nil {
 		t.Fatal("different version payload unexpectedly replayed")
