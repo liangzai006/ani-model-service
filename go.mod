@@ -2,6 +2,9 @@ module github.com/liangzai006/ani-model-service
 
 go 1.26.9
 
+// The API changes live in this checkout until the canonical API module is released.
+replace github.com/liangzai006/ani-model-service/api => ./api
+
 require (
 	github.com/go-kratos/kratos/contrib/otel/v3 v3.0.0-20260515082355-1ddb58e407c5
 	github.com/go-kratos/kratos/v3 v3.0.0
