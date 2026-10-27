@@ -18,18 +18,12 @@ not part of the reference-protocol ownership change.
 
 ## Consumption and releases
 
-Consumers must pin an immutable published API version. The Model runtime
-currently pins this downloadable version:
-
-```bash
-go get github.com/liangzai006/ani-model-service/api@v0.0.0-20261020102840-e6b26b580a9f
-```
-
-That historical version still contains the old `inference/v1` copy. The removal
-in this working tree must be published before consumers can receive it. Migrate
-any imports of `ani-model-service/api/inference/v1` to the Inference-owned
-package first. Do not import both copies into the same executable: their
-protobuf descriptors conflict during initialization.
+Consumers must pin an immutable published API version; the runtime's `go.mod`
+records its selected version. Publication must precede the runtime dependency
+upgrade. Each executable must contain exactly one Model protobuf Go package:
+importing multiple publisher paths registers the same wire descriptors twice.
+Inference contracts remain owned by `ani-inference-service/api/inference/v1`.
+This API module does not contain an Inference protocol copy.
 
 Import Model clients using:
 
@@ -57,6 +51,22 @@ Never use a permanent local `replace` or workspace to stand in for a release.
   `DeleteModelVersion`.
 - Trained artifacts: `PrepareTrainedArtifact`, `CompleteTrainedArtifact`,
   `AbortTrainedArtifact`.
+- Registration recovery: `GetTrainedArtifactRegistration` reads the original
+  tenant/key/execution session without writing it. Optional object verification
+  streams the original path and reports MISSING, VERIFIED, MISMATCH or
+  UNAVAILABLE without marking uploaded or complete. A miss never proves a write
+  was not sent. `GetTrainedArtifactUploadURL` signs only the pending original
+  registration/key/execution/path, without creating another session or version.
+- Finetuning preflight: `ResolveFinetuningFacts` observes a tenant-owned READY
+  safetensors archive and the original target without creating a preparation
+  ticket, reserving a name or writing an object. The MinIO provider requires a
+  real non-null object VersionID, hashes that exact GET stream and every regular
+  archive member, and returns bounded original config members. Unversioned
+  storage and adapters without this capability fail closed. `ValidateFor`
+  verifies the full response, target, member inventory and config byte hashes.
+  The existing tenant catalogue and READY state define eligibility; there is no
+  additional approval registry or caller-provided approval flag. A name conflict
+  preflight does not replace the registration transaction's unique constraints.
 - Storage: `CreateUploadURL`, `ObjectExists`, `VerifyChecksum`,
   `CreateDownloadURL`.
 

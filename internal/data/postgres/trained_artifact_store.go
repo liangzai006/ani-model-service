@@ -93,6 +93,10 @@ func (s *TrainedArtifactStore) Get(ctx context.Context, tenantID, registrationID
 // GetByIdempotencyKey reads the existing registration before resolving source
 // defaults so retries use the same frozen runtime, even after source changes.
 func (s *TrainedArtifactStore) GetByIdempotencyKey(ctx context.Context, tenantID, key string) (modelbiz.TrainedArtifactRegistration, error) {
+	return s.GetByKey(ctx, tenantID, key)
+}
+
+func (s *TrainedArtifactStore) GetByKey(ctx context.Context, tenantID, key string) (modelbiz.TrainedArtifactRegistration, error) {
 	tenant, err := uuid.Parse(tenantID)
 	if err != nil {
 		return modelbiz.TrainedArtifactRegistration{}, fmt.Errorf("tenant_id: %w", err)
