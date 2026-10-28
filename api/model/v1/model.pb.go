@@ -803,7 +803,7 @@ type ResolveFinetuningFactsResponse struct {
 	SizeBytes       int64                     `protobuf:"varint,8,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
 	Sha256          string                    `protobuf:"bytes,9,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	Files           []*FinetuningArtifactFile `protobuf:"bytes,10,rep,name=files,proto3" json:"files,omitempty"`
-	// Exact members from the verified archive, each limited to 1 MiB.
+	// Exact members from the verified archive, each limited to 8 MiB.
 	ConfigJson          []byte `protobuf:"bytes,11,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
 	TokenizerConfigJson []byte `protobuf:"bytes,12,opt,name=tokenizer_config_json,json=tokenizerConfigJson,proto3" json:"tokenizer_config_json,omitempty"`
 	// Types that are valid to be assigned to Target:
@@ -813,8 +813,10 @@ type ResolveFinetuningFactsResponse struct {
 	Target isResolveFinetuningFactsResponse_Target `protobuf_oneof:"target"`
 	// Identifies the provider verification algorithm, never an approval assertion.
 	VerificationSource string `protobuf:"bytes,15,opt,name=verification_source,json=verificationSource,proto3" json:"verification_source,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Exact bounded index member, empty for a single safetensors file.
+	WeightIndexJson []byte `protobuf:"bytes,16,opt,name=weight_index_json,json=weightIndexJson,proto3" json:"weight_index_json,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ResolveFinetuningFactsResponse) Reset() {
@@ -961,6 +963,13 @@ func (x *ResolveFinetuningFactsResponse) GetVerificationSource() string {
 		return x.VerificationSource
 	}
 	return ""
+}
+
+func (x *ResolveFinetuningFactsResponse) GetWeightIndexJson() []byte {
+	if x != nil {
+		return x.WeightIndexJson
+	}
+	return nil
 }
 
 type isResolveFinetuningFactsResponse_Target interface {
@@ -4658,7 +4667,7 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\x02 \x01(\x03R\tsizeBytes\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"\xce\x04\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"\xfa\x04\n" +
 	"\x1eResolveFinetuningFactsResponse\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12(\n" +
@@ -4678,7 +4687,8 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\x15tokenizer_config_json\x18\f \x01(\fR\x13tokenizerConfigJson\x12(\n" +
 	"\x0ftarget_model_id\x18\r \x01(\tH\x00R\rtargetModelId\x12&\n" +
 	"\x0enew_model_name\x18\x0e \x01(\tH\x00R\fnewModelName\x12/\n" +
-	"\x13verification_source\x18\x0f \x01(\tR\x12verificationSourceB\b\n" +
+	"\x13verification_source\x18\x0f \x01(\tR\x12verificationSource\x12*\n" +
+	"\x11weight_index_json\x18\x10 \x01(\fR\x0fweightIndexJsonB\b\n" +
 	"\x06target\"\x9b\x04\n" +
 	"\x05Model\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x0e\n" +
