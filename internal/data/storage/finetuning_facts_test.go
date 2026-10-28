@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -219,5 +220,88 @@ func TestFinetuningInventoryCountsHiddenPAXWithinRawArchiveOverhead(t *testing.T
 	var violation *model.FinetuningLimitViolation
 	if !errors.As(err, &violation) || violation.LimitName != "max_archive_overhead_bytes" {
 		t.Fatalf("hidden PAX bytes omitted from C bound: %v", err)
+	}
+}
+
+func TestFinetuningArchiveEnvelopeLimitIsTypedBeforeSourceAccess(t *testing.T) {
+	const limit int64 = 1024
+	bound := limit + finetuningTarOverhead
+	digest := strings.Repeat("a", 64)
+	client, err := minio.New("127.0.0.1:1", &minio.Options{Secure: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &MinIOAdapter{client: client, bucket: "models", finetuningContentLimit: limit}
+	for _, check := range []struct {
+		name string
+		run  func() error
+	}{
+		{"provider", func() error {
+			_, err := adapter.InspectFinetuningArtifact(context.Background(), "tenant", "model.tar", bound+1, digest)
+			return err
+		}},
+		{"archive", func() error {
+			_, err := inspectFinetuningArchive(context.Background(), nil, bound+1, digest, limit)
+			return err
+		}},
+	} {
+		t.Run(check.name, func(t *testing.T) {
+			var violation *model.FinetuningLimitViolation
+			if err := check.run(); !errors.As(err, &violation) || violation.Reason != "STRUCTURE_LIMIT_EXCEEDED" || violation.LimitName != "tar_read_bound" || violation.Actual != bound+1 || violation.Limit != bound {
+				t.Fatalf("known archive envelope excess lost its bound: %v", err)
+			}
+		})
+	}
+}
+
+type interruptedFactsReader struct{ err error }
+
+func (r interruptedFactsReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestFinetuningArchiveIncompleteObservationIsRetryable(t *testing.T) {
+	raw := factsArchive(t, nil)
+	sum := sha256.Sum256(raw)
+	digest := hex.EncodeToString(sum[:])
+	disconnected := errors.New("source connection interrupted")
+	for _, test := range []struct {
+		name string
+		body io.Reader
+	}{
+		{"header disconnect", io.MultiReader(bytes.NewReader(raw[:100]), interruptedFactsReader{disconnected})},
+		{"header short EOF", bytes.NewReader(raw[:100])},
+		{"member disconnect", io.MultiReader(bytes.NewReader(raw[:520]), interruptedFactsReader{disconnected})},
+		{"padding short EOF", bytes.NewReader(raw[:len(raw)-512])},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := inspectFinetuningArchive(context.Background(), test.body, int64(len(raw)), digest, 1<<20)
+			if !errors.Is(err, model.ErrFinetuningFactsUnavailable) || errors.Is(err, model.ErrFinetuningBaseInvalid) {
+				t.Fatalf("incomplete source was classified as model content: %v", err)
+			}
+		})
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if _, err := inspectFinetuningArchive(ctx, bytes.NewReader(raw), int64(len(raw)), digest, 1<<20); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, model.ErrFinetuningBaseInvalid) {
+		t.Fatalf("earlier deadline lost its category: %v", err)
+	}
+}
+
+func TestFinetuningCompleteMalformedArchiveRemainsModelInvalid(t *testing.T) {
+	raw := factsArchive(t, nil)
+	raw[148] = '!'
+	sum := sha256.Sum256(raw)
+	_, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), hex.EncodeToString(sum[:]), 1<<20)
+	if !errors.Is(err, model.ErrFinetuningBaseInvalid) || errors.Is(err, model.ErrFinetuningFactsUnavailable) {
+		t.Fatalf("complete malformed header lost its category: %v", err)
+	}
+}
+
+func TestFinetuningArchivePathLimitHasStructureDetails(t *testing.T) {
+	raw := factsArchive(t, func(header *tar.Header) { header.Name = strings.Repeat("x", 1025) })
+	sum := sha256.Sum256(raw)
+	_, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), hex.EncodeToString(sum[:]), 1<<20)
+	var violation *model.FinetuningLimitViolation
+	if !errors.As(err, &violation) || violation.Reason != "STRUCTURE_LIMIT_EXCEEDED" || violation.LimitName != "max_relative_path_bytes" || violation.Actual != 1025 || violation.Limit != 1024 {
+		t.Fatalf("path guard lost its actual and limit: %v", err)
 	}
 }

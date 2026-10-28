@@ -69,6 +69,9 @@ func (a *GRPCAdapter) Upload(ctx context.Context, in bizstorage.UploadRequest, b
 }
 
 func (a *GRPCAdapter) CreateUploadURL(ctx context.Context, in bizstorage.UploadRequest) (bizstorage.SignedURL, error) {
+	if in.TTL != 0 {
+		return bizstorage.SignedURL{}, fmt.Errorf("%w: Storage gRPC upload contract does not support an explicit upload TTL", bizstorage.ErrProvider)
+	}
 	r, err := a.client.CreateUploadURL(ctx, &storagev1.CreateUploadURLRequest{TenantId: in.TenantID, ObjectRef: in.ObjectRef, ContentType: in.ContentType, SizeBytes: in.SizeBytes, ChecksumSha256: in.ChecksumSHA256})
 	if err != nil {
 		return bizstorage.SignedURL{}, providerError(err)

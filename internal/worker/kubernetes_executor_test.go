@@ -116,6 +116,57 @@ func TestKubernetesImportExecutorJobSpecUsesUploadURL(t *testing.T) {
 	}
 }
 
+func TestKubernetesImportExecutorJobStorageCA(t *testing.T) {
+	for _, configMap := range []string{"", "ani-model-v21-storage-ca"} {
+		t.Run(configMap, func(t *testing.T) {
+			e := KubernetesImportExecutor{
+				Namespace:          "ani-system",
+				Image:              "registry.example/ani-model-importer:v1",
+				Providers:          importer.Registry{"modelscope": manifestSizeSource{}},
+				StorageCAConfigMap: configMap,
+			}
+			spec, _, err := e.jobSpec(context.Background(), workbiz.Task{
+				TenantID: "99999999-9999-4999-8999-999999999999",
+				ID:       "11111111-1111-4111-8111-111111111111",
+				Source:   "modelscope", RepoID: "HuggingFaceTB/SmolLM2-135M", Revision: "master",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			job, err := kube.BuildImportJob(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pod := job.Spec.Template.Spec
+			container := pod.Containers[0]
+			if configMap == "" {
+				if len(pod.Volumes) != 1 || len(container.VolumeMounts) != 1 {
+					t.Fatalf("unconfigured import gained a CA mount: volumes=%#v mounts=%#v", pod.Volumes, container.VolumeMounts)
+				}
+				for _, env := range container.Env {
+					if env.Name == "SSL_CERT_FILE" {
+						t.Fatal("unconfigured import overrides its image CA bundle")
+					}
+				}
+				return
+			}
+			if got := envValue(container.Env, "SSL_CERT_FILE"); got != "/var/run/ani-model-storage-ca/ca.crt" {
+				t.Fatalf("import SSL_CERT_FILE = %q", got)
+			}
+			if len(pod.Volumes) != 2 || len(container.VolumeMounts) != 2 {
+				t.Fatalf("configured import CA mount missing: volumes=%#v mounts=%#v", pod.Volumes, container.VolumeMounts)
+			}
+			volume, mount := pod.Volumes[1], container.VolumeMounts[1]
+			if volume.ConfigMap == nil || volume.ConfigMap.Name != configMap || len(volume.ConfigMap.Items) != 1 || volume.ConfigMap.Items[0].Key != "ca.crt" || volume.ConfigMap.Items[0].Path != "ca.crt" {
+				t.Fatalf("import CA ConfigMap/key = %#v", volume)
+			}
+			if mount.Name != volume.Name || mount.MountPath != "/var/run/ani-model-storage-ca" || !mount.ReadOnly {
+				t.Fatalf("import CA mount = %#v", mount)
+			}
+		})
+	}
+}
+
 func TestKubernetesImportExecutorCreatesUploadSecretForNewJob(t *testing.T) {
 	clientset := k8sfake.NewSimpleClientset()
 	store := &kubernetesStorageFake{upload: storage.SignedURL{URL: "https://storage.example/upload", ExpiresAt: time.Now().Add(time.Hour)}}
@@ -126,6 +177,7 @@ func TestKubernetesImportExecutorCreatesUploadSecretForNewJob(t *testing.T) {
 		Image:        "registry.example/ani-model-importer:v1",
 		Providers:    importer.Registry{"modelscope": manifestSizeSource{}},
 		PollInterval: time.Millisecond,
+		UploadTTL:    time.Hour,
 	}
 	task := workbiz.Task{TenantID: "99999999-9999-4999-8999-999999999999", ID: "11111111-1111-4111-8111-111111111111", Source: "modelscope", RepoID: "Qwen/Qwen3-32B", Revision: "master"}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -142,6 +194,9 @@ func TestKubernetesImportExecutorCreatesUploadSecretForNewJob(t *testing.T) {
 	}
 	if got, want := store.request.ContentType, "application/x-tar"; got != want {
 		t.Fatalf("upload content type = %q, want %q", got, want)
+	}
+	if got, want := store.request.TTL, time.Hour; got != want {
+		t.Fatalf("import upload TTL = %v, want %v", got, want)
 	}
 	spec, _, err := e.jobSpec(context.Background(), task)
 	if err != nil {

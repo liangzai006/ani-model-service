@@ -72,14 +72,45 @@ func TestBuildImportJobMakesStagingWritableByNonRootImporter(t *testing.T) {
 	if security == nil || security.FSGroup == nil || *security.FSGroup != 65532 {
 		t.Fatalf("import staging group = %#v, want fsGroup 65532 for the nonroot importer", security)
 	}
-	if security.RunAsNonRoot == nil || !*security.RunAsNonRoot {
-		t.Fatalf("import worker must remain nonroot: %#v", security)
-	}
 	if security.FSGroupChangePolicy == nil || *security.FSGroupChangePolicy != corev1.FSGroupChangeOnRootMismatch {
 		t.Fatalf("staging ownership policy = %#v, want OnRootMismatch", security.FSGroupChangePolicy)
 	}
 	if got := job.Spec.Template.Spec.Containers[0].VolumeMounts[0]; got.Name != "staging" || got.MountPath != "/staging" || got.ReadOnly {
 		t.Fatalf("staging PVC mount changed: %#v", got)
+	}
+}
+
+func TestBuildImportJobUsesImporterImageUser(t *testing.T) {
+	for _, image := range []string{"registry.example/model-importer:root", "registry.example/model-importer:nonroot"} {
+		t.Run(image, func(t *testing.T) {
+			job, err := BuildImportJob(ImportJobSpec{
+				Namespace: "ani-model",
+				Name:      "import-image-user",
+				Image:     image,
+			})
+			if err != nil {
+				t.Fatalf("BuildImportJob() error = %v", err)
+			}
+			pod := job.Spec.Template.Spec
+			if security := pod.SecurityContext; security != nil {
+				if security.RunAsNonRoot != nil && *security.RunAsNonRoot {
+					t.Fatalf("pod rejects an importer image with the default root user: %#v", security)
+				}
+				if security.RunAsUser != nil || security.RunAsGroup != nil {
+					t.Fatalf("pod overrides the importer image user/group: %#v", security)
+				}
+			}
+			for _, container := range pod.Containers {
+				if security := container.SecurityContext; security != nil {
+					if security.RunAsNonRoot != nil && *security.RunAsNonRoot {
+						t.Fatalf("container %q rejects an importer image with the default root user: %#v", container.Name, security)
+					}
+					if security.RunAsUser != nil || security.RunAsGroup != nil {
+						t.Fatalf("container %q overrides the importer image user/group: %#v", container.Name, security)
+					}
+				}
+			}
+		})
 	}
 }
 

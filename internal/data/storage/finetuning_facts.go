@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"io"
@@ -22,6 +23,7 @@ import (
 
 const maxFinetuningMetadataBytes int64 = 16 << 20
 const maxFinetuningEntries = 4096
+const maxFinetuningRelativePathBytes = 1024
 const finetuningTarOverhead int64 = 512*maxFinetuningEntries + 511*modelv1.MaxFinetuningModelFiles + maxFinetuningMetadataBytes + 1024
 
 // ConfigureFinetuningContentLimit is deployment-only. An omitted/invalid limit
@@ -37,8 +39,14 @@ func (a *MinIOAdapter) ConfigureFinetuningContentLimit(limit int64) error {
 var _ model.FinetuningArtifactReader = (*MinIOAdapter)(nil)
 
 func (a *MinIOAdapter) InspectFinetuningArtifact(ctx context.Context, tenant, reference string, size int64, digest string) (model.ArtifactInventory, error) {
-	if a == nil || a.client == nil || size <= 0 || a.finetuningContentLimit <= 0 || a.finetuningContentLimit > math.MaxInt64-finetuningTarOverhead || size > a.finetuningContentLimit+finetuningTarOverhead || len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
+	if err := ctx.Err(); err != nil {
+		return model.ArtifactInventory{}, err
+	}
+	if a == nil || a.client == nil || size <= 0 || a.finetuningContentLimit <= 0 || a.finetuningContentLimit > math.MaxInt64-finetuningTarOverhead || len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
 		return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+	}
+	if size > a.finetuningContentLimit+finetuningTarOverhead {
+		return model.ArtifactInventory{}, archiveReadBoundExceeded(size, a.finetuningContentLimit)
 	}
 	key, err := tenantKey(tenant, reference)
 	if err != nil {
@@ -82,8 +90,14 @@ func (a *MinIOAdapter) InspectFinetuningArtifact(ctx context.Context, tenant, re
 }
 
 func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, digest string, limit int64) (model.ArtifactInventory, error) {
-	if limit <= 0 || limit > math.MaxInt64-finetuningTarOverhead || size <= 0 || size > limit+finetuningTarOverhead {
+	if err := ctx.Err(); err != nil {
+		return model.ArtifactInventory{}, err
+	}
+	if limit <= 0 || limit > math.MaxInt64-finetuningTarOverhead || size <= 0 {
 		return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+	}
+	if size > limit+finetuningTarOverhead {
+		return model.ArtifactInventory{}, archiveReadBoundExceeded(size, limit)
 	}
 	hash := sha256.New()
 	readBound := size
@@ -101,7 +115,7 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 			break
 		}
 		if err != nil {
-			return model.ArtifactInventory{}, fmt.Errorf("%w: invalid archive: %w", model.ErrFinetuningBaseInvalid, err)
+			return model.ArtifactInventory{}, measured.archiveReadError(err, size)
 		}
 		if measured.count-expanded > finetuningTarOverhead {
 			return model.ArtifactInventory{}, archiveOverheadExceeded(measured.count - expanded)
@@ -113,7 +127,10 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 		if len(seen) >= maxFinetuningEntries {
 			return model.ArtifactInventory{}, &model.FinetuningLimitViolation{Reason: "STRUCTURE_LIMIT_EXCEEDED", LimitName: "max_archive_entries", Actual: int64(len(seen)) + 1, Limit: maxFinetuningEntries}
 		}
-		if !utf8.ValidString(name) || name == "" || len(name) > 1024 || path.Clean(name) != name || strings.HasPrefix(name, "/") || name == "." || name == ".." || strings.HasPrefix(name, "../") || strings.ContainsAny(name, "\\\x00\r\n") || strings.IndexFunc(name, func(r rune) bool { return r < 32 || r == 127 }) >= 0 || seen[name] || header.Linkname != "" {
+		if len(name) > maxFinetuningRelativePathBytes {
+			return model.ArtifactInventory{}, &model.FinetuningLimitViolation{Reason: "STRUCTURE_LIMIT_EXCEEDED", LimitName: "max_relative_path_bytes", Actual: int64(len(name)), Limit: maxFinetuningRelativePathBytes}
+		}
+		if !utf8.ValidString(name) || name == "" || path.Clean(name) != name || strings.HasPrefix(name, "/") || name == "." || name == ".." || strings.HasPrefix(name, "../") || strings.ContainsAny(name, "\\\x00\r\n") || strings.IndexFunc(name, func(r rune) bool { return r < 32 || r == 127 }) >= 0 || seen[name] || header.Linkname != "" {
 			return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 		}
 		seen[name] = true
@@ -150,7 +167,7 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 		}
 		count, err := io.Copy(output, archive)
 		if err != nil {
-			return model.ArtifactInventory{}, err
+			return model.ArtifactInventory{}, measured.archiveReadError(err, size)
 		}
 		if count != header.Size {
 			return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
@@ -183,13 +200,16 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 			break
 		}
 		if err != nil {
-			return model.ArtifactInventory{}, err
+			return model.ArtifactInventory{}, measured.archiveReadError(err, size)
 		}
 	}
 	if measured.count-expanded > finetuningTarOverhead {
 		return model.ArtifactInventory{}, archiveOverheadExceeded(measured.count - expanded)
 	}
-	if measured.count != size || hex.EncodeToString(hash.Sum(nil)) != digest || len(result.ConfigJSON) == 0 || len(result.TokenizerConfigJSON) == 0 {
+	if measured.count != size {
+		return model.ArtifactInventory{}, fmt.Errorf("%w: original object size was not observed", model.ErrFinetuningFactsUnavailable)
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != digest || len(result.ConfigJSON) == 0 || len(result.TokenizerConfigJSON) == 0 {
 		return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 	}
 	files := make([]*modelv1.FinetuningArtifactFile, 0, len(result.Files))
@@ -204,9 +224,10 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 }
 
 type inventoryCountingReader struct {
-	ctx    context.Context
-	reader io.Reader
-	count  int64
+	ctx       context.Context
+	reader    io.Reader
+	count     int64
+	sourceErr error
 }
 
 func (r *inventoryCountingReader) Read(p []byte) (int, error) {
@@ -215,7 +236,30 @@ func (r *inventoryCountingReader) Read(p []byte) (int, error) {
 	}
 	n, err := r.reader.Read(p)
 	r.count += int64(n)
+	if err != nil && err != io.EOF {
+		r.sourceErr = err
+	}
 	return n, err
+}
+
+func (r *inventoryCountingReader) archiveReadError(err error, size int64) error {
+	if contextErr := r.ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	// archive/tar can itself produce unexpected EOF for malformed complete
+	// contents. A transport error or EOF before the frozen object size instead
+	// means the original source has not been observed and can be retried.
+	if r.sourceErr != nil {
+		return fmt.Errorf("%w: source read: %w", model.ErrFinetuningFactsUnavailable, r.sourceErr)
+	}
+	if r.count < size && (errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF)) {
+		return fmt.Errorf("%w: source read: %w", model.ErrFinetuningFactsUnavailable, err)
+	}
+	return fmt.Errorf("%w: invalid archive: %w", model.ErrFinetuningBaseInvalid, err)
+}
+
+func archiveReadBoundExceeded(actual, limit int64) error {
+	return &model.FinetuningLimitViolation{Reason: "STRUCTURE_LIMIT_EXCEEDED", LimitName: "tar_read_bound", Actual: actual, Limit: limit + finetuningTarOverhead}
 }
 
 // The archive envelope policy is raw bytes minus actual regular payload, not

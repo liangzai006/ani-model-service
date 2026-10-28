@@ -118,7 +118,10 @@ func (a *MinIOAdapter) CreateUploadURL(ctx context.Context, in bizstorage.Upload
 	if err != nil {
 		return bizstorage.SignedURL{}, err
 	}
-	expires := 15 * time.Minute
+	expires := in.TTL
+	if expires == 0 {
+		expires = 15 * time.Minute
+	}
 	bucket, err := a.bucketForTenant(in.TenantID)
 	if err != nil {
 		return bizstorage.SignedURL{}, err
