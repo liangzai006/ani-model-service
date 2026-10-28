@@ -74,7 +74,7 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 	if raw := os.Getenv("MODELDEV_MODEL_RESOLUTION_TIMEOUT"); raw != "" {
 		var err error
 		resolutionTimeout, err = time.ParseDuration(raw)
-		if err != nil || resolutionTimeout <= 0 || resolutionTimeout > 24*time.Hour {
+		if err != nil || resolutionTimeout <= 0 {
 			return nil, errors.New("invalid MODELDEV_MODEL_RESOLUTION_TIMEOUT")
 		}
 	}

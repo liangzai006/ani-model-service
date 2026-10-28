@@ -154,52 +154,56 @@ func TestModelServerFinetuningUsesDedicatedMTLSIdentity(t *testing.T) {
 }
 
 func TestModelServerFinetuningReadHasIndependentBudgetAnd64MiBTransport(t *testing.T) {
-	key, ca, pem := newTestCA(t)
-	dir := t.TempDir()
-	caFile, certFile, keyFile := filepath.Join(dir, "ca.crt"), filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
-	if err := os.WriteFile(caFile, pem, 0600); err != nil {
-		t.Fatal(err)
-	}
-	cert, private := signTestCert(t, key, ca, "model.ani.internal", nil, x509.ExtKeyUsageServerAuth)
-	writeCertPair(t, certFile, keyFile, cert, private)
-	t.Setenv("ANI_MODEL_SERVER_CA_FILE", caFile)
-	t.Setenv("ANI_MODEL_SERVER_CERT_FILE", certFile)
-	t.Setenv("ANI_MODEL_SERVER_KEY_FILE", keyFile)
-	t.Setenv("MODELDEV_MODEL_RESOLUTION_TIMEOUT", "2s")
-	server, err := configuredModelGRPCServer(&modelv1.Server_GRPC{Network: "tcp", Addr: "127.0.0.1:0", Timeout: durationpb.New(50 * time.Millisecond)}, RPCPolicyMiddleware(ModelServicePolicy()), ModelPrincipalMiddleware())
-	if err != nil {
-		t.Fatal(err)
-	}
-	observer := &finetuningPrincipalObserver{principals: make(chan identity.Principal, 3), delay: 200 * time.Millisecond, config: bytes.Repeat([]byte("a"), (4<<20)+1)}
-	modelv1.RegisterModelServiceServer(server, observer)
-	endpoint, err := server.Endpoint()
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- server.Start(context.Background()) }()
-	t.Cleanup(func() {
-		_ = server.Stop(context.Background())
-		if err := <-done; err != nil {
-			t.Error(err)
-		}
-	})
-	roots := x509.NewCertPool()
-	roots.AppendCertsFromPEM(pem)
-	clientCert, clientKey := signTestCert(t, key, ca, modeldevClientIdentity, nil, x509.ExtKeyUsageClientAuth)
-	connection, err := grpc.NewClient(endpoint.Host, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(modelv1.MaxFinetuningControlRPCBytes)), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: "model.ani.internal", Certificates: []tls.Certificate{{Certificate: [][]byte{clientCert.Raw}, PrivateKey: clientKey}}})))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close()
-	ctx, cancel := context.WithTimeout(metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-ani-tenant-id", "tenant", "x-ani-actor", "modeldev:test", "x-ani-request-id", "request")), time.Second)
-	defer cancel()
-	client := modelv1.NewModelServiceClient(connection)
-	out, err := client.ResolveFinetuningFacts(ctx, &modelv1.ResolveFinetuningFactsRequest{TenantId: "tenant"})
-	if err != nil || len(out.ConfigJson) <= 4<<20 {
-		t.Fatal("source reader kept short/4MiB server ceiling", err)
-	}
-	if _, err := client.GetTrainedArtifactRegistration(ctx, &modelv1.GetTrainedArtifactRegistrationRequest{TenantId: "tenant"}); status.Code(err) != codes.DeadlineExceeded {
-		t.Fatal("long source budget expanded other RPC", err)
+	for _, timeout := range []string{"2s", "25h", "4294967295s"} {
+		t.Run(timeout, func(t *testing.T) {
+			key, ca, pem := newTestCA(t)
+			dir := t.TempDir()
+			caFile, certFile, keyFile := filepath.Join(dir, "ca.crt"), filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
+			if err := os.WriteFile(caFile, pem, 0600); err != nil {
+				t.Fatal(err)
+			}
+			cert, private := signTestCert(t, key, ca, "model.ani.internal", nil, x509.ExtKeyUsageServerAuth)
+			writeCertPair(t, certFile, keyFile, cert, private)
+			t.Setenv("ANI_MODEL_SERVER_CA_FILE", caFile)
+			t.Setenv("ANI_MODEL_SERVER_CERT_FILE", certFile)
+			t.Setenv("ANI_MODEL_SERVER_KEY_FILE", keyFile)
+			t.Setenv("MODELDEV_MODEL_RESOLUTION_TIMEOUT", timeout)
+			server, err := configuredModelGRPCServer(&modelv1.Server_GRPC{Network: "tcp", Addr: "127.0.0.1:0", Timeout: durationpb.New(50 * time.Millisecond)}, RPCPolicyMiddleware(ModelServicePolicy()), ModelPrincipalMiddleware())
+			if err != nil {
+				t.Fatal(err)
+			}
+			observer := &finetuningPrincipalObserver{principals: make(chan identity.Principal, 3), delay: 200 * time.Millisecond, config: bytes.Repeat([]byte("a"), (4<<20)+1)}
+			modelv1.RegisterModelServiceServer(server, observer)
+			endpoint, err := server.Endpoint()
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- server.Start(context.Background()) }()
+			t.Cleanup(func() {
+				_ = server.Stop(context.Background())
+				if err := <-done; err != nil {
+					t.Error(err)
+				}
+			})
+			roots := x509.NewCertPool()
+			roots.AppendCertsFromPEM(pem)
+			clientCert, clientKey := signTestCert(t, key, ca, modeldevClientIdentity, nil, x509.ExtKeyUsageClientAuth)
+			connection, err := grpc.NewClient(endpoint.Host, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(modelv1.MaxFinetuningControlRPCBytes)), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: "model.ani.internal", Certificates: []tls.Certificate{{Certificate: [][]byte{clientCert.Raw}, PrivateKey: clientKey}}})))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			ctx, cancel := context.WithTimeout(metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-ani-tenant-id", "tenant", "x-ani-actor", "modeldev:test", "x-ani-request-id", "request")), time.Second)
+			defer cancel()
+			client := modelv1.NewModelServiceClient(connection)
+			out, err := client.ResolveFinetuningFacts(ctx, &modelv1.ResolveFinetuningFactsRequest{TenantId: "tenant"})
+			if err != nil || len(out.ConfigJson) <= 4<<20 {
+				t.Fatal("source reader kept short/4MiB server ceiling", err)
+			}
+			if _, err := client.GetTrainedArtifactRegistration(ctx, &modelv1.GetTrainedArtifactRegistrationRequest{TenantId: "tenant"}); status.Code(err) != codes.DeadlineExceeded {
+				t.Fatal("long source budget expanded other RPC", err)
+			}
+		})
 	}
 }
