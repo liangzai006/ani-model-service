@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"io"
+	"math"
 	"path"
 	"sort"
 	"strings"
@@ -18,16 +20,24 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
-// These are parser safety bounds, not accepted model identities or approved
-// training parameters. The caller's fixed size/hash remains authoritative.
-const maxFinetuningArchiveBytes int64 = 64 << 30
-const maxFinetuningExpandedBytes int64 = 128 << 30
-const maxFinetuningConfigBytes int64 = 1 << 20
+const maxFinetuningMetadataBytes int64 = 16 << 20
+const maxFinetuningEntries = 4096
+const finetuningTarOverhead int64 = 512*maxFinetuningEntries + 511*modelv1.MaxFinetuningModelFiles + maxFinetuningMetadataBytes + 1024
+
+// ConfigureFinetuningContentLimit is deployment-only. An omitted/invalid limit
+// cannot silently enable the source reader with a second product default.
+func (a *MinIOAdapter) ConfigureFinetuningContentLimit(limit int64) error {
+	if a == nil || limit <= 0 || limit > math.MaxInt64-finetuningTarOverhead {
+		return model.ErrFinetuningFactsUnavailable
+	}
+	a.finetuningContentLimit = limit
+	return nil
+}
 
 var _ model.FinetuningArtifactReader = (*MinIOAdapter)(nil)
 
 func (a *MinIOAdapter) InspectFinetuningArtifact(ctx context.Context, tenant, reference string, size int64, digest string) (model.ArtifactInventory, error) {
-	if a == nil || a.client == nil || size <= 0 || size > maxFinetuningArchiveBytes || len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
+	if a == nil || a.client == nil || size <= 0 || a.finetuningContentLimit <= 0 || a.finetuningContentLimit > math.MaxInt64-finetuningTarOverhead || size > a.finetuningContentLimit+finetuningTarOverhead || len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
 		return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
 	}
 	key, err := tenantKey(tenant, reference)
@@ -40,30 +50,30 @@ func (a *MinIOAdapter) InspectFinetuningArtifact(ctx context.Context, tenant, re
 	}
 	info, err := a.client.StatObject(ctx, bucket, key, minio.StatObjectOptions{})
 	if err != nil {
-		return model.ArtifactInventory{}, providerError(err)
+		return model.ArtifactInventory{}, finetuningProviderError(ctx, err)
 	}
 	if info.Size != size || info.VersionID == "" || strings.EqualFold(info.VersionID, "null") {
 		return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
 	}
 	object, err := a.client.GetObject(ctx, bucket, key, minio.GetObjectOptions{VersionID: info.VersionID})
 	if err != nil {
-		return model.ArtifactInventory{}, providerError(err)
+		return model.ArtifactInventory{}, finetuningProviderError(ctx, err)
 	}
 	defer object.Close()
 	// Start the GET before Stat: calling Stat on an unread MinIO Object issues
 	// another HEAD and caches its metadata instead of the actual GET response.
 	var first [1]byte
 	if _, err := io.ReadFull(object, first[:]); err != nil {
-		return model.ArtifactInventory{}, providerError(err)
+		return model.ArtifactInventory{}, finetuningProviderError(ctx, err)
 	}
 	actual, err := object.Stat()
 	if err != nil {
-		return model.ArtifactInventory{}, providerError(err)
+		return model.ArtifactInventory{}, finetuningProviderError(ctx, err)
 	}
 	if actual.VersionID != info.VersionID || actual.Size != size {
 		return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
 	}
-	inventory, err := inspectFinetuningArchive(ctx, io.MultiReader(bytes.NewReader(first[:]), object), size, digest)
+	inventory, err := inspectFinetuningArchive(ctx, io.MultiReader(bytes.NewReader(first[:]), object), size, digest, a.finetuningContentLimit)
 	if err != nil {
 		return model.ArtifactInventory{}, err
 	}
@@ -71,12 +81,16 @@ func (a *MinIOAdapter) InspectFinetuningArtifact(ctx context.Context, tenant, re
 	return inventory, nil
 }
 
-func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, digest string) (model.ArtifactInventory, error) {
-	if size <= 0 || size > maxFinetuningArchiveBytes {
+func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, digest string, limit int64) (model.ArtifactInventory, error) {
+	if limit <= 0 || limit > math.MaxInt64-finetuningTarOverhead || size <= 0 || size > limit+finetuningTarOverhead {
 		return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
 	}
 	hash := sha256.New()
-	measured := &inventoryCountingReader{ctx: ctx, reader: io.TeeReader(io.LimitReader(body, size+1), hash)}
+	readBound := size
+	if readBound < math.MaxInt64 {
+		readBound++
+	}
+	measured := &inventoryCountingReader{ctx: ctx, reader: io.TeeReader(io.LimitReader(body, readBound), hash)}
 	archive := tar.NewReader(measured)
 	result := model.ArtifactInventory{SizeBytes: size, SHA256: digest}
 	seen := map[string]bool{}
@@ -87,46 +101,71 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 			break
 		}
 		if err != nil {
-			return model.ArtifactInventory{}, fmt.Errorf("invalid model archive: %w", err)
+			return model.ArtifactInventory{}, fmt.Errorf("%w: invalid archive: %w", model.ErrFinetuningBaseInvalid, err)
+		}
+		if measured.count-expanded > finetuningTarOverhead {
+			return model.ArtifactInventory{}, archiveOverheadExceeded(measured.count - expanded)
 		}
 		name := header.Name
-		if len(seen) >= 256 {
-			return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+		if header.Typeflag == tar.TypeDir {
+			name = strings.TrimSuffix(name, "/")
 		}
-		if !utf8.ValidString(name) || name == "" || len(name) > 1024 || path.Clean(name) != name || strings.HasPrefix(name, "/") || name == "." || name == ".." || strings.HasPrefix(name, "../") || strings.ContainsAny(name, "\\\x00\r\n") || strings.IndexFunc(name, func(r rune) bool { return r < 32 || r == 127 }) >= 0 || seen[name] || header.Linkname != "" || len(header.PAXRecords) > 0 {
-			return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+		if len(seen) >= maxFinetuningEntries {
+			return model.ArtifactInventory{}, &model.FinetuningLimitViolation{Reason: "STRUCTURE_LIMIT_EXCEEDED", LimitName: "max_archive_entries", Actual: int64(len(seen)) + 1, Limit: maxFinetuningEntries}
+		}
+		if !utf8.ValidString(name) || name == "" || len(name) > 1024 || path.Clean(name) != name || strings.HasPrefix(name, "/") || name == "." || name == ".." || strings.HasPrefix(name, "../") || strings.ContainsAny(name, "\\\x00\r\n") || strings.IndexFunc(name, func(r rune) bool { return r < 32 || r == 127 }) >= 0 || seen[name] || header.Linkname != "" {
+			return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 		}
 		seen[name] = true
 		if header.Typeflag == tar.TypeDir && header.Size == 0 {
 			continue
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA || header.Size <= 0 || header.Size > maxFinetuningExpandedBytes-expanded || len(result.Files) >= 128 {
-			return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+		for key := range header.PAXRecords {
+			if strings.HasPrefix(key, "GNU.sparse") {
+				return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
+			}
+		}
+		if header.Size > math.MaxInt64-expanded {
+			return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
+		}
+		if header.Size > limit-expanded {
+			return model.ArtifactInventory{}, &model.FinetuningLimitViolation{Reason: "CONTENT_LIMIT_EXCEEDED", LimitName: "max_content_bytes", Actual: expanded + header.Size, Limit: limit}
+		}
+		if len(result.Files) >= modelv1.MaxFinetuningModelFiles {
+			return model.ArtifactInventory{}, &model.FinetuningLimitViolation{Reason: "STRUCTURE_LIMIT_EXCEEDED", LimitName: "max_model_files", Actual: int64(len(result.Files)) + 1, Limit: modelv1.MaxFinetuningModelFiles}
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA || header.Size < 0 || header.Size > limit-expanded || len(result.Files) >= modelv1.MaxFinetuningModelFiles {
+			return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 		}
 		expanded += header.Size
 		memberHash := sha256.New()
 		var content bytes.Buffer
 		output := io.Writer(memberHash)
-		capture := name == "config.json" || name == "tokenizer_config.json"
+		capture := name == "config.json" || name == "tokenizer_config.json" || name == "model.safetensors.index.json"
 		if capture {
-			if header.Size > maxFinetuningConfigBytes {
-				return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+			if header.Size > modelv1.MaxFinetuningConfigBytes {
+				return model.ArtifactInventory{}, &model.FinetuningLimitViolation{Reason: "STRUCTURE_LIMIT_EXCEEDED", LimitName: "max_model_config_bytes", Actual: header.Size, Limit: modelv1.MaxFinetuningConfigBytes}
 			}
 			output = io.MultiWriter(memberHash, &content)
 		}
 		count, err := io.Copy(output, archive)
-		if err != nil || count != header.Size {
-			return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+		if err != nil {
+			return model.ArtifactInventory{}, err
+		}
+		if count != header.Size {
+			return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 		}
 		result.Files = append(result.Files, model.ArtifactFile{Path: name, SizeBytes: count, SHA256: hex.EncodeToString(memberHash.Sum(nil))})
 		if capture {
 			if !utf8.Valid(content.Bytes()) || !json.Valid(content.Bytes()) {
-				return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+				return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 			}
 			if name == "config.json" {
 				result.ConfigJSON = content.Bytes()
-			} else {
+			} else if name == "tokenizer_config.json" {
 				result.TokenizerConfigJSON = content.Bytes()
+			} else {
+				result.WeightIndexJSON = content.Bytes()
 			}
 		}
 	}
@@ -137,7 +176,7 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 		n, err := measured.Read(padding)
 		for _, b := range padding[:n] {
 			if b != 0 {
-				return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+				return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 			}
 		}
 		if err == io.EOF {
@@ -147,8 +186,18 @@ func inspectFinetuningArchive(ctx context.Context, body io.Reader, size int64, d
 			return model.ArtifactInventory{}, err
 		}
 	}
-	if measured.count != size || hex.EncodeToString(hash.Sum(nil)) != digest || len(result.ConfigJSON) == 0 || len(result.TokenizerConfigJSON) == 0 || !seen["model.safetensors"] || !seen["tokenizer.json"] {
-		return model.ArtifactInventory{}, model.ErrFinetuningFactsUnavailable
+	if measured.count-expanded > finetuningTarOverhead {
+		return model.ArtifactInventory{}, archiveOverheadExceeded(measured.count - expanded)
+	}
+	if measured.count != size || hex.EncodeToString(hash.Sum(nil)) != digest || len(result.ConfigJSON) == 0 || len(result.TokenizerConfigJSON) == 0 {
+		return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
+	}
+	files := make([]*modelv1.FinetuningArtifactFile, 0, len(result.Files))
+	for _, f := range result.Files {
+		files = append(files, &modelv1.FinetuningArtifactFile{Path: f.Path, SizeBytes: f.SizeBytes, Sha256: f.SHA256})
+	}
+	if _, err := modelv1.InspectFinetuningWeightLayout(files, result.WeightIndexJSON); err != nil {
+		return model.ArtifactInventory{}, model.ErrFinetuningBaseInvalid
 	}
 	sort.Slice(result.Files, func(i, j int) bool { return result.Files[i].Path < result.Files[j].Path })
 	return result, nil
@@ -167,4 +216,17 @@ func (r *inventoryCountingReader) Read(p []byte) (int, error) {
 	n, err := r.reader.Read(p)
 	r.count += int64(n)
 	return n, err
+}
+
+// The archive envelope policy is raw bytes minus actual regular payload, not
+// a second parser or a count of physical metadata records hidden by archive/tar.
+func archiveOverheadExceeded(actual int64) error {
+	return &model.FinetuningLimitViolation{Reason: "STRUCTURE_LIMIT_EXCEEDED", LimitName: "max_archive_overhead_bytes", Actual: actual, Limit: finetuningTarOverhead}
+}
+
+func finetuningProviderError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return providerError(err)
 }

@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -134,6 +135,10 @@ func run(logger *slog.Logger) error {
 		err = createErr
 		if err != nil {
 			return fmt.Errorf("configure MinIO Storage: %w", err)
+		}
+		limit, limitErr := strconv.ParseInt(os.Getenv("MODELDEV_MAX_CONTENT_BYTES"), 10, 64)
+		if limitErr != nil || minioStorage.ConfigureFinetuningContentLimit(limit) != nil {
+			return fmt.Errorf("MODELDEV_MAX_CONTENT_BYTES must be a positive bounded int64")
 		}
 		checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = checkMinIOStorage(checkCtx, minioStorage, minioTenantBuckets)

@@ -6,7 +6,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"github.com/liangzai006/ani-model-service/internal/biz/model"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,7 +92,7 @@ func TestMinIOFinetuningFactsPinsOriginalVersionAndRejectsLatest(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			adapter := &MinIOAdapter{client: client, bucket: "models"}
+			adapter := &MinIOAdapter{client: client, bucket: "models", finetuningContentLimit: 1 << 20}
 			got, err := adapter.InspectFinetuningArtifact(context.Background(), "tenant", "model.tar", int64(len(raw)), digest)
 			if mode == "valid" {
 				if err != nil || got.VersionID != "fixed-v1" || got.Bucket != "models" || got.Key != "tenant/model.tar" || gets != 1 || heads != 1 {
@@ -108,7 +110,7 @@ func TestMinIOFinetuningFactsPinsOriginalVersionAndRejectsLatest(t *testing.T) {
 func TestFinetuningInventoryHashesActualArchiveAndMembers(t *testing.T) {
 	raw := factsArchive(t, nil)
 	hash := sha256.Sum256(raw)
-	got, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), hex.EncodeToString(hash[:]))
+	got, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), hex.EncodeToString(hash[:]), 1<<20)
 	if err != nil || len(got.Files) != 4 || got.Files[0].Path != "config.json" || got.SizeBytes != int64(len(raw)) || !bytes.Equal(got.ConfigJSON, []byte(`{"model_type":"qwen2"}`)) {
 		t.Fatalf("inventory=%+v err=%v", got, err)
 	}
@@ -140,9 +142,82 @@ func TestFinetuningInventoryRejectsUnsafeOrChangedBytes(t *testing.T) {
 			if test.wrongHash {
 				digest = string(bytes.Repeat([]byte("a"), 64))
 			}
-			if _, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw))+test.sizeDelta, digest); err == nil {
+			if _, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw))+test.sizeDelta, digest, 1<<20); err == nil {
 				t.Fatal("unsafe bytes accepted")
 			}
 		})
+	}
+}
+
+func TestFinetuningInventoryAcceptsShardsAndNativeTokenizerWithoutInventedFiles(t *testing.T) {
+	var out bytes.Buffer
+	tw := tar.NewWriter(&out)
+	members := []struct{ name, body string }{
+		{"config.json", `{"model_type":"llama","architectures":["LlamaForCausalLM"],"max_position_embeddings":8192}`},
+		{"model.safetensors.index.json", `{"weight_map":{"layer.a":"model-00001-of-00002.safetensors","layer.b":"model-00001-of-00002.safetensors","layer.c":"model-00002-of-00002.safetensors"}}`},
+		{"model-00001-of-00002.safetensors", "actual-first-shard"},
+		{"model-00002-of-00002.safetensors", "actual-second-shard"},
+		{"tokenizer.model", "native-sentencepiece-boundary-bytes"},
+		{"tokenizer_config.json", `{"tokenizer_class":"LlamaTokenizer","model_max_length":8192,"chat_template":"{{ messages }}"}`},
+		{"chat_template.jinja", "{{ messages }}"},
+	}
+	for _, m := range members {
+		if err := tw.WriteHeader(&tar.Header{Name: m.name, Mode: 0600, Typeflag: tar.TypeReg, Size: int64(len(m.body))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(m.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw := out.Bytes()
+	digest := sha256.Sum256(raw)
+	got, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), hex.EncodeToString(digest[:]), 1<<20)
+	if err != nil || len(got.Files) != len(members) {
+		t.Fatalf("REAL_SHARDED_NATIVE_SOURCE_MISSING: files=%d err=%v", len(got.Files), err)
+	}
+	for _, f := range got.Files {
+		if f.Path == "model.safetensors" || f.Path == "tokenizer.json" {
+			t.Fatal("invented single-weight/tokenizer file")
+		}
+	}
+}
+
+func TestFinetuningInventoryContentLimitMeasuresPayloadNotTarContainer(t *testing.T) {
+	raw := factsArchive(t, nil)
+	sum := sha256.Sum256(raw)
+	digest := hex.EncodeToString(sum[:])
+	logical := int64(4 * len(`{"model_type":"qwen2"}`))
+	got, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), digest, logical)
+	if err != nil || len(got.Files) != 4 || int64(len(raw)) <= logical {
+		t.Fatalf("B=L should admit independent tar overhead: %v", err)
+	}
+	_, err = inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), digest, logical-1)
+	var violation *model.FinetuningLimitViolation
+	if !errors.As(err, &violation) || violation.Reason != "CONTENT_LIMIT_EXCEEDED" || violation.Actual != logical || violation.Limit != logical-1 {
+		t.Fatalf("measured content excess not classified: %v", err)
+	}
+}
+func TestFinetuningInventoryCountsHiddenPAXWithinRawArchiveOverhead(t *testing.T) {
+	var out bytes.Buffer
+	tw := tar.NewWriter(&out)
+	// archive/tar hides each physical PAX header from its ordinary Next API.
+	for i := 0; i < 45; i++ {
+		h := &tar.Header{Name: fmt.Sprintf("entry-%d", i), Mode: 0600, Size: 0, Typeflag: tar.TypeReg, Format: tar.FormatPAX, PAXRecords: map[string]string{"comment": strings.Repeat("x", 512<<10)}}
+		if err := tw.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw := out.Bytes()
+	sum := sha256.Sum256(raw)
+	_, err := inspectFinetuningArchive(context.Background(), bytes.NewReader(raw), int64(len(raw)), hex.EncodeToString(sum[:]), 32<<20)
+	var violation *model.FinetuningLimitViolation
+	if !errors.As(err, &violation) || violation.LimitName != "max_archive_overhead_bytes" {
+		t.Fatalf("hidden PAX bytes omitted from C bound: %v", err)
 	}
 }

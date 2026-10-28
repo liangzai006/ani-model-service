@@ -20,10 +20,11 @@ import (
 // MinIOAdapter uses either a configured shared bucket or a tenant-named bucket.
 // It never deletes buckets or manages MinIO/PVC lifecycle.
 type MinIOAdapter struct {
-	client        *minio.Client
-	buckets       bucketAPI
-	bucket        string
-	tenantBuckets bool
+	client                 *minio.Client
+	buckets                bucketAPI
+	bucket                 string
+	tenantBuckets          bool
+	finetuningContentLimit int64
 }
 
 type bucketAPI interface {

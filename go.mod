@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/liangzai006/ani-inference-service/api v0.1.2-0.20261021113945-1356085e3d92
-	github.com/liangzai006/ani-model-service/api v0.0.0-20261027014310-8c5022f3bf3e
+	github.com/liangzai006/ani-model-service/api v0.0.0-20261028165608-620bcb1503a6
 	github.com/minio/minio-go/v7 v7.2.0
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/otel v1.45.0

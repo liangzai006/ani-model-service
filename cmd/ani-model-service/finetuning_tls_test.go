@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -24,6 +25,8 @@ import (
 type finetuningPrincipalObserver struct {
 	modelv1.UnimplementedModelServiceServer
 	principals chan identity.Principal
+	delay      time.Duration
+	config     []byte
 }
 
 func (s *finetuningPrincipalObserver) ResolveFinetuningFacts(ctx context.Context, in *modelv1.ResolveFinetuningFactsRequest) (*modelv1.ResolveFinetuningFactsResponse, error) {
@@ -32,7 +35,14 @@ func (s *finetuningPrincipalObserver) ResolveFinetuningFacts(ctx context.Context
 		return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
 	}
 	s.principals <- p
-	return &modelv1.ResolveFinetuningFactsResponse{TenantId: p.TenantID}, nil
+	if s.delay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(s.delay):
+		}
+	}
+	return &modelv1.ResolveFinetuningFactsResponse{TenantId: p.TenantID, ConfigJson: s.config}, nil
 }
 
 func (s *finetuningPrincipalObserver) GetTrainedArtifactRegistration(ctx context.Context, in *modelv1.GetTrainedArtifactRegistrationRequest) (*modelv1.GetTrainedArtifactRegistrationResponse, error) {
@@ -41,6 +51,13 @@ func (s *finetuningPrincipalObserver) GetTrainedArtifactRegistration(ctx context
 		return nil, status.Error(codes.PermissionDenied, "tenant mismatch")
 	}
 	s.principals <- p
+	if s.delay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(s.delay):
+		}
+	}
 	return &modelv1.GetTrainedArtifactRegistrationResponse{}, nil
 }
 func (s *finetuningPrincipalObserver) GetTrainedArtifactUploadURL(ctx context.Context, in *modelv1.GetTrainedArtifactUploadURLRequest) (*modelv1.GetTrainedArtifactUploadURLResponse, error) {
@@ -133,5 +150,56 @@ func TestModelServerFinetuningUsesDedicatedMTLSIdentity(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestModelServerFinetuningReadHasIndependentBudgetAnd64MiBTransport(t *testing.T) {
+	key, ca, pem := newTestCA(t)
+	dir := t.TempDir()
+	caFile, certFile, keyFile := filepath.Join(dir, "ca.crt"), filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
+	if err := os.WriteFile(caFile, pem, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cert, private := signTestCert(t, key, ca, "model.ani.internal", nil, x509.ExtKeyUsageServerAuth)
+	writeCertPair(t, certFile, keyFile, cert, private)
+	t.Setenv("ANI_MODEL_SERVER_CA_FILE", caFile)
+	t.Setenv("ANI_MODEL_SERVER_CERT_FILE", certFile)
+	t.Setenv("ANI_MODEL_SERVER_KEY_FILE", keyFile)
+	t.Setenv("MODELDEV_MODEL_RESOLUTION_TIMEOUT", "2s")
+	server, err := configuredModelGRPCServer(&modelv1.Server_GRPC{Network: "tcp", Addr: "127.0.0.1:0", Timeout: durationpb.New(50 * time.Millisecond)}, RPCPolicyMiddleware(ModelServicePolicy()), ModelPrincipalMiddleware())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &finetuningPrincipalObserver{principals: make(chan identity.Principal, 3), delay: 200 * time.Millisecond, config: bytes.Repeat([]byte("a"), (4<<20)+1)}
+	modelv1.RegisterModelServiceServer(server, observer)
+	endpoint, err := server.Endpoint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- server.Start(context.Background()) }()
+	t.Cleanup(func() {
+		_ = server.Stop(context.Background())
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(pem)
+	clientCert, clientKey := signTestCert(t, key, ca, modeldevClientIdentity, nil, x509.ExtKeyUsageClientAuth)
+	connection, err := grpc.NewClient(endpoint.Host, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(modelv1.MaxFinetuningControlRPCBytes)), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: "model.ani.internal", Certificates: []tls.Certificate{{Certificate: [][]byte{clientCert.Raw}, PrivateKey: clientKey}}})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	ctx, cancel := context.WithTimeout(metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-ani-tenant-id", "tenant", "x-ani-actor", "modeldev:test", "x-ani-request-id", "request")), time.Second)
+	defer cancel()
+	client := modelv1.NewModelServiceClient(connection)
+	out, err := client.ResolveFinetuningFacts(ctx, &modelv1.ResolveFinetuningFactsRequest{TenantId: "tenant"})
+	if err != nil || len(out.ConfigJson) <= 4<<20 {
+		t.Fatal("source reader kept short/4MiB server ceiling", err)
+	}
+	if _, err := client.GetTrainedArtifactRegistration(ctx, &modelv1.GetTrainedArtifactRegistrationRequest{TenantId: "tenant"}); status.Code(err) != codes.DeadlineExceeded {
+		t.Fatal("long source budget expanded other RPC", err)
 	}
 }
