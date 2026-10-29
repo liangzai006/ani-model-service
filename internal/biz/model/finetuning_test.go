@@ -9,7 +9,7 @@ import (
 
 type factsVersions struct{ version Version }
 
-func (v factsVersions) GetVersion(context.Context, string, string) (Version, error) {
+func (v factsVersions) GetFinetuningSource(context.Context, string, string) (Version, error) {
 	return v.version, nil
 }
 

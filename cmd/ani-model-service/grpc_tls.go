@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	kratoserrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/go-kratos/kratos/v3/middleware"
+	"github.com/go-kratos/kratos/v3/transport"
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
+	"google.golang.org/grpc"
 
 	conf "github.com/liangzai006/ani-model-service/api/model/v1"
 )
@@ -66,13 +71,26 @@ func configuredModelGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Mi
 		},
 	}
 
+	resolutionTimeout := 300 * time.Second
+	if raw := os.Getenv("MODELDEV_MODEL_RESOLUTION_TIMEOUT"); raw != "" {
+		var err error
+		resolutionTimeout, err = time.ParseDuration(raw)
+		if err != nil || resolutionTimeout <= 0 {
+			return nil, errors.New("invalid MODELDEV_MODEL_RESOLUTION_TIMEOUT")
+		}
+	}
+	if c == nil || c.Timeout.AsDuration() <= 0 {
+		return nil, errors.New("positive model RPC timeout required")
+	}
+	middlewares = append([]middleware.Middleware{modelMethodBudget(c.Timeout.AsDuration(), resolutionTimeout)}, middlewares...)
 	return kratosgrpc.NewServer(
 		kratosgrpc.Network(c.Network),
 		kratosgrpc.Address(c.Addr),
-		kratosgrpc.Timeout(c.Timeout.AsDuration()),
+		kratosgrpc.Timeout(0),
 		kratosgrpc.TLSConfig(config),
 		kratosgrpc.Middleware(middlewares...),
 		kratosgrpc.DisableReflection(),
+		kratosgrpc.Options(grpc.MaxRecvMsgSize(conf.MaxFinetuningControlRPCBytes), grpc.MaxSendMsgSize(conf.MaxFinetuningControlRPCBytes)),
 	), nil
 }
 
@@ -85,4 +103,35 @@ func clientDNSIdentity(cert *x509.Certificate) (string, error) {
 		return "", fmt.Errorf("invalid client DNS SAN: %q (wildcards not allowed)", clientDNS)
 	}
 	return clientDNS, nil
+}
+
+// Source resolution has its own budget. Heavy trained-object verification uses
+// the caller's existing finite deadline; other commands and queries stay short.
+func modelMethodBudget(short, resolution time.Duration) middleware.Middleware {
+	return func(next middleware.Handler) middleware.Handler {
+		return func(ctx context.Context, req any) (any, error) {
+			budget := short
+			callerDeadline := false
+			if server, ok := transport.FromServerContext(ctx); ok {
+				switch server.Operation() {
+				case "/model.v1.ModelService/ResolveFinetuningFacts":
+					budget = resolution
+				case "/model.v1.ModelService/CompleteTrainedArtifact":
+					callerDeadline = true
+				case "/model.v1.ModelService/GetTrainedArtifactRegistration":
+					in, valid := req.(*conf.GetTrainedArtifactRegistrationRequest)
+					callerDeadline = valid && in.GetVerifyUploadedObject()
+				}
+			}
+			if callerDeadline {
+				if _, finite := ctx.Deadline(); !finite {
+					return nil, kratoserrors.BadRequest("CALLER_DEADLINE_REQUIRED", "trained object verification requires a caller deadline")
+				}
+				return next(ctx, req)
+			}
+			call, cancel := context.WithTimeout(ctx, budget)
+			defer cancel()
+			return next(call, req)
+		}
+	}
 }

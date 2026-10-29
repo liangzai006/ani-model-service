@@ -20,6 +20,9 @@ type UploadRequest struct {
 	TenantID, ObjectRef, ContentType string
 	SizeBytes                        int64
 	ChecksumSHA256                   string
+	// TTL optionally requests a signed-upload lifetime. Zero keeps the
+	// adapter default; adapters that cannot honor it must reject it.
+	TTL time.Duration
 }
 
 type DownloadRequest struct {

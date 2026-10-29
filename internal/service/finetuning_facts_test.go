@@ -13,6 +13,10 @@ import (
 	"github.com/liangzai006/ani-model-service/internal/identity"
 )
 
+func (f versionReaderFunc) GetFinetuningSource(ctx context.Context, tenant, id string) (model.Version, error) {
+	return f(ctx, tenant, id)
+}
+
 type fixedSourceStorage struct {
 	storageFake
 	inventory model.ArtifactInventory

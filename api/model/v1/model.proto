@@ -135,12 +135,14 @@ message ResolveFinetuningFactsResponse {
   int64 size_bytes = 8;
   string sha256 = 9;
   repeated FinetuningArtifactFile files = 10;
-  // Exact members from the verified archive, each limited to 1 MiB.
+  // Exact members from the verified archive, each limited to 8 MiB.
   bytes config_json = 11;
   bytes tokenizer_config_json = 12;
   oneof target { string target_model_id = 13; string new_model_name = 14; }
   // Identifies the provider verification algorithm, never an approval assertion.
   string verification_source = 15;
+  // Exact bounded index member, empty for a single safetensors file.
+  bytes weight_index_json = 16;
 }
 
 message Model {

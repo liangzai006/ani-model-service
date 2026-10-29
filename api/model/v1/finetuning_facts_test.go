@@ -3,7 +3,9 @@ package modelv1
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"sort"
 	"testing"
 )
 
@@ -84,6 +86,66 @@ func TestFinetuningFactsWithoutRegistrationTargetStillValidatesSource(t *testing
 			test.change(q, r)
 			if r.ValidateFor(q) == nil {
 				t.Fatal("registration-free request bypassed source or target validation")
+			}
+		})
+	}
+}
+
+func TestFinetuningFactsShardedSourceCarriesVerifiedIndex(t *testing.T) {
+	in, out := completeFinetuningFacts()
+	in.Target = nil
+	out.Target = nil
+	index := []byte(`{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00001-of-00002.safetensors","c":"model-00002-of-00002.safetensors"}}`)
+	files := map[string][]byte{"config.json": out.ConfigJson, "tokenizer_config.json": out.TokenizerConfigJson, "tokenizer.model": []byte("native-tokenizer"), "model.safetensors.index.json": index, "model-00001-of-00002.safetensors": []byte("shard-1"), "model-00002-of-00002.safetensors": []byte("shard-2")}
+	out.Files = nil
+	for name, raw := range files {
+		h := sha256.Sum256(raw)
+		out.Files = append(out.Files, &FinetuningArtifactFile{Path: name, SizeBytes: int64(len(raw)), Sha256: hex.EncodeToString(h[:])})
+	}
+	sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
+	wire, err := proto.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire = protowire.AppendTag(wire, 16, protowire.BytesType)
+	wire = protowire.AppendBytes(wire, index)
+	if err = proto.Unmarshal(wire, out); err != nil {
+		t.Fatal(err)
+	}
+	if err = out.ValidateFor(in); err != nil {
+		t.Fatalf("FORMAL_SHARDED_SOURCE_FACTS_MISSING: %v", err)
+	}
+}
+
+func TestFinetuningWeightLayoutRejectsAmbiguousOrUnaccountedWeights(t *testing.T) {
+	for _, tc := range []struct {
+		name, index    string
+		extra, missing bool
+	}{
+		{"shared shard", `{"weight_map":{"a":"part.safetensors","b":"part.safetensors"}}`, false, false},
+		{"duplicate tensor", `{"weight_map":{"a":"part.safetensors","a":"part.safetensors"}}`, false, false},
+		{"missing shard", `{"weight_map":{"a":"missing.safetensors"}}`, false, false},
+		{"path escape", `{"weight_map":{"a":"../part.safetensors"}}`, false, false},
+		{"ambiguous entries", `{"weight_map":{"a":"part.safetensors"}}`, true, false},
+		{"extra weight", `{"weight_map":{"a":"part.safetensors"}}`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := []byte(tc.index)
+			h := sha256.Sum256(raw)
+			files := []*FinetuningArtifactFile{{Path: "model.safetensors.index.json", SizeBytes: int64(len(raw)), Sha256: hex.EncodeToString(h[:])}, {Path: "part.safetensors", SizeBytes: 8, Sha256: hex.EncodeToString(h[:])}}
+			if tc.extra {
+				files = append(files, &FinetuningArtifactFile{Path: "model.safetensors", SizeBytes: 8, Sha256: hex.EncodeToString(h[:])})
+			}
+			if tc.missing {
+				files = append(files, &FinetuningArtifactFile{Path: "unreferenced.safetensors", SizeBytes: 8, Sha256: hex.EncodeToString(h[:])})
+			}
+			got, err := InspectFinetuningWeightLayout(files, raw)
+			if tc.name == "shared shard" {
+				if err != nil || len(got.ShardPaths) != 1 {
+					t.Fatalf("shared tensor shard rejected: %+v %v", got, err)
+				}
+			} else if err == nil {
+				t.Fatal("unsafe layout accepted")
 			}
 		})
 	}
