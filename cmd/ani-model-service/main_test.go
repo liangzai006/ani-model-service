@@ -53,6 +53,7 @@ func TestConfigureKubernetesImportUsesStorageGRPCWithoutMinIO(t *testing.T) {
 	t.Setenv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model")
 	t.Setenv("ANI_IMPORT_PROVIDER_SECRET", "ani-model-import-provider")
 	t.Setenv("ANI_IMPORT_STORAGE_CLASS", "cephfs")
+	t.Setenv("ANI_IMPORT_UPLOAD_TTL_SECONDS", "")
 
 	selectedStorage := &storagedata.GRPCAdapter{}
 	executor, err := configuredKubernetesImportExecutor(selectedStorage)
@@ -67,6 +68,58 @@ func TestConfigureKubernetesImportUsesStorageGRPCWithoutMinIO(t *testing.T) {
 	}
 	if executor.StorageClass != "cephfs" {
 		t.Fatalf("StorageClass = %q", executor.StorageClass)
+	}
+	if executor.UploadTTL != 0 {
+		t.Fatalf("default Storage gRPC import TTL = %v, want adapter default", executor.UploadTTL)
+	}
+	t.Setenv("ANI_IMPORT_UPLOAD_TTL_SECONDS", "3600")
+	if _, err := configuredKubernetesImportExecutor(selectedStorage); err == nil || !strings.Contains(err.Error(), "Storage gRPC") {
+		t.Fatalf("explicit unsupported Storage gRPC import TTL must fail configuration: %v", err)
+	}
+}
+
+func TestConfigureKubernetesImportUploadTTL(t *testing.T) {
+	t.Setenv("ANI_IMPORT_JOB_IMAGE", "registry.example/ani-model-import:v1")
+	for _, test := range []struct {
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{value: ""},
+		{value: "0"},
+		{value: "3600", want: time.Hour},
+		{value: "604800", want: 7 * 24 * time.Hour},
+		{value: "-1", wantErr: true},
+		{value: "604801", wantErr: true},
+		{value: "invalid", wantErr: true},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			t.Setenv("ANI_IMPORT_UPLOAD_TTL_SECONDS", test.value)
+			executor, err := configuredKubernetesImportExecutor(&storagedata.MinIOAdapter{})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("configure import upload TTL %q error = %v, wantErr %v", test.value, err, test.wantErr)
+			}
+			if err == nil && executor.UploadTTL != test.want {
+				t.Fatalf("import upload TTL = %v, want %v", executor.UploadTTL, test.want)
+			}
+		})
+	}
+}
+
+func TestConfigureKubernetesImportStorageCA(t *testing.T) {
+	t.Setenv("ANI_IMPORT_JOB_IMAGE", "registry.example/ani-model-import:v1")
+	t.Setenv("ANI_IMPORT_UPLOAD_TTL_SECONDS", "")
+	for _, configMap := range []string{"", "ani-model-v21-storage-ca"} {
+		t.Run(configMap, func(t *testing.T) {
+			t.Setenv("ANI_IMPORT_STORAGE_CA_CONFIGMAP", configMap)
+			executor, err := configuredKubernetesImportExecutor(&storagedata.MinIOAdapter{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if executor.StorageCAConfigMap != configMap {
+				t.Fatalf("import CA ConfigMap = %q, want %q", executor.StorageCAConfigMap, configMap)
+			}
+		})
 	}
 }
 

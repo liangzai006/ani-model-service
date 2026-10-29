@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 
 	kratoserrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"github.com/liangzai006/ani-model-service/internal/biz/model"
 	"github.com/liangzai006/ani-model-service/internal/identity"
@@ -50,7 +52,19 @@ func (s *ModelService) ResolveFinetuningFacts(ctx context.Context, in *modelv1.R
 	contents, _ := s.storage.(model.FinetuningArtifactReader)
 	facts, err := model.ResolveFinetuningFacts(ctx, p.TenantID, version.String(), targetID, in.GetNewModelName(), s.reader, s.catalog, contents)
 	if err != nil {
+		var limit *model.FinetuningLimitViolation
+		if errors.As(err, &limit) {
+			return nil, kratoserrors.New(422, limit.Reason, "model content or structure exceeds explicit bound").WithMetadata(map[string]string{"kind": "base_model", "limit_name": limit.LimitName, "actual": strconv.FormatInt(limit.Actual, 10), "limit": strconv.FormatInt(limit.Limit, 10)})
+		}
 		switch {
+		case errors.Is(err, context.Canceled):
+			return nil, kratoserrors.New(499, "CANCELED", "model facts read was canceled")
+		case errors.Is(err, context.DeadlineExceeded):
+			return nil, kratoserrors.New(504, "DEADLINE_EXCEEDED", "model facts read deadline exceeded")
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil, kratoserrors.NotFound("MODEL_SOURCE_NOT_FOUND", "source version is not visible in the tenant catalogue")
+		case errors.Is(err, model.ErrFinetuningBaseInvalid):
+			return nil, kratoserrors.New(422, "BASE_MODEL_INVALID", "model archive or weight layout is invalid")
 		case errors.Is(err, model.ErrFinetuningTargetConflict):
 			return nil, kratoserrors.Conflict("MODEL_NAME_CONFLICT", "target model name is already used")
 		case errors.Is(err, model.ErrInvalidModel):
@@ -62,7 +76,7 @@ func (s *ModelService) ResolveFinetuningFacts(ctx context.Context, in *modelv1.R
 		}
 	}
 	a := facts.Artifact
-	out := &modelv1.ResolveFinetuningFactsResponse{TenantId: p.TenantID, ModelId: facts.Version.ModelID, ModelVersionId: facts.Version.ID, Format: facts.Version.Format, Bucket: a.Bucket, ObjectKey: a.Key, ObjectVersionId: a.VersionID, SizeBytes: a.SizeBytes, Sha256: a.SHA256, ConfigJson: a.ConfigJSON, TokenizerConfigJson: a.TokenizerConfigJSON, VerificationSource: "ani.model.finetuning.archive-sha256.v1"}
+	out := &modelv1.ResolveFinetuningFactsResponse{TenantId: p.TenantID, ModelId: facts.Version.ModelID, ModelVersionId: facts.Version.ID, Format: facts.Version.Format, Bucket: a.Bucket, ObjectKey: a.Key, ObjectVersionId: a.VersionID, SizeBytes: a.SizeBytes, Sha256: a.SHA256, ConfigJson: a.ConfigJSON, TokenizerConfigJson: a.TokenizerConfigJSON, WeightIndexJson: a.WeightIndexJSON, VerificationSource: modelv1.FinetuningVerificationSource}
 	if facts.TargetModelID != "" {
 		out.Target = &modelv1.ResolveFinetuningFactsResponse_TargetModelId{TargetModelId: facts.TargetModelID}
 	} else if facts.NewModelName != "" {
@@ -78,7 +92,7 @@ func (s *ModelService) ResolveFinetuningFacts(ctx context.Context, in *modelv1.R
 		normalized.Target = &modelv1.ResolveFinetuningFactsRequest_NewModelName{NewModelName: in.GetNewModelName()}
 	}
 	if out.ValidateFor(normalized) != nil {
-		return nil, kratoserrors.New(503, "MODEL_DEPENDENCY_UNAVAILABLE", "source observation failed integrity validation")
+		return nil, kratoserrors.New(422, "BASE_MODEL_INVALID", "source archive members failed integrity validation")
 	}
 	return out, nil
 }

@@ -44,7 +44,9 @@ type KubernetesImportExecutor struct {
 	Image              string
 	ProviderSecretName string
 	StorageClass       string
+	StorageCAConfigMap string
 	PollInterval       time.Duration
+	UploadTTL          time.Duration
 }
 
 func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task) error {
@@ -81,6 +83,7 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 			TenantID:    task.TenantID,
 			ObjectRef:   objectRef,
 			ContentType: "application/x-tar",
+			TTL:         e.UploadTTL,
 		})
 		if err != nil {
 			_ = e.cleanupPVC(ctx, pvc.Namespace, pvc.Name)
@@ -211,6 +214,20 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		ActiveDeadlineSeconds: int64ptr(7 * 24 * 60 * 60),
 		Volumes:               []corev1.Volume{{Name: "staging", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvcName}}}},
 		VolumeMounts:          []corev1.VolumeMount{{Name: "staging", MountPath: "/staging"}},
+	}
+	if e.StorageCAConfigMap != "" {
+		const caMountPath = "/var/run/ani-model-storage-ca"
+		spec.Volumes = append(spec.Volumes, corev1.Volume{
+			Name: "model-storage-ca",
+			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: e.StorageCAConfigMap},
+				Items:                []corev1.KeyToPath{{Key: "ca.crt", Path: "ca.crt"}},
+			}},
+		})
+		spec.VolumeMounts = append(spec.VolumeMounts, corev1.VolumeMount{
+			Name: "model-storage-ca", MountPath: caMountPath, ReadOnly: true,
+		})
+		spec.Env = append(spec.Env, corev1.EnvVar{Name: "SSL_CERT_FILE", Value: caMountPath + "/ca.crt"})
 	}
 	for _, secretName := range []string{e.ProviderSecretName} {
 		if secretName == "" {

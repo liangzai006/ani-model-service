@@ -72,6 +72,9 @@ func TestGRPCAdapterMapsStoragePort(t *testing.T) {
 	if err != nil || upload.URL != "grpc://upload" || !upload.ExpiresAt.After(time.Now()) {
 		t.Fatalf("upload mapping: %+v err=%v", upload, err)
 	}
+	if _, err := adapter.CreateUploadURL(context.Background(), bizstorage.UploadRequest{TenantID: "tenant", ObjectRef: "obj", TTL: time.Hour}); err == nil {
+		t.Fatal("Storage gRPC silently ignored an unsupported explicit upload TTL")
+	}
 	exists, err := adapter.ObjectExists(context.Background(), "tenant", "obj")
 	if err != nil || !exists {
 		t.Fatalf("exists mapping: %v err=%v", exists, err)

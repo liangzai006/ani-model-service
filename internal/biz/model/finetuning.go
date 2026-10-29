@@ -7,6 +7,8 @@ import (
 )
 
 var ErrFinetuningFactsUnavailable = errors.New("finetuning facts unavailable")
+var ErrFinetuningBaseInvalid = errors.New("BASE_MODEL_INVALID")
+
 var ErrFinetuningTargetConflict = errors.New("finetuning target name already exists")
 
 // ArtifactInventory is measured from one exact non-null object version. The
@@ -16,6 +18,7 @@ type ArtifactInventory struct {
 	SizeBytes                       int64
 	Files                           []ArtifactFile
 	ConfigJSON, TokenizerConfigJSON []byte
+	WeightIndexJSON                 []byte
 }
 type ArtifactFile struct {
 	Path      string

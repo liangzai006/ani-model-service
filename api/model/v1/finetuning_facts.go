@@ -52,13 +52,13 @@ func (r *ResolveFinetuningFactsResponse) ValidateFor(in *ResolveFinetuningFactsR
 	default:
 		return invalid()
 	}
-	if len(r.Files) == 0 || len(r.Files) > 128 || len(r.ConfigJson) == 0 || len(r.ConfigJson) > 1<<20 || len(r.TokenizerConfigJson) == 0 || len(r.TokenizerConfigJson) > 1<<20 || !factsJSONObject(r.ConfigJson) || !factsJSONObject(r.TokenizerConfigJson) {
+	if len(r.Files) == 0 || len(r.Files) > MaxFinetuningModelFiles || len(r.ConfigJson) == 0 || len(r.ConfigJson) > MaxFinetuningConfigBytes || len(r.TokenizerConfigJson) == 0 || len(r.TokenizerConfigJson) > MaxFinetuningConfigBytes || !factsJSONObject(r.ConfigJson) || !factsJSONObject(r.TokenizerConfigJson) {
 		return invalid()
 	}
 	seen := map[string]*FinetuningArtifactFile{}
 	previous := ""
 	for _, f := range r.Files {
-		if f == nil || len(f.ProtoReflect().GetUnknown()) != 0 || !factsPath(f.Path) || f.Path <= previous || f.SizeBytes <= 0 || !factsDigest(f.Sha256) {
+		if f == nil || len(f.ProtoReflect().GetUnknown()) != 0 || !factsPath(f.Path) || f.Path <= previous || f.SizeBytes < 0 || !factsDigest(f.Sha256) {
 			return invalid()
 		}
 		previous = f.Path
@@ -71,7 +71,7 @@ func (r *ResolveFinetuningFactsResponse) ValidateFor(in *ResolveFinetuningFactsR
 			return invalid()
 		}
 	}
-	if seen["model.safetensors"] == nil || seen["tokenizer.json"] == nil {
+	if _, err := InspectFinetuningWeightLayout(r.Files, r.WeightIndexJson); err != nil {
 		return invalid()
 	}
 	return nil

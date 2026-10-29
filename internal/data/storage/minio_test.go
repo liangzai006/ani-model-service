@@ -3,10 +3,14 @@ package storage
 import (
 	"context"
 	"errors"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	bizstorage "github.com/liangzai006/ani-model-service/internal/biz/storage"
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 type bucketAPIFake struct {
@@ -14,6 +18,39 @@ type bucketAPIFake struct {
 	checks  int
 	creates int
 	err     error
+}
+
+func TestMinIOUploadURLTTL(t *testing.T) {
+	client, err := minio.New("minio.example:9000", &minio.Options{
+		Creds:  credentials.NewStaticV4("test-access", "test-secret", ""),
+		Region: "us-east-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &MinIOAdapter{client: client, bucket: "models"}
+	for _, test := range []struct {
+		name string
+		ttl  time.Duration
+		want string
+	}{
+		{name: "ordinary upload default", want: "900"},
+		{name: "configured import upload", ttl: time.Hour, want: "3600"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			signed, err := adapter.CreateUploadURL(context.Background(), bizstorage.UploadRequest{TenantID: "tenant-a", ObjectRef: "imports/task/model.tar", TTL: test.ttl})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(signed.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := parsed.Query().Get("X-Amz-Expires"); got != test.want {
+				t.Fatalf("signed upload expiry = %q seconds, want %q", got, test.want)
+			}
+		})
+	}
 }
 
 func (f *bucketAPIFake) BucketExists(context.Context, string) (bool, error) {

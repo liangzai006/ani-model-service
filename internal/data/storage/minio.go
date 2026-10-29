@@ -20,10 +20,11 @@ import (
 // MinIOAdapter uses either a configured shared bucket or a tenant-named bucket.
 // It never deletes buckets or manages MinIO/PVC lifecycle.
 type MinIOAdapter struct {
-	client        *minio.Client
-	buckets       bucketAPI
-	bucket        string
-	tenantBuckets bool
+	client                 *minio.Client
+	buckets                bucketAPI
+	bucket                 string
+	tenantBuckets          bool
+	finetuningContentLimit int64
 }
 
 type bucketAPI interface {
@@ -117,7 +118,10 @@ func (a *MinIOAdapter) CreateUploadURL(ctx context.Context, in bizstorage.Upload
 	if err != nil {
 		return bizstorage.SignedURL{}, err
 	}
-	expires := 15 * time.Minute
+	expires := in.TTL
+	if expires == 0 {
+		expires = 15 * time.Minute
+	}
 	bucket, err := a.bucketForTenant(in.TenantID)
 	if err != nil {
 		return bizstorage.SignedURL{}, err

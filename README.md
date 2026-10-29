@@ -132,6 +132,16 @@ StorageClass，省略时使用集群默认值。PVC 大小由 provider manifest 
 计算，代码不接受手工的存储大小或引擎参数覆盖。Job 的 ServiceAccount、执行方式
 和存储地址均由当前服务契约统一管理。
 
+`ANI_IMPORT_UPLOAD_TTL_SECONDS` 仅控制导入 Job 上传签名的有效期，单位为秒，
+允许 `0..604800`；未设置或为 `0` 时沿用适配器默认值（S3 为 15 分钟）。
+下载较慢时可显式设置 `3600`，覆盖下载和归档上传所需时间；普通上传入口仍使用
+原默认值。当前 Storage gRPC 上传契约不支持显式 TTL，非零值会被明确拒绝。
+
+对象存储使用私有 CA 时，可设置 `ANI_IMPORT_STORAGE_CA_CONFIGMAP`，引用导入 Job
+所在命名空间的既有 ConfigMap。Job 将其 `ca.crt` 只读挂载至
+`/var/run/ani-model-storage-ca/ca.crt` 并设置 `SSL_CERT_FILE`，保留系统公共根目录。
+未设置时沿用导入镜像的信任配置；该配置不会关闭 TLS 校验或创建凭据。
+
 The PostgreSQL-backed worker scans due tasks across tenants and passes each
 task's real tenant ID to the Job. The Deployment does not contain a tenant UUID.
 

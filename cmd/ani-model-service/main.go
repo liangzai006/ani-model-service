@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -135,6 +136,10 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return fmt.Errorf("configure MinIO Storage: %w", err)
 		}
+		limit, limitErr := strconv.ParseInt(os.Getenv("MODELDEV_MAX_CONTENT_BYTES"), 10, 64)
+		if limitErr != nil || minioStorage.ConfigureFinetuningContentLimit(limit) != nil {
+			return fmt.Errorf("MODELDEV_MAX_CONTENT_BYTES must be a positive bounded int64")
+		}
 		checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = checkMinIOStorage(checkCtx, minioStorage, minioTenantBuckets)
 		cancel()
@@ -257,13 +262,26 @@ func configuredKubernetesImportExecutor(storagePort bizstorage.Port) (worker.Kub
 	if image == "" {
 		return worker.KubernetesImportExecutor{}, fmt.Errorf("ANI_IMPORT_JOB_IMAGE is required")
 	}
+	var uploadTTL time.Duration
+	if value := strings.TrimSpace(os.Getenv("ANI_IMPORT_UPLOAD_TTL_SECONDS")); value != "" {
+		seconds, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || seconds < 0 || seconds > 7*24*60*60 {
+			return worker.KubernetesImportExecutor{}, fmt.Errorf("ANI_IMPORT_UPLOAD_TTL_SECONDS must be an integer from 0 to 604800")
+		}
+		uploadTTL = time.Duration(seconds) * time.Second
+	}
+	if _, grpcStorage := storagePort.(*storagedata.GRPCAdapter); grpcStorage && uploadTTL != 0 {
+		return worker.KubernetesImportExecutor{}, fmt.Errorf("ANI_IMPORT_UPLOAD_TTL_SECONDS is not supported by the Storage gRPC upload contract")
+	}
 	return worker.KubernetesImportExecutor{
 		Storage:            storagePort,
 		Namespace:          firstEnv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model"),
 		Image:              image,
 		ProviderSecretName: strings.TrimSpace(os.Getenv("ANI_IMPORT_PROVIDER_SECRET")),
 		StorageClass:       strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CLASS")),
+		StorageCAConfigMap: strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CA_CONFIGMAP")),
 		PollInterval:       time.Second,
+		UploadTTL:          uploadTTL,
 	}, nil
 }
 
