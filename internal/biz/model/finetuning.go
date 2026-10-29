@@ -8,6 +8,7 @@ import (
 
 var ErrFinetuningFactsUnavailable = errors.New("finetuning facts unavailable")
 var ErrFinetuningBaseInvalid = errors.New("BASE_MODEL_INVALID")
+var ErrFinetuningSourceForbidden = errors.New("finetuning source access denied")
 
 var ErrFinetuningTargetConflict = errors.New("finetuning target name already exists")
 
@@ -25,6 +26,14 @@ type ArtifactFile struct {
 	SizeBytes int64
 	SHA256    string
 }
+
+// FinetuningSourceReader distinguishes a foreign source from a missing one
+// for the finetuning authorization contract only. Ordinary catalogue reads
+// retain their tenant-scoped visibility semantics.
+type FinetuningSourceReader interface {
+	GetFinetuningSource(context.Context, string, string) (Version, error)
+}
+
 type FinetuningArtifactReader interface {
 	InspectFinetuningArtifact(context.Context, string, string, int64, string) (ArtifactInventory, error)
 }
@@ -40,11 +49,11 @@ type FinetuningFacts struct {
 // ResolveFinetuningFacts applies the same tenant ownership and target rules as
 // trained-artifact preparation. Model has no separate approval registry: READY
 // and the tenant-owned catalogue are the existing source of those semantics.
-func ResolveFinetuningFacts(ctx context.Context, tenant, versionID, targetID, newName string, versions VersionReader, catalog Catalog, contents FinetuningArtifactReader) (FinetuningFacts, error) {
+func ResolveFinetuningFacts(ctx context.Context, tenant, versionID, targetID, newName string, versions FinetuningSourceReader, catalog Catalog, contents FinetuningArtifactReader) (FinetuningFacts, error) {
 	if versions == nil || catalog == nil || contents == nil || tenant == "" || versionID == "" || (targetID != "" && newName != "") {
 		return FinetuningFacts{}, ErrFinetuningFactsUnavailable
 	}
-	v, err := versions.GetVersion(ctx, tenant, versionID)
+	v, err := versions.GetFinetuningSource(ctx, tenant, versionID)
 	if err != nil {
 		return FinetuningFacts{}, err
 	}

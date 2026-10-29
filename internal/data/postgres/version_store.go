@@ -41,6 +41,35 @@ func (s *VersionStore) GetVersion(ctx context.Context, tenant, id string) (model
 	return modelbiz.Version{TenantID: tenant, ID: id, ModelID: uuid.UUID(r.ModelID.Bytes).String(), ExternalModelID: r.ExternalModelID, Version: r.Version, Format: r.Format, Status: r.Status, ArtifactProvider: r.ArtifactProvider, ArtifactReference: r.ArtifactReference, ArtifactSHA256: r.ArtifactSha256, EngineType: r.EngineType, EngineImage: r.EngineImage, RecommendedImageID: r.RecommendedImageID, RecommendedImageScope: r.RecommendedImageScope, StartupCommand: r.StartupCommand, StartupArgs: args, SizeBytes: resolvedVersionSize(r.SizeBytes, r.ArtifactSizeBytes), IsEncrypted: r.IsEncrypted, EncryptAlgo: r.EncryptAlgo, EncryptHint: r.EncryptHint, CreatedAt: r.CreatedAt.Time}, nil
 }
 
+// GetFinetuningSource preserves the scoped read first. Only an unresolved
+// source gets a boolean ownership check, never foreign model or artifact data.
+func (s *VersionStore) GetFinetuningSource(ctx context.Context, tenant, id string) (modelbiz.Version, error) {
+	version, lookupErr := s.GetVersion(ctx, tenant, id)
+	if !errors.Is(lookupErr, pgx.ErrNoRows) {
+		return version, lookupErr
+	}
+	t, vid, err := parseModelIDs(tenant, id)
+	if err != nil {
+		return modelbiz.Version{}, err
+	}
+	var foreign bool
+	err = s.pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM public.model_versions v
+		JOIN public.models m ON m.tenant_id=v.tenant_id AND m.id=v.model_id
+		WHERE v.id=$2 AND v.tenant_id<>$1 AND v.status<>'deleted'
+		AND m.status<>'deleted' AND m.deleted_at IS NULL
+	) AND NOT EXISTS (
+		SELECT 1 FROM public.model_versions WHERE tenant_id=$1 AND id=$2
+	)`, uuidType(t), uuidType(vid)).Scan(&foreign)
+	if err != nil {
+		return modelbiz.Version{}, err
+	}
+	if foreign {
+		return modelbiz.Version{}, modelbiz.ErrFinetuningSourceForbidden
+	}
+	return modelbiz.Version{}, lookupErr
+}
+
 func (s *VersionStore) GetVersionByExternalRef(ctx context.Context, tenant, externalModelID, version string) (modelbiz.Version, error) {
 	t, err := uuid.Parse(tenant)
 	if err != nil {

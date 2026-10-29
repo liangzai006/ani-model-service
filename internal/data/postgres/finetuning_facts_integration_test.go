@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	kratoserrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
@@ -157,20 +159,26 @@ func TestFinetuningFactsPostgresReadsOriginalTenantAndVersionWithoutWrites(t *te
 	if gets != 3 {
 		t.Fatal("source was not reread from the fixed version")
 	}
+	// The ordinary catalogue still hides foreign IDs; only finetuning source
+	// resolution distinguishes cross-tenant authorization from a missing ID.
+	if _, err := versions.GetVersion(ctx, tenant, foreignVersion); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("ordinary version lookup changed foreign visibility: %v", err)
+	}
 	// Source/target denial occurs before any additional object read.
 	for _, test := range []struct {
-		name    string
-		request *modelv1.ResolveFinetuningFactsRequest
+		name     string
+		request  *modelv1.ResolveFinetuningFactsRequest
+		wantHTTP int
 	}{
-		{"missing source", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: uuid.NewString()}},
-		{"foreign source", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: foreignVersion}},
-		{"foreign tenant", &modelv1.ResolveFinetuningFactsRequest{TenantId: other, BaseModelVersionId: version, Target: &modelv1.ResolveFinetuningFactsRequest_TargetModelId{TargetModelId: target}}},
-		{"foreign target", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: version, Target: &modelv1.ResolveFinetuningFactsRequest_TargetModelId{TargetModelId: foreign}}},
-		{"name conflict", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: version, Target: &modelv1.ResolveFinetuningFactsRequest_NewModelName{NewModelName: "existing-target"}}},
+		{"missing source", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: uuid.NewString()}, 404},
+		{"foreign source", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: foreignVersion}, 403},
+		{"foreign tenant", &modelv1.ResolveFinetuningFactsRequest{TenantId: other, BaseModelVersionId: version, Target: &modelv1.ResolveFinetuningFactsRequest_TargetModelId{TargetModelId: target}}, 403},
+		{"foreign target", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: version, Target: &modelv1.ResolveFinetuningFactsRequest_TargetModelId{TargetModelId: foreign}}, 404},
+		{"name conflict", &modelv1.ResolveFinetuningFactsRequest{TenantId: tenant, BaseModelVersionId: version, Target: &modelv1.ResolveFinetuningFactsRequest_NewModelName{NewModelName: "existing-target"}}, 409},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := app.ResolveFinetuningFacts(principal, test.request); err == nil {
-				t.Fatal("unauthorized facts accepted")
+			if _, err := app.ResolveFinetuningFacts(principal, test.request); kratoserrors.Code(err) != test.wantHTTP {
+				t.Fatalf("source authorization HTTP=%d want=%d err=%v", kratoserrors.Code(err), test.wantHTTP, err)
 			}
 			if gets != 3 {
 				t.Fatal("read source before denial")

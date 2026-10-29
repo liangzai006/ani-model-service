@@ -50,7 +50,8 @@ func (s *ModelService) ResolveFinetuningFacts(ctx context.Context, in *modelv1.R
 		targetID = id.String()
 	}
 	contents, _ := s.storage.(model.FinetuningArtifactReader)
-	facts, err := model.ResolveFinetuningFacts(ctx, p.TenantID, version.String(), targetID, in.GetNewModelName(), s.reader, s.catalog, contents)
+	source, _ := s.reader.(model.FinetuningSourceReader)
+	facts, err := model.ResolveFinetuningFacts(ctx, p.TenantID, version.String(), targetID, in.GetNewModelName(), source, s.catalog, contents)
 	if err != nil {
 		var limit *model.FinetuningLimitViolation
 		if errors.As(err, &limit) {
@@ -61,6 +62,8 @@ func (s *ModelService) ResolveFinetuningFacts(ctx context.Context, in *modelv1.R
 			return nil, kratoserrors.New(499, "CANCELED", "model facts read was canceled")
 		case errors.Is(err, context.DeadlineExceeded):
 			return nil, kratoserrors.New(504, "DEADLINE_EXCEEDED", "model facts read deadline exceeded")
+		case errors.Is(err, model.ErrFinetuningSourceForbidden):
+			return nil, kratoserrors.Forbidden("MODEL_SOURCE_FORBIDDEN", "source access denied")
 		case errors.Is(err, pgx.ErrNoRows):
 			return nil, kratoserrors.NotFound("MODEL_SOURCE_NOT_FOUND", "source version is not visible in the tenant catalogue")
 		case errors.Is(err, model.ErrFinetuningBaseInvalid):
