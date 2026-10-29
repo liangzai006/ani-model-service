@@ -75,6 +75,9 @@ func TestBuildImportJobMakesStagingWritableByNonRootImporter(t *testing.T) {
 	if security.RunAsNonRoot == nil || !*security.RunAsNonRoot {
 		t.Fatalf("import worker must remain nonroot: %#v", security)
 	}
+	if security.RunAsUser == nil || *security.RunAsUser != 65532 || security.RunAsGroup == nil || *security.RunAsGroup != 65532 {
+		t.Fatalf("import worker identity = %#v, want UID/GID 65532 even when the image defaults to root", security)
+	}
 	if security.FSGroupChangePolicy == nil || *security.FSGroupChangePolicy != corev1.FSGroupChangeOnRootMismatch {
 		t.Fatalf("staging ownership policy = %#v, want OnRootMismatch", security.FSGroupChangePolicy)
 	}

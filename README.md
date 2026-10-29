@@ -137,7 +137,9 @@ task's real tenant ID to the Job. The Deployment does not contain a tenant UUID.
 
 The import image must contain the compiled command at `/ani-model-import`, the
 `modelscope` CLI, and optionally the `hf` CLI. `Dockerfile.import` is a minimal
-image example. The command streams the tar upload and does not impose the old
+image example. Import Jobs run as UID/GID 65532, with `HOME=/staging` and
+`fsGroup=65532`; the image and staging storage must support this identity. The
+command streams the tar upload and does not impose the old
 512 MiB in-process limit; the available PVC and MinIO capacity remain the
 physical limits.
 

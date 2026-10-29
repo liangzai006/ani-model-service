@@ -186,6 +186,7 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 	}
 	objectKey := importObjectRef(task)
 	env := []corev1.EnvVar{
+		{Name: "HOME", Value: "/staging"},
 		{Name: "ANI_IMPORT_SOURCE", Value: task.Source},
 		{Name: "ANI_IMPORT_REPO_ID", Value: task.RepoID},
 		{Name: "ANI_IMPORT_REVISION", Value: task.Revision},

@@ -64,10 +64,10 @@ func BuildImportJob(spec ImportJobSpec) (*batchv1.Job, error) {
 	labels := cloneStringMap(spec.Labels)
 	labels[ManagedLabel] = "true"
 	annotations := cloneStringMap(spec.Annotations)
-	// The importer image runs as nonroot (UID 65532). Fresh staging PVCs
-	// otherwise belong to root:root with mode 0755. Give the worker the
-	// dedicated volume group without overriding the image's process UID/GID.
+	// Set an explicit numeric identity even for images that default to root.
+	// The staging volume group lets that identity write to fresh PVCs.
 	nonRoot := true
+	importUID := int64(65532)
 	stagingGroup := int64(65532)
 	groupChangePolicy := corev1.FSGroupChangeOnRootMismatch
 
@@ -90,6 +90,8 @@ func BuildImportJob(spec ImportJobSpec) (*batchv1.Job, error) {
 					Volumes:            cloneVolumes(spec.Volumes),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:        &nonRoot,
+						RunAsUser:           &importUID,
+						RunAsGroup:          &stagingGroup,
 						FSGroup:             &stagingGroup,
 						FSGroupChangePolicy: &groupChangePolicy,
 					},

@@ -60,6 +60,9 @@ func TestKubernetesImportExecutorJobSpecUsesImageEntrypoint(t *testing.T) {
 	if got := envValue(spec.Env, "ANI_IMPORT_REPO_ID"); got != "Qwen/Qwen3-32B" {
 		t.Fatalf("repo env = %q", got)
 	}
+	if got := envValue(spec.Env, "HOME"); got != "/staging" {
+		t.Fatalf("HOME = %q, want writable staging volume", got)
+	}
 	if got := envValue(spec.Env, "ANI_IMPORT_OBJECT_KEY"); got == "" {
 		t.Fatal("object key env is empty")
 	}
