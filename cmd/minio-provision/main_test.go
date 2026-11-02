@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -219,5 +220,49 @@ func TestObjectKeyRequiresTaskOrExplicitKey(t *testing.T) {
 	key, err := objectKey("tenant/model.tar", "")
 	if err != nil || key != "tenant/model.tar" {
 		t.Fatalf("objectKey() = %q, %v", key, err)
+	}
+}
+
+func TestRunReadsRefreshedUploadURLAfterDownload(t *testing.T) {
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "weights.safetensors"), []byte("weights"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "upload-url")
+	if err := os.WriteFile(path, []byte("http://expired.invalid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{"ANI_IMPORT_UPLOAD_URL_FILE": path, "ANI_IMPORT_SOURCE": "modelscope", "ANI_IMPORT_REPO_ID": "org/model", "ANI_IMPORT_STAGING_DIR": staging, "ANI_IMPORT_OBJECT_KEY": "imports/task/model.tar"}
+	get := func(key string) string { return values[key] }
+	command := func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		if err := os.WriteFile(path, []byte(server.URL), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return exec.CommandContext(ctx, "true")
+	}
+	if err := run(context.Background(), get, command); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("upload requests = %d", requests)
+	}
+}
+
+func TestUploadErrorDoesNotExposeSignedQuery(t *testing.T) {
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "config.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, fmt.Errorf("TLS failure") })}
+	_, err := uploadArchiveWithClient(context.Background(), client, "https://example.invalid/object?signature=secret", "imports/task/model.tar", staging)
+	if err == nil || strings.Contains(err.Error(), "signature=secret") {
+		t.Fatalf("signed query leaked in error: %v", err)
 	}
 }

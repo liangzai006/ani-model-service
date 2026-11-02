@@ -278,6 +278,8 @@ func configuredKubernetesImportExecutor(storagePort bizstorage.Port) (worker.Kub
 		Namespace:          firstEnv("ANI_IMPORT_KUBERNETES_NAMESPACE", "ani-model"),
 		Image:              image,
 		ProviderSecretName: strings.TrimSpace(os.Getenv("ANI_IMPORT_PROVIDER_SECRET")),
+		CAConfigMapName:    strings.TrimSpace(os.Getenv("ANI_IMPORT_CA_CONFIGMAP")),
+		CAConfigMapKey:     strings.TrimSpace(os.Getenv("ANI_IMPORT_CA_KEY")),
 		StorageClass:       strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CLASS")),
 		StorageCAConfigMap: strings.TrimSpace(os.Getenv("ANI_IMPORT_STORAGE_CA_CONFIGMAP")),
 		PollInterval:       time.Second,

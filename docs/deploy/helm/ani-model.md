@@ -91,3 +91,46 @@ curl -fsS http://127.0.0.1:19091/readyz
 `inference.grpcAddress` 默认为空。只有在 Inference 提供对应 TLS 服务端时才设置它，并同时配置
 `inference.serverName` 和 `inference.tls.existingSecret`（Secret 必须包含 `ca.crt`、`tls.crt`、`tls.key`）。
 只填地址，进程会退出。
+
+## ANI installer 离线底座映射
+
+Chart 0.1.2 保留上面的部署默认值。复用另一套平台时，用覆盖文件传入本次环境的
+地址和 Secret 引用，不将旧环境的凭据复制进 values：
+
+| 参数 | 本次平台映射 |
+| --- | --- |
+| `database.existingSecret` / `secretKey` | `ani-system` 内运行账号的 PostgreSQL 17 DSN，默认 key 为 `dsn` |
+| `database.migrationSecret` / `migrationSecretKey` | 独立迁移账号 DSN；空值分别回退到运行 Secret 和 key |
+| `storage.mode` | `direct`，使用现有 S3 兼容适配器 |
+| `storage.direct.endpoint` | RustFS 的 `host:port`，不带 `http://` 或 `https://` |
+| `storage.direct.secure` | 平台 RustFS 原生 HTTPS 时为 `true` |
+| `storage.direct.existingSecret` | 同 namespace 内 S3 凭据，keys 为 `ANI_MINIO_ACCESS_KEY`、`ANI_MINIO_SECRET_KEY` |
+| `storage.direct.bucket` / `tenantBuckets` | 首批使用预先创建的 `ani-models` 共享桶、`false` |
+| `caBundle.enabled` / `existingConfigMap` | 为 HTTPS RustFS 提供可信根证书；ConfigMap 的默认 key 是 `ca-certificates.crt` |
+| `import.storageClass` | `ani-block` |
+| `tls.certificate.issuer.name` | `ani-ca`，复用已有 ClusterIssuer，不另建 CA |
+| `inference.grpcAddress` | 空字符串；本批不连接 Inference |
+
+CA ConfigMap 会覆盖容器的 `/etc/ssl/certs` 目录，应提供包含所需系统根和内部 CA 的
+完整 bundle。默认共享桶模式启动只检查 bucket 是否存在，不负责创建；未建桶会启动失败。
+现有十份 Model SQL 使用 PostgreSQL 内建类型与函数，没有额外数据库扩展安装要求。
+先创建独立数据库和迁移 owner，再执行 Chart hook；服务运行账号使用仅含业务所需
+读写权限的 DSN。Chart 不负责创建数据库、账号、授权或跨 namespace 复制 Secret。
+
+主服务、迁移客户端和导入 worker 分别使用 `image.digest`、`migration.image.digest`、
+`import.jobImage.digest` 锁定离线镜像。摘要非空时优先于 tag；为空继续使用旧 tag 配置。
+迁移客户端须含 `sh`、`psql` 和迁移脚本调用的基础工具。主服务的构建入口是根
+`Dockerfile`；动态导入 worker 是 `Dockerfile.import`，入口 `/ani-model-import`，
+构建期包含 ModelScope/Hugging Face CLI。导入 Job 要求非 root 镜像，制包时还须核对
+该镜像的 USER、工具版本和 HTTPS CA；当前 Dockerfile 配方及 API 就绪不能代替导入验收。
+外部模型源在离线环境不可自动变为可用，本批不承诺公网搜索或下载。
+
+服务内部地址为 `ani-model-grpc.ani-system.svc.cluster.local:19090`，管理探针为
+`ani-model-admin.ani-system.svc.cluster.local:19091`。Governance 的客户端证书必须由
+相同 CA 签发，且唯一 DNS SAN 为 `ani-governance`；它校验的 Model 服务端名称是
+`ani-model.ani.internal`，并非 Service 的 DNS 名。证书只在进程启动时读取，轮换后
+需要安排对应 Pod 重启。
+
+签名 URL 使用与服务端 S3 客户端相同的 endpoint。若使用浏览器直传，所填地址还须
+能从浏览器访问且证书可信；集群内 DNS 可达不代表浏览器可以直传。初始化、模型上传、
+元数据读回和双方 mTLS 都必须在本次新环境单独验证。

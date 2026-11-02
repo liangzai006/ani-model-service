@@ -231,6 +231,20 @@ func (c *ImportJobClient) GetSecret(ctx context.Context, namespace, name string)
 	return secret, nil
 }
 
+func (c *ImportJobClient) UpdateSecret(ctx context.Context, secret *corev1.Secret) (*corev1.Secret, error) {
+	if c == nil || c.client == nil {
+		return nil, ErrKubernetesClientUnavailable
+	}
+	if secret == nil || secret.Namespace == "" || secret.Name == "" {
+		return nil, errors.New("import secret identity is required")
+	}
+	updated, err := c.client.CoreV1().Secrets(secret.Namespace).Update(ctx, secret, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("update import secret %s/%s: %w", secret.Namespace, secret.Name, err)
+	}
+	return updated, nil
+}
+
 func (c *ImportJobClient) DeleteSecret(ctx context.Context, namespace, name string) error {
 	if c == nil || c.client == nil {
 		return ErrKubernetesClientUnavailable
