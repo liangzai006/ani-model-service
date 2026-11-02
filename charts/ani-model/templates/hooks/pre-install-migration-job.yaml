@@ -34,8 +34,8 @@ spec:
             - name: DATABASE_DSN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.existingSecret }}
-                  key: {{ .Values.database.secretKey }}
+                  name: {{ default .Values.database.existingSecret .Values.database.migrationSecret }}
+                  key: {{ default .Values.database.secretKey .Values.database.migrationSecretKey }}
           command: [sh, /scripts/migrate.sh]
           volumeMounts:
             - name: migration-script

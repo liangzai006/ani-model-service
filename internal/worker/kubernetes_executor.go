@@ -43,6 +43,8 @@ type KubernetesImportExecutor struct {
 	Namespace          string
 	Image              string
 	ProviderSecretName string
+	CAConfigMapName    string
+	CAConfigMapKey     string
 	StorageClass       string
 	StorageCAConfigMap string
 	PollInterval       time.Duration
@@ -99,7 +101,8 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 				Name:      secretName,
 				Labels:    spec.Labels,
 				Annotations: map[string]string{
-					"ani.liangzai006.io/import-object": objectRef,
+					"ani.liangzai006.io/import-object":     objectRef,
+					"ani.liangzai006.io/upload-expires-at": upload.ExpiresAt.UTC().Format(time.RFC3339Nano),
 				},
 			},
 			Type: corev1.SecretTypeOpaque,
@@ -135,6 +138,7 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	nextRefreshCheck := time.Now()
 
 	for {
 		status, statusErr := e.Jobs.Status(ctx, spec.Namespace, spec.Name)
@@ -157,12 +161,55 @@ func (e KubernetesImportExecutor) Execute(ctx context.Context, task workbiz.Task
 			_ = e.cleanupUploadSecret(ctx, spec.Namespace, importUploadSecretName(spec.Name))
 			return fmt.Errorf("import job failed: %s: %s", status.Reason, status.Message)
 		}
+		if !time.Now().Before(nextRefreshCheck) {
+			if err := e.refreshUploadSecret(ctx, task, spec.Namespace, spec.Name); err != nil {
+				return err
+			}
+			nextRefreshCheck = time.Now().Add(30 * time.Second)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
 		}
 	}
+}
+
+// refreshUploadSecret keeps a short-lived single-object URL usable throughout
+// a long download. Kubernetes updates a mounted Secret without restarting the Job.
+func (e KubernetesImportExecutor) refreshUploadSecret(ctx context.Context, task workbiz.Task, namespace, jobName string) error {
+	name := importUploadSecretName(jobName)
+	secret, err := e.Jobs.GetSecret(ctx, namespace, name)
+	if err != nil {
+		return err
+	}
+	expiresText := secret.Annotations["ani.liangzai006.io/upload-expires-at"]
+	// In-flight Jobs created by older versions consume an environment variable;
+	// changing their Secret cannot update their process environment.
+	if expiresText == "" {
+		return nil
+	}
+	if secret.Labels["ani.liangzai006.io/task-id"] != task.ID || secret.Labels["ani.liangzai006.io/tenant-id"] != task.TenantID || secret.Annotations["ani.liangzai006.io/import-object"] != importObjectRef(task) {
+		return errors.New("import upload secret identity mismatch")
+	}
+	expires, err := time.Parse(time.RFC3339Nano, expiresText)
+	if err != nil {
+		return errors.New("invalid import upload expiration")
+	}
+	if time.Until(expires) > 10*time.Minute {
+		return nil
+	}
+	upload, err := e.Storage.CreateUploadURL(ctx, storage.UploadRequest{TenantID: task.TenantID, ObjectRef: importObjectRef(task), ContentType: "application/x-tar"})
+	if err != nil {
+		return err
+	}
+	if err = storage.ValidateSignedURL(upload, time.Now()); err != nil {
+		return err
+	}
+	secret.Data["ANI_IMPORT_UPLOAD_URL"] = []byte(upload.URL)
+	secret.Annotations["ani.liangzai006.io/upload-expires-at"] = upload.ExpiresAt.UTC().Format(time.RFC3339Nano)
+	_, err = e.Jobs.UpdateSecret(ctx, secret)
+	return err
 }
 
 func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task) (kube.ImportJobSpec, *corev1.PersistentVolumeClaim, error) {
@@ -197,10 +244,7 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		{Name: "ANI_IMPORT_TASK_ID", Value: task.ID},
 		{Name: "ANI_IMPORT_OBJECT_KEY", Value: objectKey},
 		{Name: "ANI_IMPORT_STAGING_DIR", Value: "/staging/model"},
-		{Name: "ANI_IMPORT_UPLOAD_URL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: importUploadSecretName(name)},
-			Key:                  "ANI_IMPORT_UPLOAD_URL",
-		}}},
+		{Name: "ANI_IMPORT_UPLOAD_URL_FILE", Value: "/var/run/ani-import-upload/ANI_IMPORT_UPLOAD_URL"},
 	}
 	spec := kube.ImportJobSpec{
 		Namespace:             e.Namespace,
@@ -212,8 +256,20 @@ func (e KubernetesImportExecutor) jobSpec(ctx context.Context, task workbiz.Task
 		Annotations:           map[string]string{"ani.liangzai006.io/import-object": objectKey},
 		BackoffLimit:          int32ptr(0),
 		ActiveDeadlineSeconds: int64ptr(7 * 24 * 60 * 60),
-		Volumes:               []corev1.Volume{{Name: "staging", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvcName}}}},
-		VolumeMounts:          []corev1.VolumeMount{{Name: "staging", MountPath: "/staging"}},
+		Volumes: []corev1.Volume{
+			{Name: "staging", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvcName}}},
+			{Name: "upload-url", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: importUploadSecretName(name)}}},
+		},
+		VolumeMounts: []corev1.VolumeMount{{Name: "staging", MountPath: "/staging"}, {Name: "upload-url", MountPath: "/var/run/ani-import-upload", ReadOnly: true}},
+	}
+	if e.CAConfigMapName != "" {
+		caKey := e.CAConfigMapKey
+		if caKey == "" {
+			caKey = "ca-certificates.crt"
+		}
+		spec.Env = append(spec.Env, corev1.EnvVar{Name: "SSL_CERT_FILE", Value: "/var/run/ani-import-ca/ca-certificates.crt"})
+		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: "import-ca", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: e.CAConfigMapName}, Items: []corev1.KeyToPath{{Key: caKey, Path: "ca-certificates.crt"}}}}})
+		spec.VolumeMounts = append(spec.VolumeMounts, corev1.VolumeMount{Name: "import-ca", MountPath: "/var/run/ani-import-ca", ReadOnly: true})
 	}
 	if e.StorageCAConfigMap != "" {
 		const caMountPath = "/var/run/ani-model-storage-ca"

@@ -96,21 +96,17 @@ func TestKubernetesImportExecutorJobSpecUsesUploadURL(t *testing.T) {
 	if got := envValue(spec.Env, "ANI_IMPORT_OBJECT_KEY"); got != "imports/"+task.ID+"/model.tar" {
 		t.Fatalf("object key = %q", got)
 	}
-	var uploadEnv *corev1.EnvVar
-	for i := range spec.Env {
-		if spec.Env[i].Name == "ANI_IMPORT_UPLOAD_URL" {
-			uploadEnv = &spec.Env[i]
-			break
+	if got := envValue(spec.Env, "ANI_IMPORT_UPLOAD_URL_FILE"); got != "/var/run/ani-import-upload/ANI_IMPORT_UPLOAD_URL" {
+		t.Fatalf("upload URL file = %q", got)
+	}
+	found := false
+	for _, volume := range spec.Volumes {
+		if volume.Name == "upload-url" && volume.Secret != nil && volume.Secret.SecretName == importUploadSecretName(spec.Name) {
+			found = true
 		}
 	}
-	if uploadEnv == nil || uploadEnv.Value != "" || uploadEnv.ValueFrom == nil || uploadEnv.ValueFrom.SecretKeyRef == nil {
-		t.Fatalf("upload URL env = %#v, want SecretKeyRef", uploadEnv)
-	}
-	if uploadEnv.ValueFrom.SecretKeyRef.Key != "ANI_IMPORT_UPLOAD_URL" {
-		t.Fatalf("upload URL secret key = %q", uploadEnv.ValueFrom.SecretKeyRef.Key)
-	}
-	if uploadEnv.ValueFrom.SecretKeyRef.Name == "" {
-		t.Fatal("upload URL secret name is empty")
+	if !found {
+		t.Fatal("missing projected upload Secret")
 	}
 	for _, env := range spec.Env {
 		if strings.HasPrefix(env.Name, "ANI_MINIO_") {
@@ -142,8 +138,20 @@ func TestKubernetesImportExecutorJobStorageCA(t *testing.T) {
 			}
 			pod := job.Spec.Template.Spec
 			container := pod.Containers[0]
+			var caVolumes []corev1.Volume
+			var caMounts []corev1.VolumeMount
+			for _, volume := range pod.Volumes {
+				if volume.Name == "model-storage-ca" {
+					caVolumes = append(caVolumes, volume)
+				}
+			}
+			for _, mount := range container.VolumeMounts {
+				if mount.Name == "model-storage-ca" {
+					caMounts = append(caMounts, mount)
+				}
+			}
 			if configMap == "" {
-				if len(pod.Volumes) != 1 || len(container.VolumeMounts) != 1 {
+				if len(caVolumes) != 0 || len(caMounts) != 0 {
 					t.Fatalf("unconfigured import gained a CA mount: volumes=%#v mounts=%#v", pod.Volumes, container.VolumeMounts)
 				}
 				for _, env := range container.Env {
@@ -156,10 +164,10 @@ func TestKubernetesImportExecutorJobStorageCA(t *testing.T) {
 			if got := envValue(container.Env, "SSL_CERT_FILE"); got != "/var/run/ani-model-storage-ca/ca.crt" {
 				t.Fatalf("import SSL_CERT_FILE = %q", got)
 			}
-			if len(pod.Volumes) != 2 || len(container.VolumeMounts) != 2 {
+			if len(caVolumes) != 1 || len(caMounts) != 1 {
 				t.Fatalf("configured import CA mount missing: volumes=%#v mounts=%#v", pod.Volumes, container.VolumeMounts)
 			}
-			volume, mount := pod.Volumes[1], container.VolumeMounts[1]
+			volume, mount := caVolumes[0], caMounts[0]
 			if volume.ConfigMap == nil || volume.ConfigMap.Name != configMap || len(volume.ConfigMap.Items) != 1 || volume.ConfigMap.Items[0].Key != "ca.crt" || volume.ConfigMap.Items[0].Path != "ca.crt" {
 				t.Fatalf("import CA ConfigMap/key = %#v", volume)
 			}
@@ -218,9 +226,7 @@ func TestKubernetesImportExecutorCreatesUploadSecretForNewJob(t *testing.T) {
 	}
 	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
 		if env.Name == "ANI_IMPORT_UPLOAD_URL" {
-			if env.Value != "" || env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil || env.ValueFrom.SecretKeyRef.Name != importUploadSecretName(spec.Name) {
-				t.Fatalf("Job upload env = %#v, want SecretKeyRef", env)
-			}
+			t.Fatal("upload URL must not be fixed in environment")
 		}
 		if strings.HasPrefix(env.Name, "ANI_MINIO_") {
 			t.Fatalf("unexpected MinIO environment variable: %q", env.Name)
@@ -600,4 +606,50 @@ func (*kubernetesStorageFake) VerifyChecksum(context.Context, string, string, st
 }
 func (*kubernetesStorageFake) CreateDownloadURL(context.Context, storage.DownloadRequest) (storage.SignedURL, error) {
 	return storage.SignedURL{}, nil
+}
+
+func TestRefreshUploadSecretUsesFreshURLAndChecksIdentity(t *testing.T) {
+	ctx := context.Background()
+	task := workbiz.Task{ID: "11111111-1111-4111-8111-111111111111", TenantID: "99999999-9999-4999-8999-999999999999"}
+	name := importUploadSecretName("import-job")
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ani-models", Labels: map[string]string{"ani.liangzai006.io/task-id": task.ID, "ani.liangzai006.io/tenant-id": task.TenantID}, Annotations: map[string]string{"ani.liangzai006.io/import-object": importObjectRef(task), "ani.liangzai006.io/upload-expires-at": time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}}, Data: map[string][]byte{"ANI_IMPORT_UPLOAD_URL": []byte("https://example/old")}}
+	client := k8sfake.NewSimpleClientset(secret)
+	store := &kubernetesStorageFake{upload: storage.SignedURL{URL: "https://example/new", ExpiresAt: time.Now().Add(15 * time.Minute)}}
+	e := KubernetesImportExecutor{Jobs: kube.NewImportJobClient(client), Storage: store}
+	if err := e.refreshUploadSecret(ctx, task, "ani-models", "import-job"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.CoreV1().Secrets("ani-models").Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Data["ANI_IMPORT_UPLOAD_URL"]) != store.upload.URL || !store.called {
+		t.Fatal("expired URL was not refreshed")
+	}
+	got.Labels["ani.liangzai006.io/tenant-id"] = "other"
+	got.Annotations["ani.liangzai006.io/upload-expires-at"] = time.Now().Add(time.Minute).Format(time.RFC3339Nano)
+	if _, err = client.CoreV1().Secrets("ani-models").Update(ctx, got, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.refreshUploadSecret(ctx, task, "ani-models", "import-job"); err == nil {
+		t.Fatal("foreign Secret was accepted")
+	}
+}
+
+func TestImportJobUsesConfiguredCABundle(t *testing.T) {
+	e := KubernetesImportExecutor{Namespace: "ani-models", Image: "import", CAConfigMapName: "public-ca", CAConfigMapKey: "bundle.pem", Providers: importer.Registry{"modelscope": manifestSizeSource{}}}
+	task := workbiz.Task{ID: "11111111-1111-4111-8111-111111111111", TenantID: "99999999-9999-4999-8999-999999999999", Source: "modelscope", RepoID: "org/model"}
+	spec, _, err := e.jobSpec(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envValue(spec.Env, "SSL_CERT_FILE") != "/var/run/ani-import-ca/ca-certificates.crt" {
+		t.Fatal("missing CA trust path")
+	}
+	for _, v := range spec.Volumes {
+		if v.Name == "import-ca" && v.ConfigMap != nil && v.ConfigMap.Name == "public-ca" && len(v.ConfigMap.Items) == 1 && v.ConfigMap.Items[0].Key == "bundle.pem" {
+			return
+		}
+	}
+	t.Fatal("missing configured CA bundle")
 }

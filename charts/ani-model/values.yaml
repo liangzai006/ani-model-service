@@ -8,6 +8,8 @@ migration:
   image:
     repository: docker.changqingyun.cn/library/postgres
     tag: 16-alpine
+    # Optional sha256:<64 lowercase hex>; takes precedence over tag.
+    digest: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   backoffLimit: 1
@@ -23,6 +25,7 @@ migration:
 image:
   repository: docker.changqingyun.cn/ani/model-service
   tag: master-acb24c2-20261016
+  digest: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
 tls:
@@ -43,6 +46,10 @@ tls:
 database:
   existingSecret: ani-model-database
   secretKey: dsn
+  # Optional DDL-owner DSN, used only by the migration hook. Empty fields
+  # retain the existingSecret/secretKey behavior for older deployments.
+  migrationSecret: ""
+  migrationSecretKey: ""
 # The binary currently exposes the direct S3-compatible adapter through
 # ANI_MINIO_* environment names; chart values use storage terminology.
 storage:
@@ -66,6 +73,7 @@ import:
   jobImage:
     repository: docker.changqingyun.cn/ani/model-import-worker
     tag: master-37fe220-20261015
+    digest: ""
   # Empty uses the cluster default StorageClass.
   storageClass: ""
   providerSecret: ""

@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,8 +41,9 @@ type commandFactory func(context.Context, string, ...string) *exec.Cmd
 
 func run(ctx context.Context, get getenv, command commandFactory) error {
 	uploadURL := strings.TrimSpace(get("ANI_IMPORT_UPLOAD_URL"))
-	if uploadURL == "" {
-		return errors.New("ANI_IMPORT_UPLOAD_URL is required")
+	uploadURLFile := strings.TrimSpace(get("ANI_IMPORT_UPLOAD_URL_FILE"))
+	if uploadURL == "" && uploadURLFile == "" {
+		return errors.New("ANI_IMPORT_UPLOAD_URL or ANI_IMPORT_UPLOAD_URL_FILE is required")
 	}
 
 	source := strings.ToLower(strings.TrimSpace(get("ANI_IMPORT_SOURCE")))
@@ -68,7 +70,22 @@ func run(ctx context.Context, get getenv, command commandFactory) error {
 	if err != nil {
 		return err
 	}
-	result, err := uploadArchive(ctx, uploadURL, key, staging)
+	urlProvider := func() (string, error) {
+		if uploadURLFile == "" {
+			return uploadURL, nil
+		}
+		content, err := os.ReadFile(uploadURLFile)
+		if err != nil {
+			return "", fmt.Errorf("read import upload URL: %w", err)
+		}
+		value := strings.TrimSpace(string(content))
+		if value == "" {
+			return "", errors.New("import upload URL file is empty")
+		}
+		return value, nil
+	}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	result, err := uploadArchiveWithURLProvider(ctx, client, urlProvider, key, staging)
 	if err != nil {
 		return err
 	}
@@ -144,15 +161,20 @@ func objectKey(configured, taskID string) (string, error) {
 	return "imports/" + taskID + "/model.tar", nil
 }
 
-func uploadArchive(ctx context.Context, uploadURL, objectRef, root string) (importResult, error) {
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return uploadArchiveWithClient(ctx, client, uploadURL, objectRef, root)
+func uploadArchiveWithClient(ctx context.Context, client *http.Client, uploadURL, objectRef, root string) (importResult, error) {
+	return uploadArchiveWithURLProvider(ctx, client, func() (string, error) { return uploadURL, nil }, objectRef, root)
 }
 
-func uploadArchiveWithClient(ctx context.Context, client *http.Client, uploadURL, objectRef, root string) (importResult, error) {
+func uploadArchiveWithURLProvider(ctx context.Context, client *http.Client, urlProvider func() (string, error), objectRef, root string) (importResult, error) {
 	var size int64
 	if err := archiveDirectory(root, countWriter{n: &size}); err != nil {
 		return importResult{}, fmt.Errorf("archive model: %w", err)
+	}
+	// Archive sizing can itself be slow; read the projected Secret immediately
+	// before the PUT so we use the freshest available signed URL.
+	uploadURL, err := urlProvider()
+	if err != nil {
+		return importResult{}, err
 	}
 	pipeReader, pipeWriter := io.Pipe()
 	hasher := sha256.New()
@@ -178,6 +200,11 @@ func uploadArchiveWithClient(ctx context.Context, client *http.Client, uploadURL
 	if err != nil {
 		_ = pipeReader.CloseWithError(err)
 		<-archiveErr
+		// url.Error includes the presigned query string; never print that token.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return importResult{}, fmt.Errorf("upload model archive: %w", err)
 	}
 	statusOK := resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices

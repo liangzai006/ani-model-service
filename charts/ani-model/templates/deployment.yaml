@@ -82,6 +82,12 @@ spec:
               value: {{ include "ani-model.importImage" . | quote }}
             - name: ANI_IMPORT_STORAGE_CLASS
               value: {{ .Values.import.storageClass | quote }}
+            {{- if .Values.caBundle.enabled }}
+            - name: ANI_IMPORT_CA_CONFIGMAP
+              value: {{ .Values.caBundle.existingConfigMap | quote }}
+            - name: ANI_IMPORT_CA_KEY
+              value: {{ .Values.caBundle.key | quote }}
+            {{- end }}
             - name: ANI_IMPORT_WORKER_OWNER
               valueFrom:
                 fieldRef:
